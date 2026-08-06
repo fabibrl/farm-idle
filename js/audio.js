@@ -89,6 +89,12 @@ const AudioManager = (() => {
       setTimeout(() => tone(430, 0.18, 'sine', 0.15, null, -120), 110);
     },
     flap()   { noise(0.09, 0.1, 900); setTimeout(() => noise(0.07, 0.07, 900), 90); },
+    wind()   {
+      // roaring tornado gust
+      noise(0.9, 0.12, 700);
+      tone(110, 0.8, 'sawtooth', 0.05, null, 60);
+      setTimeout(() => noise(0.6, 0.08, 500), 400);
+    },
     unlock() {
       const seq = [523, 659, 784, 1047, 1319];
       seq.forEach((f, i) => setTimeout(() => tone(f, 0.35, 'triangle', 0.28), i * 110));

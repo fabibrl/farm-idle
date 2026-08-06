@@ -618,6 +618,51 @@ const SPRITES = (() => {
   }
 
   // ============================================================
+  //  TORNADO (reward-ad auto-merge event, see js/tornado.js)
+  // ============================================================
+
+  // tornado palette: pale storm-gray funnel with a dusty skirt
+  const TN = {
+    base: '#c8cdd4', hi: '#eef2f6', dk: '#98a1ac',
+    dust: '#b09a72', dustDk: '#8a7350', leaf: '#5e9c31',
+  };
+
+  /**
+   * Pixel tornado funnel, bottom anchored. Three spin frames: the
+   * highlight streaks and debris flecks rotate around the cone.
+   */
+  function tornado(frame = 0) {
+    return PIXEL.sprite(`tornado:${frame}`, 36, 42, s => {
+      // stacked funnel bands, wide at the top, tapering to the ground
+      const bands = [
+        { y: 4, rx: 15 }, { y: 8, rx: 13.5 }, { y: 12, rx: 12 },
+        { y: 16, rx: 10 }, { y: 20, rx: 8.5 }, { y: 24, rx: 7 },
+        { y: 28, rx: 5.5 }, { y: 32, rx: 4 }, { y: 35, rx: 3 }, { y: 38, rx: 2 },
+      ];
+      bands.forEach((b, i) => {
+        s.ellipse(18, b.y, b.rx, 2.4, TN.base);
+        s.shadeEllipse(18, b.y, b.rx, 2.4, TN.dk, 1, 0.45);
+        // spinning highlight streak: offset cycles with the frame
+        const ph = (i + frame) % 3;
+        const off = (ph - 1) * b.rx * 0.5;
+        s.rect(18 + off - Math.max(1, b.rx * 0.3), b.y - 1, Math.max(2, b.rx * 0.6), 1, TN.hi);
+      });
+      // debris flecks whirling around the cone
+      const specks = [[6, 6], [30, 10], [8, 18], [27, 22], [12, 28], [23, 31]];
+      specks.forEach(([px, py], i) => {
+        const on = (i + frame) % 3;
+        if (on === 0) s.px(px, py, TN.leaf);
+        else if (on === 1) s.px(px, py, TN.dust);
+      });
+      // dust skirt kicked up at the base
+      s.ellipse(18, 39, 7, 1.8, TN.dust);
+      s.shadeEllipse(18, 39, 7, 1.8, TN.dustDk, 1, 0.5);
+      s.px(9 + frame, 38, TN.dust); s.px(27 - frame, 39, TN.dust);
+      s.outline();
+    });
+  }
+
+  // ============================================================
   //  PROPS
   // ============================================================
 
@@ -1023,7 +1068,7 @@ const SPRITES = (() => {
   }
 
   return {
-    animal, ANIMAL_SIZES, poop, coin, alien, ufo, pigeon,
+    animal, ANIMAL_SIZES, poop, coin, alien, ufo, pigeon, tornado,
     tree, bush, flower, rock, barrel, crate, haystack, sign, fenceH,
     farmhouse, barn, shed,
     coop, nest, cottage, windmillTower, windmillBlades, silo, milkCan, woolBale,

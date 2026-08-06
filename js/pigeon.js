@@ -45,10 +45,15 @@ const Pigeon = (() => {
     return { x, y: P.y - 12 };
   }
 
-  /** Coins one poop pays out (auto mode: one Level 1 animal drop). */
+  /**
+   * Coins one poop pays out. Auto mode (COIN_PER_POOP = 0):
+   * REWARD_MULT x the current poop value of a Level REWARD_STAGE+1 animal,
+   * so the reward keeps scaling with future stage rebalances and upgrades.
+   */
   function poopValue() {
-    const v = C().COIN_PER_POOP;
-    return v > 0 ? v : Upgrades.coinValue(SaveManager.data.currentFarm, 0);
+    const cfg = C();
+    if (cfg.COIN_PER_POOP > 0) return cfg.COIN_PER_POOP;
+    return cfg.REWARD_MULT * Upgrades.coinValue(SaveManager.data.currentFarm, cfg.REWARD_STAGE);
   }
 
   function spawn(restore) {
@@ -78,11 +83,13 @@ const Pigeon = (() => {
     if (shakeT > 0) shakeT -= dt;
     const d = data();
 
+    const enabled = C().ENABLED; // kill switch gates new visits only
+
     // restore a pigeon that was left perched on this farm
-    if (!bird && d.remaining > 0 && !tutorialActive) spawn(true);
+    if (!bird && enabled && d.remaining > 0 && !tutorialActive) spawn(true);
 
     // spawn countdown: one pigeon at a time, never during the tutorial
-    if (!bird && d.remaining <= 0 && !tutorialActive) {
+    if (!bird && enabled && d.remaining <= 0 && !tutorialActive) {
       d.next -= dt;
       if (d.next <= 0) spawn(false);
     }

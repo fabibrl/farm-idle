@@ -205,8 +205,11 @@ class FarmScene {
   }
 
   persist() {
+    // animals spinning inside an active tornado are appended so an
+    // autosave / reload mid-event can never lose them
     SaveManager.data.animals[this.farmId] =
-      this.animals.filter(a => !a.dead && a.state !== 'merging').map(a => ({ stage: a.stage }));
+      this.animals.filter(a => !a.dead && a.state !== 'merging').map(a => ({ stage: a.stage }))
+        .concat(Tornado.heldSnapshot(this.farmId));
     SaveManager.save();
   }
 
@@ -273,6 +276,9 @@ class FarmScene {
 
     // pigeon on the fence + falling poops (above the animals)
     Pigeon.draw(ctx);
+
+    // tornado offer icon / active tornado (above everything)
+    Tornado.draw(ctx);
 
     if (this.tutorial) this.drawTutorial(ctx);
   }

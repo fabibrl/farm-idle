@@ -493,7 +493,7 @@ const UI = (() => {
       ctx.fillStyle = '#7dbb4a';
       ctx.fillRect(W / 2 - 78, H / 2 + 62, Math.max(0, Math.round(156 * t)), 10);
       drawText(ctx, 'REWARD IN ' + Math.ceil(popup.dur - popup.t) + 'S', W / 2, H / 2 + 88, 5, '#c8b088', 'center');
-      if (popup.t >= popup.dur) { popup = null; Pigeon.adCompleted(); }
+      if (popup.t >= popup.dur) { const done = popup.onDone; popup = null; done(); }
       return;
     }
 
@@ -504,7 +504,8 @@ const UI = (() => {
     const ph = popup.type === 'upgrades' ? 470
              : popup.type === 'discovery' ? 344
              : popup.type === 'unlock' ? 210
-             : popup.type === 'pigeonAd' ? 254 : 190;
+             : popup.type === 'pigeonAd' ? 254
+             : popup.type === 'tornadoAd' ? 296 : 190;
     const px = (W - pw) / 2, py = (H - ph) / 2 - 20;
     popup.rect = { x: px, y: py, w: pw, h: ph };
     woodPanel(ctx, px, py, pw, ph, { gold: true });
@@ -578,6 +579,32 @@ const UI = (() => {
       // watch button
       popup.okRect = { x: px + 40, y: py + ph - 62, w: pw - 80, h: 40 };
       drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
+    } else if (popup.type === 'tornadoAd') {
+      drawText(ctx, 'TORNADO ALERT!', px + pw / 2, py - 2, 10, '#ffe98a', 'center', true);
+      // parchment card
+      ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 132);
+      ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 128);
+      ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 28, pw - 40, 3);
+      // the storm itself, spinning and swaying
+      popup.fxT = (popup.fxT || 0) + Game.dt;
+      const frame = Math.floor(popup.fxT * 10) % 3;
+      const sway = Math.sin(popup.fxT * 4) * 2;
+      PIXEL.blit(ctx, SPRITES.tornado(frame), px + 58 + sway, py + 122, 2);
+      // reward explanation
+      drawText(ctx, 'WATCH AN AD', px + 152, py + 44, 10, '#5c3a1d', 'center');
+      drawText(ctx, 'TO UNLEASH A', px + 152, py + 64, 5, '#7d5027', 'center');
+      drawText(ctx, 'MERGE STORM!', px + 152, py + 78, 10, '#b8860b', 'center');
+      drawText(ctx, 'AUTO-MERGES EVERY', px + 152, py + 100, 5, '#7d5027', 'center');
+      drawText(ctx, 'POSSIBLE ANIMAL!', px + 152, py + 112, 5, '#7d5027', 'center');
+      // mutants feed the UFO only where it has been unlocked
+      const ufoReady = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
+      drawText(ctx, ufoReady ? 'MUTANTS BECOME UFO ALIENS!' : 'MERGES ALL THE WAY TO MUTANTS!',
+        px + pw / 2, py + 144, 5, '#7d5027', 'center');
+      // watch + cancel buttons
+      popup.okRect = { x: px + 40, y: py + ph - 104, w: pw - 80, h: 40 };
+      popup.cancelRect = { x: px + 60, y: py + ph - 54, w: pw - 120, h: 32 };
+      drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
+      drawButton(ctx, { ...popup.cancelRect, color: 'gray', label: 'CANCEL' });
     } else if (popup.type === 'settings') {
       drawText(ctx, 'SETTINGS', px + pw / 2, py - 2, 10, '#ffe98a', 'center', true);
       popup.musicRect = { x: px + 30, y: py + 34, w: pw - 60, h: 34 };
@@ -695,7 +722,17 @@ const UI = (() => {
       if (popup.type === 'pigeonAd') {
         if (inRect(x, y, popup.okRect)) {
           AudioManager.play('click');
-          popup = { type: 'adPlaying', t: 0, dur: Pigeon.info().adDur };
+          popup = { type: 'adPlaying', t: 0, dur: Pigeon.info().adDur, onDone: Pigeon.adCompleted };
+        }
+        return true;
+      }
+      if (popup.type === 'tornadoAd') {
+        if (inRect(x, y, popup.okRect)) {
+          AudioManager.play('click');
+          popup = { type: 'adPlaying', t: 0, dur: Tornado.info().adDur, onDone: Tornado.adCompleted };
+        } else if (inRect(x, y, popup.cancelRect)) {
+          AudioManager.play('click');
+          popup = null;
         }
         return true;
       }

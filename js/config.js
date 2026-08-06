@@ -95,14 +95,30 @@ const CONFIG = {
   // Remote Config default: override at runtime via
   // window.RemoteConfig = { PIGEON: { SPAWN_INTERVAL: 30, ... } }.
   PIGEON: {
-    SPAWN_INTERVAL: 120,   // seconds between pigeon visits (testing value)
-    STAY_TIME: 60,         // seconds the pigeon waits on the fence
+    ENABLED: true,         // reward ad offer on/off (kill switch)
+    SPAWN_INTERVAL: 60,    // seconds between pigeon visits
+    STAY_TIME: 120,        // seconds the pigeon waits on the fence
     FLY_TIME: 2.6,         // fly-across-and-land duration (s)
     LEAVE_TIME: 1.6,       // fly-away duration when ignored (s)
     POOP_COUNT: 8,         // poops per Poop Rain
-    COIN_PER_POOP: 0,      // 0 = auto: coin value of one Level 1 (baby) animal
+    COIN_PER_POOP: 0,      // 0 = auto: REWARD_MULT x one Level REWARD_STAGE+1 poop
+    REWARD_STAGE: 1,       // stage index the auto reward scales from (1 = Level 2 / ADULT)
+    REWARD_MULT: 2,        // reward multiplier on that stage's poop value
     RAIN_DURATION: 3.0,    // seconds over which the poops spawn
     REWARD_COOLDOWN: 0,    // extra seconds before the next visit after a claim
+    AD_DURATION: 3.0,      // simulated reward-ad length (s)
+  },
+
+  // Tornado Auto Merge reward-ad event (see js/tornado.js). Every value
+  // here is a Remote Config default: override at runtime via
+  // window.RemoteConfig = { TORNADO: { SPAWN_INTERVAL: 30, ... } }.
+  TORNADO: {
+    ENABLED: true,         // reward ad offer on/off (kill switch)
+    SPAWN_INTERVAL: 120,   // seconds between tornado offers
+    STAY_TIME: 60,         // seconds the icon stays available once it appears
+    TRAVEL_SPEED: 1.0,     // tornado animation speed multiplier
+    MERGE_INTERVAL: 0.12,  // seconds between survivors tossed back out after the merge blast
+    REWARD_COOLDOWN: 0,    // extra seconds before the next offer after a claim
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
   },
 

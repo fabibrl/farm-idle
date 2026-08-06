@@ -70,10 +70,12 @@ const Game = (() => {
       const p = toGame(e);
       if (scene === 'loading') { start(); return; }
       if (UFO.cinematicActive) return;                   // abduction cinematic blocks all input
+      if (Tornado.active) return;                        // tornado sweep blocks all input
       if (celebration && !celebration.popupOpen) return; // sequence plays untouched
       if (UI.tap(p.x, p.y)) return;
       if (celebration) return;                           // popup swallows farm taps
       if (upgradeTutorial) return;                       // tutorial: only the upgrade flow is tappable
+      if (scene === 'farm' && Tornado.tap(p.x, p.y)) return;
       if (scene === 'farm' && Pigeon.tap(p.x, p.y)) return;
       if (scene === 'farm') farmScene.pointerDown(p.x, p.y);
       else if (scene === 'map' && !mapScene.unlockAnim) {
@@ -83,13 +85,13 @@ const Game = (() => {
     };
     const move = e => {
       e.preventDefault();
-      if (UFO.cinematicActive) return;
+      if (UFO.cinematicActive || Tornado.active) return;
       const p = toGame(e);
       if (scene === 'farm') farmScene.pointerMove(p.x, p.y);
     };
     const up = e => {
       e.preventDefault();
-      if (UFO.cinematicActive) return;
+      if (UFO.cinematicActive || Tornado.active) return;
       if (scene === 'farm') farmScene.pointerUp();
     };
     canvas.addEventListener('mousedown', down);
@@ -226,6 +228,7 @@ const Game = (() => {
     if (SaveManager.data.unlocked[id]) {
       // switch farm: load that farm's own animals, upgrades and UFO state
       Pigeon.reset(); // pays out any rain still falling, keeps saved perch state
+      Tornado.reset();
       SaveManager.data.currentFarm = id;
       SaveManager.save();
       UFO.reset();
@@ -260,6 +263,7 @@ const Game = (() => {
     setTimeout(() => {
       UFO.reset();
       Pigeon.reset();
+      Tornado.reset();
       farmScene = new FarmScene(farmId);
       scene = 'farm';
       AudioManager.play('pop');
@@ -273,6 +277,7 @@ const Game = (() => {
 
   function resetAll() {
     Pigeon.reset(true); // discard any in-flight rain, no payout into the fresh save
+    Tornado.reset();
     SaveManager.reset();
     celebration = null;
     upgradeTutorial = null;
@@ -301,10 +306,16 @@ const Game = (() => {
     if (celebration) updateCelebration();
     else if (scene === 'farm') {
       if (UFO.cinematicActive) UFO.update(dt);
+      // tornado sweep: gameplay paused, only the storm + UFO collects animate
+      else if (Tornado.active) { Tornado.updateRun(dt); UFO.update(dt); }
       else {
         maybeStartUpgradeTutorial();
         if (upgradeTutorial) upgradeTutorial.t += dt;
-        else { farmScene.update(dt); UFO.update(dt); Pigeon.update(dt, !!farmScene.tutorial); }
+        else {
+          farmScene.update(dt); UFO.update(dt);
+          Pigeon.update(dt, !!farmScene.tutorial);
+          Tornado.update(dt, !!farmScene.tutorial);
+        }
       }
     }
     else mapScene.update(dt);
@@ -369,6 +380,7 @@ const Game = (() => {
     addCoins, onButton, tryUnlock, onUnlockAnimDone, resetAll,
     startCelebration, endCelebration, onUpgradePurchased,
     get scene() { return scene; },
+    get farm() { return farmScene; },
     get celebrating() { return !!celebration; },
     get upgradeTutorialActive() { return !!upgradeTutorial; },
     dt: 1 / 60,
