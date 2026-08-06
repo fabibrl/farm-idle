@@ -223,9 +223,10 @@ const Game = (() => {
   function onMapFarmTap(id) {
     AudioManager.play('click');
     if (SaveManager.data.unlocked[id]) {
-      // switch farm
+      // switch farm: load that farm's own animals, upgrades and UFO state
       SaveManager.data.currentFarm = id;
       SaveManager.save();
+      UFO.reset();
       farmScene = new FarmScene(id);
       scene = 'farm';
     } else {
@@ -255,6 +256,7 @@ const Game = (() => {
     SaveManager.save();
     // brief pause then enter the new farm
     setTimeout(() => {
+      UFO.reset();
       farmScene = new FarmScene(farmId);
       scene = 'farm';
       AudioManager.play('pop');

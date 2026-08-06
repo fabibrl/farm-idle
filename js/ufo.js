@@ -1,18 +1,20 @@
 /**
  * UFOManager — end-game alien collection layer.
  *
- * The first Mutant + Mutant merge plays a full abduction cinematic
- * (gameplay paused, input blocked): the pair becomes an alien lifeform,
- * a UFO flies in, beams it up, then parks permanently in the top-right
- * corner of the farm. Every later Mutant + Mutant merge is a sub-second
- * quick collect straight into the parked UFO.
+ * Every farm unlocks its own UFO independently. The first Mutant + Mutant
+ * merge on a farm plays the full abduction cinematic (gameplay paused,
+ * input blocked): the pair becomes an alien lifeform, a UFO flies in,
+ * beams it up, then parks permanently in the top-right corner of that
+ * farm. Every later Mutant + Mutant merge there is a sub-second quick
+ * collect straight into the parked UFO.
  *
  * Each collected alien permanently raises the UFO's passive coin drip
  * (aliens * INCOME_PER_ALIEN coins every INTERVAL seconds).
  */
 const UFO = (() => {
   const C = () => CONFIG.UFO;
-  const data = () => SaveManager.data.ufo;
+  // each farm has its own UFO: always operate on the current farm's slot
+  const data = () => SaveManager.data.ufo[SaveManager.data.currentFarm];
 
   let cine = null;       // first-time cinematic {phase, t, x, y, ufoX, ufoY, alien:{y, s}, fromX, fromY}
   let collects = [];     // quick collect anims: {x, y, t}
@@ -229,6 +231,7 @@ const UFO = (() => {
   return {
     collect, update, draw,
     get cinematicActive() { return !!cine; },
+    /** Clear transient animation state (farm switch / full reset). */
     reset() { cine = null; collects = []; prodT = 0; flashT = 0; },
   };
 })();
