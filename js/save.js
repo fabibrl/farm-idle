@@ -25,6 +25,9 @@ const SaveManager = (() => {
       // per-farm UFO alien-collection layer: each farm unlocks its own UFO
       // with the first Mutant+Mutant merge on that farm
       ufo: CONFIG.FARMS.map(() => ({ landed: false, aliens: 0, pending: 0 })),
+      // per-farm pigeon reward-ad event: independent spawn countdown +
+      // remaining perch time (so a pigeon survives leaving the farm)
+      pigeon: CONFIG.FARMS.map(() => ({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 })),
       firstRun: true,
     };
   }
@@ -50,6 +53,8 @@ const SaveManager = (() => {
         : { landed: false, aliens: 0, pending: 0 });
     }
     while (d.ufo.length < CONFIG.FARMS.length) d.ufo.push({ landed: false, aliens: 0, pending: 0 });
+    if (!d.pigeon) d.pigeon = CONFIG.FARMS.map(() => ({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 }));
+    while (d.pigeon.length < CONFIG.FARMS.length) d.pigeon.push({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 });
     // players from before the tutorial existed (or with animals already) skip it
     if (!d.tutorialDone) d.tutorialDone = CONFIG.FARMS.map(f => (d.animals[f.id] || []).length > 0);
     // players who already bought an upgrade skip the first-upgrade tutorial

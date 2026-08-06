@@ -473,13 +473,38 @@ const UI = (() => {
   // ---------------- popups ----------------
   function drawPopup(ctx) {
     if (!popup) return;
+
+    // simulated reward ad: full-screen placeholder, auto-completes
+    if (popup.type === 'adPlaying') {
+      popup.t += Game.dt;
+      ctx.fillStyle = 'rgba(8,8,12,0.94)';
+      ctx.fillRect(0, 0, W, H);
+      drawText(ctx, 'REWARD AD', W / 2, H / 2 - 80, 15, '#fff6e8', 'center', true);
+      drawText(ctx, 'SIMULATED AD PLACEHOLDER', W / 2, H / 2 - 52, 5, '#8c8678', 'center');
+      // silly ad: pigeon on a bombing run across the screen
+      const t = Math.min(popup.t / popup.dur, 1);
+      const bx = U.lerp(40, W - 40, t);
+      const by = H / 2 + 4 + Math.sin(popup.t * 6) * 6;
+      const frame = Math.floor(popup.t * 10) % 2 ? 'flapUp' : 'flapDn';
+      PIXEL.blit(ctx, SPRITES.poop(0), bx - 14, by + 26 + Math.sin(popup.t * 3) * 8, 2);
+      PIXEL.blit(ctx, SPRITES.pigeon(frame, false), bx, by, 3);
+      // progress bar
+      inset(ctx, W / 2 - 80, H / 2 + 60, 160, 14);
+      ctx.fillStyle = '#7dbb4a';
+      ctx.fillRect(W / 2 - 78, H / 2 + 62, Math.max(0, Math.round(156 * t)), 10);
+      drawText(ctx, 'REWARD IN ' + Math.ceil(popup.dur - popup.t) + 'S', W / 2, H / 2 + 88, 5, '#c8b088', 'center');
+      if (popup.t >= popup.dur) { popup = null; Pigeon.adCompleted(); }
+      return;
+    }
+
     ctx.fillStyle = popup.type === 'discovery' ? 'rgba(16,10,6,0.75)' : 'rgba(16,10,6,0.55)';
     ctx.fillRect(0, 0, W, H);
 
     const pw = popup.type === 'upgrades' ? 324 : popup.type === 'discovery' ? 280 : 240;
     const ph = popup.type === 'upgrades' ? 470
              : popup.type === 'discovery' ? 344
-             : popup.type === 'unlock' ? 210 : 190;
+             : popup.type === 'unlock' ? 210
+             : popup.type === 'pigeonAd' ? 254 : 190;
     const px = (W - pw) / 2, py = (H - ph) / 2 - 20;
     popup.rect = { x: px, y: py, w: pw, h: ph };
     woodPanel(ctx, px, py, pw, ph, { gold: true });
@@ -528,6 +553,31 @@ const UI = (() => {
       drawPanelFx(ctx);
     } else if (popup.type === 'discovery') {
       drawDiscovery(ctx, px, py, pw, ph);
+    } else if (popup.type === 'pigeonAd') {
+      const inf = Pigeon.info();
+      drawText(ctx, 'SPECIAL DELIVERY!', px + pw / 2, py - 2, 10, '#ffe98a', 'center', true);
+      // parchment card
+      ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 132);
+      ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 128);
+      ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 28, pw - 40, 3);
+      // the messenger, gently bobbing
+      popup.fxT = (popup.fxT || 0) + Game.dt;
+      const bob = Math.sin(popup.fxT * 3) * 2;
+      PIXEL.blit(ctx, SPRITES.pigeon('idle', false), px + 58, py + 92 + bob, 3);
+      drawText(ctx, 'COO!', px + 58, py + 104, 5, '#7d5027', 'center');
+      // reward explanation
+      drawText(ctx, 'WATCH AN AD', px + 152, py + 44, 10, '#5c3a1d', 'center');
+      drawText(ctx, 'TO GET A', px + 152, py + 64, 5, '#7d5027', 'center');
+      drawText(ctx, 'POOP RAIN!', px + 152, py + 78, 10, '#b8860b', 'center');
+      // payout breakdown
+      PIXEL.blit(ctx, SPRITES.poop(0), px + 104, py + 138, 2);
+      drawText(ctx, 'X' + inf.count, px + 124, py + 118, 10, '#5c3a1d', 'left');
+      ctx.drawImage(SPRITES.coin(1), px + 150, py + 118, 12, 12);
+      drawText(ctx, '+' + U.fmt(inf.value) + ' EACH', px + 166, py + 120, 5, '#b8860b', 'left');
+      drawText(ctx, 'COINS COLLECT AUTOMATICALLY!', px + pw / 2, py + 144, 5, '#7d5027', 'center');
+      // watch button
+      popup.okRect = { x: px + 40, y: py + ph - 62, w: pw - 80, h: 40 };
+      drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
     } else if (popup.type === 'settings') {
       drawText(ctx, 'SETTINGS', px + pw / 2, py - 2, 10, '#ffe98a', 'center', true);
       popup.musicRect = { x: px + 30, y: py + 34, w: pw - 60, h: 34 };
@@ -640,6 +690,14 @@ const UI = (() => {
           Game.endCelebration();
         }
         return true; // no other way out — gameplay stays paused until CONTINUE
+      }
+      if (popup.type === 'adPlaying') return true; // no skipping the ad
+      if (popup.type === 'pigeonAd') {
+        if (inRect(x, y, popup.okRect)) {
+          AudioManager.play('click');
+          popup = { type: 'adPlaying', t: 0, dur: Pigeon.info().adDur };
+        }
+        return true;
       }
       if (popup.type === 'unlock' && inRect(x, y, popup.okRect)) {
         Game.tryUnlock(popup.farmId);

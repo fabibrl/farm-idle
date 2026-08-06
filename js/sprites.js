@@ -556,6 +556,68 @@ const SPRITES = (() => {
   }
 
   // ============================================================
+  //  PIGEON (reward-ad event, see js/pigeon.js)
+  // ============================================================
+
+  // pigeon palette: city-gray feathers with an iridescent neck
+  const PG = {
+    body: '#9aa4b2', shade: '#707a88', light: '#c6cfd8',
+    wing: '#7d8794', wingHi: '#98a2b0',
+    neck: '#5fae62', neck2: '#8a6ec0',
+    beak: '#e8933c', beakDk: '#b96a24', foot: '#d1762e',
+  };
+
+  /**
+   * Pixel pigeon, faces RIGHT, bottom anchored.
+   * Frames: 'idle' | 'look' (head turned back) | 'flapUp' | 'flapDn'.
+   */
+  function pigeon(frame = 'idle', blink = false) {
+    return PIXEL.sprite(`pigeon:${frame}:${blink ? 1 : 0}`, 22, 20, s => {
+      const look = frame === 'look';
+      const flapUp = frame === 'flapUp', flapDn = frame === 'flapDn';
+      // feet
+      s.line(9, 15, 9, 17, PG.foot); s.line(13, 15, 13, 17, PG.foot);
+      s.px(8, 17, PG.foot); s.px(10, 17, PG.foot);
+      s.px(12, 17, PG.foot); s.px(14, 17, PG.foot);
+      // tail (points left)
+      s.line(4, 10, 1, 8, PG.wing); s.line(4, 11, 1, 9, PG.shade);
+      // body
+      s.ellipse(10, 11, 6, 4.5, PG.body);
+      s.shadeEllipse(10, 11, 6, 4.5, PG.shade, 1, 0.38);
+      s.ellipse(8, 9, 2.5, 2, PG.light);
+      // wing: folded, raised, or beating down
+      if (flapUp) {
+        s.ellipse(7, 5, 4.5, 2.2, PG.wing);
+        s.ellipse(6, 4, 2.6, 1.4, PG.wingHi);
+      } else if (flapDn) {
+        s.ellipse(7, 14, 4.5, 2, PG.wing);
+        s.px(4, 14, PG.wingHi);
+      } else {
+        s.ellipse(8, 11, 3.6, 2.6, PG.wing);
+        s.px(6, 10, PG.wingHi); s.px(7, 10, PG.wingHi);
+      }
+      // head (turned back for the 'look' frame)
+      const hx = look ? 6 : 15;
+      s.ellipse(hx, 6, 3.4, 3.2, PG.body);
+      s.ellipse(hx - 1, 4.5, 1.5, 1.2, PG.light);
+      // iridescent neck feathers
+      if (look) {
+        s.px(8, 8, PG.neck); s.px(9, 9, PG.neck2); s.px(8, 9, PG.neck);
+      } else {
+        s.px(13, 8, PG.neck); s.px(14, 9, PG.neck2); s.px(13, 9, PG.neck);
+      }
+      // beak
+      if (look) { s.rect(2, 6, 2, 1, PG.beak); s.px(3, 7, PG.beakDk); }
+      else { s.rect(18, 6, 2, 1, PG.beak); s.px(18, 7, PG.beakDk); }
+      // eye
+      const ex = look ? 5 : 16;
+      if (blink) s.px(ex, 5, PG.shade);
+      else { s.px(ex, 5, P.pupil); s.px(ex - 1, 4, P.eyeWhite); }
+      s.outline();
+    });
+  }
+
+  // ============================================================
   //  PROPS
   // ============================================================
 
@@ -961,7 +1023,7 @@ const SPRITES = (() => {
   }
 
   return {
-    animal, ANIMAL_SIZES, poop, coin, alien, ufo,
+    animal, ANIMAL_SIZES, poop, coin, alien, ufo, pigeon,
     tree, bush, flower, rock, barrel, crate, haystack, sign, fenceH,
     farmhouse, barn, shed,
     coop, nest, cottage, windmillTower, windmillBlades, silo, milkCan, woolBale,

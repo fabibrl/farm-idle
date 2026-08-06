@@ -74,6 +74,7 @@ const Game = (() => {
       if (UI.tap(p.x, p.y)) return;
       if (celebration) return;                           // popup swallows farm taps
       if (upgradeTutorial) return;                       // tutorial: only the upgrade flow is tappable
+      if (scene === 'farm' && Pigeon.tap(p.x, p.y)) return;
       if (scene === 'farm') farmScene.pointerDown(p.x, p.y);
       else if (scene === 'map' && !mapScene.unlockAnim) {
         const id = mapScene.tappedFarm(p.x, p.y);
@@ -224,6 +225,7 @@ const Game = (() => {
     AudioManager.play('click');
     if (SaveManager.data.unlocked[id]) {
       // switch farm: load that farm's own animals, upgrades and UFO state
+      Pigeon.reset(); // pays out any rain still falling, keeps saved perch state
       SaveManager.data.currentFarm = id;
       SaveManager.save();
       UFO.reset();
@@ -257,6 +259,7 @@ const Game = (() => {
     // brief pause then enter the new farm
     setTimeout(() => {
       UFO.reset();
+      Pigeon.reset();
       farmScene = new FarmScene(farmId);
       scene = 'farm';
       AudioManager.play('pop');
@@ -269,6 +272,7 @@ const Game = (() => {
   }
 
   function resetAll() {
+    Pigeon.reset(true); // discard any in-flight rain, no payout into the fresh save
     SaveManager.reset();
     celebration = null;
     upgradeTutorial = null;
@@ -300,7 +304,7 @@ const Game = (() => {
       else {
         maybeStartUpgradeTutorial();
         if (upgradeTutorial) upgradeTutorial.t += dt;
-        else { farmScene.update(dt); UFO.update(dt); }
+        else { farmScene.update(dt); UFO.update(dt); Pigeon.update(dt, !!farmScene.tutorial); }
       }
     }
     else mapScene.update(dt);
@@ -336,8 +340,13 @@ const Game = (() => {
           ctx.globalAlpha = 1;
         }
       } else {
+        // subtle screen shake while poops are hitting the ground
+        const sh = Pigeon.shakeOffset();
+        ctx.save();
+        ctx.translate(sh.x, sh.y);
         farmScene.draw(ctx);
         VFXManager.draw(ctx);
+        ctx.restore();
       }
     } else {
       mapScene.draw(ctx);

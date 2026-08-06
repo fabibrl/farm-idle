@@ -271,6 +271,9 @@ class FarmScene {
     // parked UFO / abduction cinematic (above the animals)
     UFO.draw(ctx);
 
+    // pigeon on the fence + falling poops (above the animals)
+    Pigeon.draw(ctx);
+
     if (this.tutorial) this.drawTutorial(ctx);
   }
 

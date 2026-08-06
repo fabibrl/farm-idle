@@ -83,6 +83,12 @@ const AudioManager = (() => {
       setTimeout(() => tone(1050, 0.1, 'square', 0.12, null, 350), 80);
       setTimeout(() => tone(1580, 0.2, 'triangle', 0.16), 160);
     },
+    coo()    {
+      // soft two-note pigeon coo
+      tone(520, 0.12, 'sine', 0.18, null, -160);
+      setTimeout(() => tone(430, 0.18, 'sine', 0.15, null, -120), 110);
+    },
+    flap()   { noise(0.09, 0.1, 900); setTimeout(() => noise(0.07, 0.07, 900), 90); },
     unlock() {
       const seq = [523, 659, 784, 1047, 1319];
       seq.forEach((f, i) => setTimeout(() => tone(f, 0.35, 'triangle', 0.28), i * 110));

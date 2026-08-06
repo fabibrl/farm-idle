@@ -91,6 +91,21 @@ const CONFIG = {
     },
   },
 
+  // Pigeon reward-ad event (see js/pigeon.js). Every value here is a
+  // Remote Config default: override at runtime via
+  // window.RemoteConfig = { PIGEON: { SPAWN_INTERVAL: 30, ... } }.
+  PIGEON: {
+    SPAWN_INTERVAL: 120,   // seconds between pigeon visits (testing value)
+    STAY_TIME: 60,         // seconds the pigeon waits on the fence
+    FLY_TIME: 2.6,         // fly-across-and-land duration (s)
+    LEAVE_TIME: 1.6,       // fly-away duration when ignored (s)
+    POOP_COUNT: 8,         // poops per Poop Rain
+    COIN_PER_POOP: 0,      // 0 = auto: coin value of one Level 1 (baby) animal
+    RAIN_DURATION: 3.0,    // seconds over which the poops spawn
+    REWARD_COOLDOWN: 0,    // extra seconds before the next visit after a claim
+    AD_DURATION: 3.0,      // simulated reward-ad length (s)
+  },
+
   // Farm unlock costs
   UNLOCK_COSTS: [0, 10000, 250000],
 
