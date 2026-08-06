@@ -7,6 +7,9 @@ class MapScene {
     this.bg = ENVIRONMENT.worldMap();
     this.unlockAnim = null;   // {seg, t, farmId, phase}
     this.pinBob = 0;
+    this.time = 0;
+    this.smoke = [];          // rising chimney puffs {x,y,age,life,drift}
+    this.smokeT = 0;
   }
 
   /** Begin glowing-path unlock animation toward farmId. */
@@ -23,6 +26,22 @@ class MapScene {
 
   update(dt) {
     this.pinBob += dt * 4;
+    this.time += dt;
+
+    // chimney smoke from unlocked farms
+    this.smokeT -= dt;
+    if (this.smokeT <= 0) {
+      this.smokeT = 0.9 + Math.random() * 0.5;
+      for (let i = 0; i < 3; i++) {
+        const ch = ENVIRONMENT.THEME[i].chimney;
+        if (ch && SaveManager.data.unlocked[i]) {
+          this.smoke.push({ x: ch.x, y: ch.y, age: 0, life: 2.2 + Math.random(), drift: 4 + Math.random() * 6 });
+        }
+      }
+    }
+    for (const p of this.smoke) { p.age += dt; }
+    this.smoke = this.smoke.filter(p => p.age < p.life);
+
     const a = this.unlockAnim;
     if (!a) return;
     if (a.phase === 'pause') {
@@ -76,11 +95,37 @@ class MapScene {
       for (let i = 0; i < upTo; i += 4) ctx.fillRect(pts[i].x - 1, pts[i].y - 1, 3, 3);
     }
 
-    // nodes: pin (unlocked) or lock (locked) + wooden sign
+    // nodes: themed idle animations, pin (unlocked) or chains+lock (locked), sign
     for (let i = 0; i < 3; i++) {
       const n = ENVIRONMENT.MAP_NODES[i];
+      const theme = ENVIRONMENT.THEME[i];
       const unlocked = save.unlocked[i];
       const hideLock = a && a.farmId === i && (a.phase === 'burst');
+
+      // waving grass tufts (static when locked)
+      for (let t = 0; t < theme.grass.length; t++) {
+        const gp = theme.grass[t];
+        const sway = unlocked ? Math.round(Math.sin(this.time * 2.2 + t * 1.7 + i) * 2) : 0;
+        ctx.fillStyle = '#8ab656';
+        ctx.fillRect(gp.x + sway, gp.y - 8, 2, 4); ctx.fillRect(gp.x, gp.y - 4, 2, 4);
+        ctx.fillRect(gp.x + 5, gp.y - 5, 2, 5);
+        ctx.fillStyle = '#6a9840';
+        ctx.fillRect(gp.x + 9 + sway, gp.y - 7, 2, 3); ctx.fillRect(gp.x + 9, gp.y - 4, 2, 4);
+      }
+
+      // spinning windmill blades (frozen when locked)
+      if (theme.windmill) {
+        const frame = unlocked ? Math.floor(this.time * 7) % 4 : 0;
+        const bl = SPRITES.windmillBlades(frame);
+        ctx.drawImage(bl, theme.windmill.x - 28, theme.windmill.y - 28, 56, 56);
+      }
+
+      // species mascot next to the farmhouse — readable before entering
+      // (animated when unlocked, standing still on locked previews)
+      const species = CONFIG.FARMS[i].species;
+      const frame = unlocked && Math.sin(this.time * 1.6 + i * 2.1) > 0.55 ? 'peck' : 'idle';
+      const blink = unlocked && Math.sin(this.time * 3 + i) > 0.96;
+      PIXEL.blit(ctx, SPRITES.animal(species, 1, frame, blink), theme.animal.x, theme.animal.y, 2, i === 1);
 
       if (unlocked) {
         const pin = SPRITES.mapPin();
@@ -94,18 +139,28 @@ class MapScene {
           ctx.globalAlpha = 1;
         }
       } else if (!hideLock) {
-        // dark overlay on locked plot
-        ctx.globalAlpha = 0.35;
-        ctx.fillStyle = '#120c06';
-        ctx.beginPath(); ctx.ellipse(n.x, n.y, 45, 33, 0, 0, 7); ctx.fill();
-        ctx.globalAlpha = 1;
-        PIXEL.blit(ctx, SPRITES.lock(), n.x, n.y + 14, 2);
+        // locked: just a lock icon centered over the themed plot — the farm
+        // itself stays fully visible as a preview
+        PIXEL.blit(ctx, SPRITES.lock(), n.x, n.y + 16, 2);
       }
 
       // wooden sign with farm name
       UI.woodSign(ctx, n.x, n.y + 40, CONFIG.FARMS[i].name, CONFIG.FARMS[i].label,
         unlocked ? null : U.fmtCost(CONFIG.UNLOCK_COSTS[i]));
     }
+
+    // chimney smoke puffs (spawned only for unlocked farms)
+    for (const p of this.smoke) {
+      const k = p.age / p.life;
+      const size = 4 + k * 8;
+      ctx.globalAlpha = 0.45 * (1 - k);
+      ctx.fillStyle = '#d8d2c8';
+      ctx.fillRect(
+        Math.round(p.x + Math.sin(p.age * 3) * 2 + k * p.drift - size / 2),
+        Math.round(p.y - k * 26 - size / 2),
+        Math.round(size), Math.round(size));
+    }
+    ctx.globalAlpha = 1;
   }
 
   /** Hit-test: returns farm id or -1. */

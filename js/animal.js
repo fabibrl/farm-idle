@@ -26,7 +26,7 @@ class Animal {
     this.dragging = false;
     this.dead = false;
     this.scaleX = 1; this.scaleY = 1;
-    this.shadowW = SPRITES.ANIMAL_SIZES[species][stage][0] * CONFIG.PIXEL_SCALE * 0.6;
+    this.shadowW = SPRITES.ANIMAL_SIZES[species][stage][0] * CONFIG.ANIMAL_VISUAL_SCALE * 0.6;
     return this;
   }
 
@@ -157,7 +157,7 @@ class Animal {
 
   draw(ctx) {
     const img = this.img;
-    const sc = CONFIG.PIXEL_SCALE;
+    const sc = CONFIG.ANIMAL_VISUAL_SCALE;
     const lift = this.dragging ? -10 : 0;
     // soft shadow
     ctx.globalAlpha = this.dragging ? 0.18 : 0.28;

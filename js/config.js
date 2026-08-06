@@ -7,6 +7,8 @@ const CONFIG = {
   VIEW_W: 360,
   VIEW_H: 640,
   PIXEL_SCALE: 2,          // native art pixels -> screen pixels multiplier baseline
+  ANIMAL_VISUAL_SCALE: 1.7, // animals render ~15% smaller than props (visual only;
+                            // hit/merge radii still use PIXEL_SCALE)
 
   // Spawning
   SPAWN_INTERVAL: 3.0,     // seconds between automatic baby spawns

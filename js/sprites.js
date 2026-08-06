@@ -701,6 +701,159 @@ const SPRITES = (() => {
     });
   }
 
+  /** Chicken coop — small wooden hut on stilts with hay roof and ramp. */
+  function coop() {
+    return PIXEL.sprite('coop', 32, 28, s => {
+      // stilts
+      s.rect(6, 22, 2, 5, P.woodDk); s.rect(24, 22, 2, 5, P.woodDk);
+      // walls (vertical planks)
+      s.rect(4, 10, 24, 13, P.wood);
+      s.rect(4, 10, 24, 2, P.woodHi);
+      for (let x = 8; x < 27; x += 4) s.rect(x, 12, 1, 11, P.woodDk);
+      // hay roof
+      for (let i = 0; i < 6; i++) s.rect(2 + i * 2, 9 - i, 28 - i * 4, 1, i > 3 ? P.hayHi : P.hay);
+      s.rect(1, 9, 30, 2, P.hayDk);
+      s.px(5, 8, P.hayHi); s.px(24, 7, P.hayDk);
+      // round entry hole
+      s.ellipse(16, 17, 4, 4.2, P.woodDkr);
+      s.ellipse(16, 17, 2.8, 3, '#1c1208');
+      // little window
+      s.rect(23, 14, 3, 3, '#7ec8e0'); s.px(23, 14, '#b8e4f0');
+      // ramp with rungs
+      for (let i = 0; i < 5; i++) s.rect(11 - i, 22 + i, 7, 1, i % 2 ? P.wood : P.woodHi);
+      s.outline();
+    });
+  }
+
+  /** Nest with eggs (chicken farm decoration). */
+  function nest() {
+    return PIXEL.sprite('nest', 16, 10, s => {
+      s.ellipse(8, 6, 7, 3.2, P.hay);
+      s.shadeEllipse(8, 6, 7, 3.2, P.hayDk, 1, 0.45);
+      s.ellipse(8, 5.5, 4.5, 2, P.hayDk);
+      s.px(2, 5, P.hayHi); s.px(13, 4, P.hayHi);
+      // eggs
+      s.ellipse(6, 4.5, 1.8, 2, '#f7f2e6'); s.px(5, 3, '#ffffff');
+      s.ellipse(10, 4.5, 1.8, 2, '#f0e8d4'); s.px(9, 3, '#fbf6ea');
+      s.outline();
+    });
+  }
+
+  /** Sheep cottage — timber-framed cozy house with wool decorations. */
+  function cottage() {
+    return PIXEL.sprite('cottage', 34, 32, s => {
+      // walls
+      s.rect(5, 16, 24, 14, '#efe6d2');
+      s.rect(5, 16, 24, 2, '#f8f2e2');
+      // timber frame
+      s.rect(5, 16, 1, 14, P.woodDk); s.rect(28, 16, 1, 14, P.woodDk);
+      s.rect(5, 23, 24, 1, P.woodDk);
+      s.px(9, 24, P.woodDk); s.px(9, 25, P.woodDk);
+      // steep blue roof
+      for (let i = 0; i < 9; i++) s.rect(4 + i, 14 - i, 26 - i * 2, 1, i > 6 ? P.blueRoofHi : P.blueRoof);
+      s.rect(3, 14, 28, 2, P.blueRoofDk);
+      // chimney
+      s.rect(23, 5, 4, 6, P.stone); s.px(23, 5, P.stoneHi); s.px(26, 10, P.stoneDk);
+      // rounded door
+      s.ellipse(17, 23, 3, 2, P.woodDk);
+      s.rect(14, 23, 6, 7, P.woodDk);
+      s.rect(15, 23, 4, 7, P.wood); s.ellipse(17, 23, 2, 1.4, P.wood);
+      s.px(19, 26, P.gold);
+      // round window
+      s.ellipse(10, 19.5, 2.2, 2.2, '#7ec8e0'); s.px(9, 18, '#b8e4f0');
+      // wool garland under the eave + wool wreath
+      s.ellipse(8, 16.5, 1.6, 1.3, P.woolLight);
+      s.ellipse(13, 17, 1.4, 1.2, P.woolMid);
+      s.ellipse(21, 17, 1.4, 1.2, P.woolMid);
+      s.ellipse(26, 16.5, 1.6, 1.3, P.woolLight);
+      s.ellipse(24, 26, 2.2, 2.2, P.woolLight);
+      s.ellipse(24, 26, 1, 1, '#efe6d2');
+      s.outline();
+    });
+  }
+
+  /** Windmill tower (blades drawn separately so they can spin). Hub at (9,6). */
+  function windmillTower() {
+    return PIXEL.sprite('windmillTower', 18, 30, s => {
+      // tapered whitewashed body
+      for (let y = 0; y < 21; y++) {
+        const w = 8 + Math.round(y * 4 / 21);
+        const x = Math.round(9 - w / 2);
+        s.rect(x, 8 + y, w, 1, y % 6 === 5 ? '#d8ccb4' : '#e8ddc8');
+        s.px(x + w - 1, 8 + y, '#c0b49c');
+      }
+      // cap
+      s.ellipse(9, 7, 5, 3, P.blueRoofDk);
+      s.ellipse(9, 6, 4, 2.4, P.blueRoof);
+      s.px(7, 5, P.blueRoofHi);
+      // window + door
+      s.rect(8, 15, 3, 3, '#7ec8e0'); s.px(8, 15, '#b8e4f0');
+      s.rect(7, 24, 4, 5, P.woodDk); s.rect(8, 25, 2, 4, P.wood);
+      s.outline();
+    });
+  }
+
+  /** Windmill blade cross, 4 rotation frames (frame 0-3). */
+  function windmillBlades(frame = 0) {
+    return PIXEL.sprite(`wmBlades:${frame}`, 28, 28, s => {
+      const c = 14, a0 = frame * Math.PI / 8;
+      for (let k = 0; k < 4; k++) {
+        const a = a0 + k * Math.PI / 2;
+        const dx = Math.cos(a), dy = Math.sin(a);
+        s.line(c, c, c + dx * 12, c + dy * 12, P.wood);
+        // canvas paddle alongside the outer half of each arm
+        s.line(c + dx * 5 - dy * 2, c + dy * 5 + dx * 2,
+               c + dx * 11 - dy * 2, c + dy * 11 + dx * 2, '#e8ddc8');
+        s.line(c + dx * 6 - dy, c + dy * 6 + dx,
+               c + dx * 11 - dy, c + dy * 11 + dx, '#f4ecd8');
+      }
+      s.ellipse(c, c, 2, 2, P.woodDk); s.px(c, c, P.woodHi);
+      s.outline();
+    });
+  }
+
+  /** Grain silo (cow farm). */
+  function silo() {
+    return PIXEL.sprite('silo', 16, 34, s => {
+      s.rect(3, 8, 10, 24, '#d8d2c8');
+      s.rect(3, 8, 3, 24, '#e8e4dc');
+      s.rect(11, 8, 2, 24, '#a8a298');
+      for (let y = 13; y < 32; y += 6) s.rect(3, y, 10, 1, '#a8a298');
+      // red dome
+      s.ellipse(8, 7, 5.5, 4, P.red);
+      s.shadeEllipse(8, 7, 5.5, 4, P.redDk, 1, 0.4);
+      s.px(5, 4, P.redHi); s.px(6, 4, P.redHi);
+      // hatch
+      s.rect(6, 17, 4, 5, '#8a95a0'); s.px(6, 17, '#b8c0c6');
+      s.outline();
+    });
+  }
+
+  /** Milk can (cow farm decoration). */
+  function milkCan() {
+    return PIXEL.sprite('milkCan', 10, 12, s => {
+      s.rect(2, 4, 6, 7, '#c8d0d4');
+      s.rect(2, 4, 2, 7, '#e4eaec');
+      s.rect(6, 4, 2, 7, '#98a2a8');
+      s.ellipse(5, 3.5, 3, 1.4, '#98a2a8');
+      s.rect(4, 1, 2, 2, '#c8d0d4');
+      s.rect(2, 7, 6, 1, '#8a95a0');
+      s.outline();
+    });
+  }
+
+  /** Rolled wool bale (sheep farm decoration). */
+  function woolBale() {
+    return PIXEL.sprite('woolBale', 14, 11, s => {
+      s.ellipse(7, 6, 6, 4, P.woolLight);
+      s.shadeEllipse(7, 6, 6, 4, P.woolShade, 1, 0.4);
+      s.ellipse(7, 6, 3, 2, P.woolMid);
+      s.ellipse(7, 6, 1.4, 1, P.woolLight);
+      s.px(4, 3, '#ffffff'); s.px(3, 5, '#ffffff');
+      s.outline();
+    });
+  }
+
   function barn() {
     return PIXEL.sprite('barn', 36, 32, s => {
       s.rect(4, 14, 28, 16, P.red);
@@ -811,6 +964,7 @@ const SPRITES = (() => {
     animal, ANIMAL_SIZES, poop, coin, alien, ufo,
     tree, bush, flower, rock, barrel, crate, haystack, sign, fenceH,
     farmhouse, barn, shed,
+    coop, nest, cottage, windmillTower, windmillBlades, silo, milkCan, woolBale,
     mapPin, lock, gear, arrowUp, xIcon,
     P,
   };

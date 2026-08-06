@@ -14,8 +14,9 @@ const ENVIRONMENT = (() => {
     { base: '#9a7043', dark: '#8a6238', light: '#aa804f', speck: '#755232', edge: '#6b4d30' },
   ];
 
-  // Playable area inside the fence (virtual px)
-  const PLAY = { x: 34, y: 130, w: W - 68, h: H - 300 };
+  // Playable area inside the fence (virtual px). Wider pen, pushed down a
+  // little so the themed farmhouse sits above it as the focal point.
+  const PLAY = { x: 22, y: 160, w: W - 44, h: H - 300 };
 
   /** Deterministic pseudo-random for stable decoration layouts. */
   function seededRand(seed) {
@@ -69,14 +70,6 @@ const ENVIRONMENT = (() => {
     g.fillStyle = SPRITES.P.woodDk; g.fillRect(x + 6, y, 2, 16);
   }
 
-  function scatter(g, rnd, img, count, scale, minY, maxY, pad = 20) {
-    for (let i = 0; i < count; i++) {
-      const x = pad + rnd() * (W - pad * 2 - img.width * scale);
-      const y = minY + rnd() * (maxY - minY);
-      g.drawImage(img, x | 0, y | 0, img.width * scale, img.height * scale);
-    }
-  }
-
   /** Build one farm background. */
   function farm(id) {
     const key = 'farm' + id;
@@ -93,51 +86,68 @@ const ENVIRONMENT = (() => {
     // inner pen ground
     noiseGround(g, pal, rnd, PLAY.x - 16, PLAY.y - 30, PLAY.w + 32, PLAY.h + 30);
 
-    // dirt patches inside pen
-    for (let i = 0; i < 4; i++) {
-      const px2 = PLAY.x + 20 + rnd() * (PLAY.w - 70), py = PLAY.y + 20 + rnd() * (PLAY.h - 60);
+    // dirt patches inside pen — just a couple, kept subtle for open grass
+    for (let i = 0; i < 2; i++) {
+      const px2 = PLAY.x + 40 + rnd() * (PLAY.w - 110), py = PLAY.y + 50 + rnd() * (PLAY.h - 120);
       g.fillStyle = id === 2 ? '#8a6238' : '#8a7a4a';
-      g.globalAlpha = 0.5;
-      g.beginPath(); g.ellipse(px2, py, 18 + rnd() * 14, 8 + rnd() * 5, 0, 0, 7); g.fill();
+      g.globalAlpha = 0.4;
+      g.beginPath(); g.ellipse(px2, py, 16 + rnd() * 10, 7 + rnd() * 4, 0, 0, 7); g.fill();
       g.globalAlpha = 1;
     }
 
-    // decorations outside the pen — per farm flavour
+    // dirt path from the farmhouse door down to the pen gate
+    g.fillStyle = '#caa96a';
+    g.fillRect(W / 2 - 11, PLAY.y - 34, 22, 40);
+    g.beginPath(); g.ellipse(W / 2, PLAY.y + 8, 15, 7, 0, 0, 7); g.fill();
+    g.fillStyle = '#b8935a';
+    g.fillRect(W / 2 - 7, PLAY.y - 34, 14, 38);
+    g.beginPath(); g.ellipse(W / 2, PLAY.y + 6, 10, 5, 0, 0, 7); g.fill();
+
+    // themed farmhouse — the focal point, centered on the grass above the pen
+    const building = [SPRITES.coop, SPRITES.cottage, SPRITES.barn][id]();
+    const bw = building.width * 3, bh = building.height * 3;
+    g.drawImage(building, (W - bw) / 2 | 0, PLAY.y - 16 - bh, bw, bh);
+
+    // trees flanking the farmhouse
     const treeV = id === 0 ? 0 : 1;
-    scatter(g, rnd, SPRITES.tree(treeV), 3, 2, 8, 40);
-    scatter(g, rnd, SPRITES.tree(treeV), 2, 2, H - 130, H - 90);
-    scatter(g, rnd, SPRITES.bush(id === 0 ? 2 : 1), 4, 2, H - 100, H - 60);
-    if (id === 0) {
-      scatter(g, rnd, SPRITES.flower(0), 6, 2, 90, 116);
-      scatter(g, rnd, SPRITES.flower(1), 5, 2, H - 110, H - 70);
-    } else if (id === 1) {
-      scatter(g, rnd, SPRITES.flower(2), 5, 2, 90, 116);
-      scatter(g, rnd, SPRITES.rock(0), 4, 2, H - 110, H - 70);
-      scatter(g, rnd, SPRITES.rock(1), 2, 2, 92, 112);
+    const treeImg = SPRITES.tree(treeV);
+    g.drawImage(treeImg, 6, PLAY.y - 94, 60, 72);
+    g.drawImage(treeImg, W - 66, PLAY.y - 94, 60, 72);
+
+    // flowers beside the path entrance
+    g.drawImage(SPRITES.flower(id), W / 2 - 52, PLAY.y - 40, 16, 20);
+    g.drawImage(SPRITES.flower((id + 1) % 3), W / 2 + 38, PLAY.y - 38, 16, 20);
+
+    // tidy row of decorations on the grass below the front fence
+    const botY = PLAY.y + PLAY.h + 32;
+    g.drawImage(SPRITES.bush(id === 0 ? 2 : 1), 28, botY, 36, 24);
+    g.drawImage(SPRITES.bush(1), W - 62, botY + 4, 36, 24);
+    if (id === 2) {
+      g.drawImage(SPRITES.haystack(), W / 2 - 20, botY - 2, 40, 32);
     } else {
-      scatter(g, rnd, SPRITES.rock(1), 4, 2, 90, 116);
-      scatter(g, rnd, SPRITES.haystack(), 1, 2, H - 120, H - 100);
-      scatter(g, rnd, SPRITES.rock(0), 3, 2, H - 100, H - 70);
+      g.drawImage(SPRITES.rock(1), W / 2 - 16, botY + 8, 32, 20);
     }
+    g.drawImage(SPRITES.flower((id + 2) % 3), 78, botY + 10, 16, 20);
+    g.drawImage(SPRITES.flower(id), W - 88, botY + 12, 16, 20);
 
     drawFence(g, id);
 
-    // in-pen props (corners)
-    const barrelImg = SPRITES.barrel();
-    g.drawImage(barrelImg, PLAY.x + 6, PLAY.y - 2, 28, 32);
+    // in-pen props tucked into the top corners, out of the walk area
+    g.drawImage(SPRITES.barrel(), PLAY.x + 6, PLAY.y - 2, 28, 32);
     if (id === 2) {
-      const hay = SPRITES.haystack();
-      g.drawImage(hay, PLAY.x + PLAY.w - 48, PLAY.y + 2, 40, 32);
+      g.drawImage(SPRITES.haystack(), PLAY.x + PLAY.w - 48, PLAY.y + 2, 40, 32);
     } else {
-      const bushImg = SPRITES.bush(id === 0 ? 2 : 1);
-      g.drawImage(bushImg, PLAY.x + PLAY.w - 44, PLAY.y + 4, 36, 24);
+      g.drawImage(SPRITES.bush(id === 0 ? 2 : 1), PLAY.x + PLAY.w - 44, PLAY.y + 4, 36, 24);
     }
-    // in-pen flowers/rocks
-    for (let i = 0; i < 5; i++) {
-      const img = id === 2 ? SPRITES.rock(0) : SPRITES.flower(U.randInt(0, 2));
-      const x = PLAY.x + 14 + rnd() * (PLAY.w - 50);
-      const y = PLAY.y + 30 + rnd() * (PLAY.h - 80);
-      g.drawImage(img, x | 0, y | 0, img.width * 2, img.height * 2);
+    // a few accents pinned to the pen edges so the middle stays open
+    const edge = [
+      { x: PLAY.x + 16, y: PLAY.y + PLAY.h - 42 },
+      { x: PLAY.x + PLAY.w - 34, y: PLAY.y + PLAY.h - 52 },
+      { x: PLAY.x + 18, y: PLAY.y + 64 },
+    ];
+    for (let i = 0; i < edge.length; i++) {
+      const img = id === 2 ? SPRITES.rock(i % 2) : SPRITES.flower((id + i) % 3);
+      g.drawImage(img, edge[i].x, edge[i].y, img.width * 2, img.height * 2);
     }
 
     cache[key] = c;
@@ -150,6 +160,29 @@ const ENVIRONMENT = (() => {
     { x: 80,  y: 200 },
     { x: 250, y: 330 },
     { x: 110, y: 470 },
+  ];
+
+  /**
+   * Per-farm themed map anchors: where the species mascot stands, where
+   * chimney smoke rises, the windmill hub, and waving grass tufts.
+   * All animated in MapScene; static art is baked into worldMap().
+   */
+  const THEME = [
+    { // chicken
+      animal: { x: 56, y: 232 },
+      grass: [{ x: 38, y: 180 }, { x: 120, y: 184 }, { x: 46, y: 232 }],
+    },
+    { // sheep
+      animal: { x: 278, y: 352 },
+      windmill: { x: 188, y: 294 },
+      chimney: { x: 266, y: 282 },
+      grass: [{ x: 210, y: 302 }, { x: 292, y: 346 }, { x: 206, y: 354 }],
+    },
+    { // cow
+      animal: { x: 140, y: 502 },
+      chimney: { x: 96, y: 414 },
+      grass: [{ x: 70, y: 444 }, { x: 150, y: 488 }, { x: 66, y: 498 }],
+    },
   ];
 
   /** Road control path between nodes (list of points per segment). */
@@ -240,9 +273,47 @@ const ENVIRONMENT = (() => {
       }
     }
 
-    // farm 1 building
-    const house = SPRITES.farmhouse();
-    g.drawImage(house, MAP_NODES[0].x - 34, MAP_NODES[0].y - 62, 68, 60);
+    // ---- themed farm plots ----
+    // Farm 0: CHICKEN — wooden coop, nest with eggs, hay bale, feed specks
+    {
+      const n = MAP_NODES[0];
+      g.drawImage(SPRITES.haystack(), n.x - 46, n.y - 8, 40, 32);
+      g.drawImage(SPRITES.coop(), n.x - 32, n.y - 54, 64, 56);
+      g.drawImage(SPRITES.nest(), n.x + 14, n.y - 2, 32, 20);
+      // scattered feed
+      g.fillStyle = '#e0b656';
+      for (let k = 0; k < 10; k++) {
+        g.fillRect(n.x - 24 + rnd() * 48 | 0, n.y + 8 + rnd() * 18 | 0, 2, 2);
+      }
+    }
+    // Farm 1: SHEEP — cozy cottage, windmill tower, wool bales, pasture flowers
+    {
+      const n = MAP_NODES[1];
+      // pasture tufts (lighter green)
+      g.fillStyle = GROUNDS[1].light;
+      for (let k = 0; k < 12; k++) {
+        g.fillRect(n.x - 36 + rnd() * 72 | 0, n.y - 20 + rnd() * 42 | 0, 3, 2);
+      }
+      g.drawImage(SPRITES.windmillTower(), THEME[1].windmill.x - 18, THEME[1].windmill.y - 12, 36, 60);
+      g.drawImage(SPRITES.cottage(), n.x - 34, n.y - 56, 68, 64);
+      g.drawImage(SPRITES.woolBale(), n.x + 18, n.y + 12, 28, 22);
+      g.drawImage(SPRITES.woolBale(), n.x - 22, n.y + 18, 22, 18);
+      g.drawImage(SPRITES.flower(0), n.x - 38, n.y + 6, 16, 20);
+      g.drawImage(SPRITES.flower(2), n.x - 42, n.y + 2, 16, 20);
+    }
+    // Farm 2: COW — big red barn, silo, milk cans, grazing patches
+    {
+      const n = MAP_NODES[2];
+      // grazing patches on the dirt plot
+      g.fillStyle = '#79a848'; g.globalAlpha = 0.7;
+      g.beginPath(); g.ellipse(n.x - 26, n.y + 16, 14, 7, 0, 0, 7); g.fill();
+      g.beginPath(); g.ellipse(n.x + 30, n.y + 8, 11, 6, 0, 0, 7); g.fill();
+      g.globalAlpha = 1;
+      g.drawImage(SPRITES.silo(), n.x + 30, n.y - 62, 32, 68);
+      g.drawImage(SPRITES.barn(), n.x - 36, n.y - 58, 72, 64);
+      g.drawImage(SPRITES.milkCan(), n.x - 48, n.y + 10, 20, 24);
+      g.drawImage(SPRITES.milkCan(), n.x - 34, n.y + 16, 16, 20);
+    }
 
     // trees scattered
     for (let i = 0; i < 9; i++) {
@@ -266,5 +337,5 @@ const ENVIRONMENT = (() => {
     return c;
   }
 
-  return { farm, worldMap, PLAY, MAP_NODES, roadPoints, GROUNDS };
+  return { farm, worldMap, PLAY, MAP_NODES, THEME, roadPoints, GROUNDS };
 })();
