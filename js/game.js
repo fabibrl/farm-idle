@@ -214,11 +214,7 @@ const Game = (() => {
       UI.openPopup({ type: 'settings' });
     } else if (id === 'upgrade') {
       UI.openPopup({ type: 'upgrades', farmId: SaveManager.data.currentFarm, fx: {} });
-    } else if (id === 'unlock') {
-      const next = SaveManager.data.unlocked.indexOf(false);
-      if (next === -1) { UI.showToast('ALL FARMS UNLOCKED!'); return; }
-      UI.openPopup({ type: 'unlock', farmId: next });
-    } else if (id === 'exit') {
+    } else if (id === 'map') {
       goToMap();
     }
   }

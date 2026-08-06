@@ -296,12 +296,11 @@ const UI = (() => {
 
   function makeButtons() {
     const bw = 100, bh = 40, gap = 10, y = H - bh - 14;
-    const total = bw * 3 + gap * 2;
+    const total = bw * 2 + gap;
     const x0 = (W - total) / 2;
     buttons = [
       { id: 'upgrade', color: 'green', x: x0, y, w: bw, h: bh, label: 'UPGRADE', icon: () => SPRITES.arrowUp(), scene: 'farm' },
-      { id: 'unlock', color: 'gray', x: x0 + bw + gap, y, w: bw, h: bh, label: 'UNLOCK', icon: () => SPRITES.lock(), scene: 'farm' },
-      { id: 'exit', color: 'red', x: x0 + (bw + gap) * 2, y, w: bw, h: bh, label: 'EXIT', icon: () => SPRITES.xIcon(), scene: 'farm' },
+      { id: 'map', color: 'red', x: x0 + bw + gap, y, w: bw, h: bh, label: 'MAP', icon: () => SPRITES.mapPin(), scene: 'farm' },
       { id: 'settings', color: 'wood', x: W - 46, y: 12, w: 34, h: 32, icon: () => SPRITES.gear(), scene: 'both' },
     ];
   }

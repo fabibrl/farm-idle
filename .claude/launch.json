@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "farm",
+      "name": "farm-idle",
       "runtimeExecutable": "node",
       "runtimeArgs": ["serve.js"],
       "port": 8471
