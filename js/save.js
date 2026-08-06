@@ -22,6 +22,8 @@ const SaveManager = (() => {
       tutorialDone: CONFIG.FARMS.map(() => false),
       // one-time: has the first-upgrade tutorial been completed?
       upgradeTutorialDone: false,
+      // UFO alien-collection layer: landed after the first Mutant+Mutant merge
+      ufo: { landed: false, aliens: 0, pending: 0 },
       firstRun: true,
     };
   }
@@ -38,6 +40,7 @@ const SaveManager = (() => {
       while (u.stages.length < STAGE_COUNT()) u.stages.push(0);
     }
     if (!d.discovered) d.discovered = discoveredDefaults();
+    if (!d.ufo) d.ufo = { landed: false, aliens: 0, pending: 0 };
     // players from before the tutorial existed (or with animals already) skip it
     if (!d.tutorialDone) d.tutorialDone = CONFIG.FARMS.map(f => (d.animals[f.id] || []).length > 0);
     // players who already bought an upgrade skip the first-upgrade tutorial

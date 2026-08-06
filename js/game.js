@@ -26,7 +26,19 @@ const Game = (() => {
     mapScene = new MapScene();
     farmScene = new FarmScene(SaveManager.data.currentFarm);
     UI.syncCoins();
-    requestAnimationFrame(loop);
+    scheduleFrame(loop);
+  }
+
+  /**
+   * rAF normally, with a timer watchdog so the idle sim keeps running when
+   * the tab is hidden (rAF stops firing there, even for pending frames).
+   * Whichever fires first runs the frame; the loser is a no-op.
+   */
+  function scheduleFrame(fn) {
+    let done = false;
+    const run = t => { if (done) return; done = true; fn(t); };
+    requestAnimationFrame(run);
+    setTimeout(() => run(performance.now()), 50);
   }
 
   function resize() {
@@ -57,6 +69,7 @@ const Game = (() => {
       AudioManager.ensure();
       const p = toGame(e);
       if (scene === 'loading') { start(); return; }
+      if (UFO.cinematicActive) return;                   // abduction cinematic blocks all input
       if (celebration && !celebration.popupOpen) return; // sequence plays untouched
       if (UI.tap(p.x, p.y)) return;
       if (celebration) return;                           // popup swallows farm taps
@@ -69,11 +82,13 @@ const Game = (() => {
     };
     const move = e => {
       e.preventDefault();
+      if (UFO.cinematicActive) return;
       const p = toGame(e);
       if (scene === 'farm') farmScene.pointerMove(p.x, p.y);
     };
     const up = e => {
       e.preventDefault();
+      if (UFO.cinematicActive) return;
       if (scene === 'farm') farmScene.pointerUp();
     };
     canvas.addEventListener('mousedown', down);
@@ -255,6 +270,7 @@ const Game = (() => {
     SaveManager.reset();
     celebration = null;
     upgradeTutorial = null;
+    UFO.reset();
     UI.syncCoins();
     mapScene = new MapScene();
     farmScene = new FarmScene(0);
@@ -270,16 +286,20 @@ const Game = (() => {
 
     if (scene === 'loading') {
       UI.drawLoading(ctx, elapsed);
-      requestAnimationFrame(loop);
+      scheduleFrame(loop);
       return;
     }
 
-    // update (gameplay pauses during a celebration or the upgrade tutorial)
+    // update (gameplay pauses during a celebration, the upgrade tutorial,
+    // or the UFO abduction cinematic — the cinematic itself keeps animating)
     if (celebration) updateCelebration();
     else if (scene === 'farm') {
-      maybeStartUpgradeTutorial();
-      if (upgradeTutorial) upgradeTutorial.t += dt;
-      else farmScene.update(dt);
+      if (UFO.cinematicActive) UFO.update(dt);
+      else {
+        maybeStartUpgradeTutorial();
+        if (upgradeTutorial) upgradeTutorial.t += dt;
+        else { farmScene.update(dt); UFO.update(dt); }
+      }
     }
     else mapScene.update(dt);
     VFXManager.update(dt);
@@ -325,7 +345,7 @@ const Game = (() => {
     UI.drawPopup(ctx);
     if (upgradeTutorial && scene === 'farm') UI.drawUpgradeTutorial(ctx, upgradeTutorial.t);
 
-    requestAnimationFrame(loop);
+    scheduleFrame(loop);
   }
 
   window.addEventListener('load', init);

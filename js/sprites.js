@@ -485,6 +485,77 @@ const SPRITES = (() => {
   }
 
   // ============================================================
+  //  UFO / ALIEN (end-game collection layer)
+  // ============================================================
+
+  /** The alien lifeform born from a Mutant + Mutant merge. */
+  function alien() {
+    return PIXEL.sprite('alien', 18, 20, s => {
+      // antennae with purple tips
+      s.line(7, 4, 5, 2, P.tentacle); s.px(4, 1, P.purpleHi);
+      s.line(11, 4, 13, 2, P.tentacle); s.px(14, 1, P.purpleHi);
+      // big head
+      s.ellipse(9, 8, 6, 5, P.glow);
+      s.shadeEllipse(9, 8, 6, 5, P.glowDk, 1, 0.35);
+      s.ellipse(7, 6, 2.5, 2, P.glowHi);
+      // huge dark eyes with a white glint
+      s.ellipse(6.5, 8, 1.6, 2.2, P.pupil); s.px(6, 7, P.eyeWhite);
+      s.ellipse(11.5, 8, 1.6, 2.2, P.pupil); s.px(11, 7, P.eyeWhite);
+      s.px(9, 11, P.glowDk);   // tiny mouth
+      // small body + stubby arms
+      s.ellipse(9, 15, 4, 3.5, P.glow);
+      s.shadeEllipse(9, 15, 4, 3.5, P.glowDk, 1, 0.4);
+      s.ellipse(8, 14, 1.5, 1.2, P.glowHi);
+      s.px(4, 14, P.glow); s.px(3, 13, P.glowDk);
+      s.px(14, 14, P.glow); s.px(15, 13, P.glowDk);
+      s.outline();
+    });
+  }
+
+  /**
+   * Pixel UFO saucer. phase (0-2) animates the rim lights; aliens (capped
+   * at 3 shown) puts collected passengers behind the glass dome.
+   */
+  function ufo(phase = 0, aliens = 0) {
+    const shown = Math.min(aliens, 3);
+    return PIXEL.sprite(`ufo:${phase}:${shown}`, 44, 26, s => {
+      // glass dome
+      s.ellipse(22, 10, 9, 7.5, '#9adcf0');
+      s.shadeEllipse(22, 10, 9, 7.5, '#5aa8c8', 1, 0.35);
+      s.ellipse(18, 6.5, 3.5, 2.5, '#d8f4fc');
+      // collected aliens peeking through the dome
+      if (shown >= 1) {
+        s.ellipse(21, 9, 2.4, 2.2, P.glow);
+        s.px(20, 9, P.pupil); s.px(22, 9, P.pupil);
+      }
+      if (shown >= 2) {
+        s.ellipse(26, 10.5, 2, 1.8, P.glow);
+        s.px(25, 10, P.pupil); s.px(27, 10, P.pupil);
+      }
+      if (shown >= 3) {
+        s.ellipse(17, 11, 1.8, 1.6, P.glow);
+        s.px(16, 11, P.pupil); s.px(18, 11, P.pupil);
+      }
+      // saucer disc
+      s.ellipse(22, 16, 20, 6.5, '#b8c4cc');
+      s.shadeEllipse(22, 16, 20, 6.5, '#7a8890', 1, 0.4);
+      s.ellipse(14, 13.5, 6, 2, '#dce8ee');
+      // dark underside
+      s.ellipse(22, 19.5, 14, 3.2, '#5a6670');
+      // rim lights chasing around the saucer
+      for (let i = 0; i < 7; i++) {
+        const lx = Math.round(7 + i * 5);
+        const on = (i + phase) % 3 === 0;
+        s.rect(lx, 16, 2, 2, on ? P.goldHi : P.goldDk);
+      }
+      // belly beam emitter
+      s.rect(20, 21, 4, 2, P.glowDk);
+      s.px(21, 21, P.glow);
+      s.outline();
+    });
+  }
+
+  // ============================================================
   //  PROPS
   // ============================================================
 
@@ -737,7 +808,7 @@ const SPRITES = (() => {
   }
 
   return {
-    animal, ANIMAL_SIZES, poop, coin,
+    animal, ANIMAL_SIZES, poop, coin, alien, ufo,
     tree, bush, flower, rock, barrel, crate, haystack, sign, fenceH,
     farmhouse, barn, shed,
     mapPin, lock, gear, arrowUp, xIcon,

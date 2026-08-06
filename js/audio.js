@@ -65,6 +65,24 @@ const AudioManager = (() => {
       setTimeout(() => tone(880, 0.1, 'square', 0.16), 70);
       setTimeout(() => tone(1320, 0.16, 'triangle', 0.2), 140);
     },
+    ufo()    {
+      // wobbly saucer hum
+      tone(140, 0.9, 'sawtooth', 0.07, null, 80);
+      tone(220, 0.9, 'sine', 0.09, null, 120);
+      setTimeout(() => tone(180, 0.6, 'sine', 0.07, null, -60), 350);
+    },
+    beam()   {
+      // tractor-beam zap sweeping down
+      tone(1400, 0.35, 'sawtooth', 0.07, null, -900);
+      tone(900, 0.3, 'sine', 0.1, null, -500);
+      noise(0.2, 0.05, 3000);
+    },
+    alien()  {
+      // chirpy "collected!" jingle
+      tone(700, 0.09, 'square', 0.14, null, 300);
+      setTimeout(() => tone(1050, 0.1, 'square', 0.12, null, 350), 80);
+      setTimeout(() => tone(1580, 0.2, 'triangle', 0.16), 160);
+    },
     unlock() {
       const seq = [523, 659, 784, 1047, 1319];
       seq.forEach((f, i) => setTimeout(() => tone(f, 0.35, 'triangle', 0.28), i * 110));

@@ -22,6 +22,11 @@ Any static file server works — there are no build steps and no dependencies.
   (stage 1/2/3 → 2/5/12 coins) which flies to the HUD counter.
 - **Spawning**: each farm auto-spawns a baby every 3 s (capped); the **UPGRADE** button
   buys an extra baby with escalating cost.
+- **UFO alien collection (end-game)**: merging Mutant + Mutant creates an alien
+  instead of a bigger animal. The first one plays a full abduction cinematic and
+  parks a UFO in the corner of the farm for good; later pairs are beamed up in
+  under a second. Each collected alien permanently raises the UFO's passive coin
+  drip (aliens x 25 coins every 5 s).
 - **Progression**: unlock Farm 2 (Sheep, 10,000) and Farm 3 (Cows, 250,000) from the
   world map or the **UNLOCK** button — with a rewarding golden-path unlock animation.
 - **EXIT** returns to the world map; tap any unlocked pin to switch farms.

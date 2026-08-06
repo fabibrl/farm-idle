@@ -74,6 +74,21 @@ const CONFIG = {
     },
   },
 
+  // UFO alien-collection layer (end-game, see js/ufo.js).
+  // Mutant + Mutant merges feed aliens to a permanently parked UFO.
+  UFO: {
+    INCOME_PER_ALIEN: 25,      // coins per production drop, per collected alien
+    INTERVAL: 5.0,             // seconds between automatic UFO coin drops
+    QUICK_COLLECT_TIME: 0.7,   // fast tractor-beam collection after landing (s)
+    CINEMATIC: {               // first-abduction cinematic phase durations (s)
+      SPAWN: 0.9,              // alien lifeform materializes at the merge point
+      ARRIVE: 1.5,             // UFO flies in from the sky
+      BEAM: 1.5,               // tractor beam pulls the alien up
+      FLY: 1.6,                // UFO travels to its landing corner
+      LAND: 0.7,               // touchdown settle
+    },
+  },
+
   // Farm unlock costs
   UNLOCK_COSTS: [0, 10000, 250000],
 

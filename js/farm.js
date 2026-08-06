@@ -144,8 +144,8 @@ class FarmScene {
     let best = null, bestDist = CONFIG.MERGE_RADIUS + d.radius * 0.5;
     for (const a of this.animals) {
       if (a === d || a.dead || a.state === 'merging' || a.state === 'spawning') continue;
-      // final stage (mutant) cannot merge further
-      if (a.species !== d.species || a.stage !== d.stage || a.stage >= CONFIG.STAGE_NAMES.length - 1) continue;
+      // mutants (final stage) can still pair up — they become a UFO alien
+      if (a.species !== d.species || a.stage !== d.stage) continue;
       const dist = U.dist(a.x, a.y, d.x, d.y);
       if (dist < bestDist) { best = a; bestDist = dist; }
     }
@@ -174,6 +174,15 @@ class FarmScene {
     a.dead = b.dead = true;
     this.animals = this.animals.filter(an => !an.dead);
     AudioManager.play('merge');
+    // Mutant + Mutant: no stage 5 — the pair permanently becomes an alien
+    // collected by the UFO (full cinematic first time, quick beam after)
+    if (newStage >= CONFIG.STAGE_NAMES.length) {
+      VFXManager.burst(mx, my - 14, ['#7de87a', '#c4ffb8', '#a07cc0', '#ffffff'], 20, 120);
+      VFXManager.sparkle(mx, my - 20, 12, 22);
+      this.persist();
+      UFO.collect(mx, my);
+      return;
+    }
     // replace with the evolved asset at the merge position, full size right away
     const evolved = new Animal(species, newStage, mx, my);
     evolved.setState('idle', U.rand(1, 2));
@@ -258,6 +267,9 @@ class FarmScene {
     const layer = a => a.dragging ? 2 : a.stage === 0 ? 1 : 0;
     const sorted = this.animals.slice().sort((a, b) => layer(a) - layer(b) || a.y - b.y);
     for (const a of sorted) a.draw(ctx);
+
+    // parked UFO / abduction cinematic (above the animals)
+    UFO.draw(ctx);
 
     if (this.tutorial) this.drawTutorial(ctx);
   }
