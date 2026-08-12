@@ -124,7 +124,7 @@ const VFXManager = (() => {
         ctx.globalAlpha = 1;
         ctx.drawImage(p.img, p.x - 12, p.y - 12 * wob, 24, 24 * wob);
       } else if (p.kind === 'text') {
-        UI.drawText(ctx, p.text, p.x, p.y, 10, p.col, 'center', true);
+        UI.drawText(ctx, p.text, p.x, p.y, UI.SIZE.BODY, p.col, 'center', true);
       }
       ctx.globalAlpha = 1;
     }

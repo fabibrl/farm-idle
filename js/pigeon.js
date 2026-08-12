@@ -257,7 +257,7 @@ const Pigeon = (() => {
         ctx.beginPath(); ctx.arc(b.x - 1, by - 1, 4, 0, 7); ctx.fill();
         ctx.fillStyle = SPRITES.P.gold;
         ctx.beginPath(); ctx.arc(b.x, by + 1, 4, 0, 7); ctx.fill();
-        UI.drawText(ctx, '!', b.x, by - 5, 10, '#5c3a1d', 'center');
+        UI.drawText(ctx, '!', b.x, by - 5, UI.SIZE.BODY, '#5c3a1d', 'center');
       }
     }
 

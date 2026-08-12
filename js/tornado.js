@@ -383,7 +383,7 @@ const Tornado = (() => {
     ctx.beginPath(); ctx.arc(ICON.x - 1, by - 1, 4, 0, 7); ctx.fill();
     ctx.fillStyle = SPRITES.P.gold;
     ctx.beginPath(); ctx.arc(ICON.x, by + 1, 4, 0, 7); ctx.fill();
-    UI.drawText(ctx, '!', ICON.x, by - 5, 10, '#5c3a1d', 'center');
+    UI.drawText(ctx, '!', ICON.x, by - 5, UI.SIZE.BODY, '#5c3a1d', 'center');
     // remaining availability bar under the icon
     const frac = U.clamp(data().remaining / C().STAY_TIME, 0, 1);
     ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(ICON.x - 14, ICON.y + 5, 28, 5);

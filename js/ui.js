@@ -1,105 +1,28 @@
 /**
- * UIManager — HUD, buttons, popups, wooden panels, and a hand-authored
- * bitmap pixel font so typography matches the art bible.
+ * UIManager — HUD, buttons, popups and wooden panels. All typography
+ * renders through the global 'pixel-art-font' engine (js/font.js).
  */
 const UI = (() => {
   const W = CONFIG.VIEW_W, H = CONFIG.VIEW_H;
   const P = () => SPRITES.P;
 
-  // ---------------- pixel font (5px tall, variable width) ----------------
-  const FONT = {
-    A: ['.##.', '#..#', '####', '#..#', '#..#'],
-    B: ['###.', '#..#', '###.', '#..#', '###.'],
-    C: ['.###', '#...', '#...', '#...', '.###'],
-    D: ['###.', '#..#', '#..#', '#..#', '###.'],
-    E: ['####', '#...', '###.', '#...', '####'],
-    F: ['####', '#...', '###.', '#...', '#...'],
-    G: ['.###', '#...', '#.##', '#..#', '.###'],
-    H: ['#..#', '#..#', '####', '#..#', '#..#'],
-    I: ['###', '.#.', '.#.', '.#.', '###'],
-    J: ['..##', '...#', '...#', '#..#', '.##.'],
-    K: ['#..#', '#.#.', '##..', '#.#.', '#..#'],
-    L: ['#...', '#...', '#...', '#...', '####'],
-    M: ['#...#', '##.##', '#.#.#', '#...#', '#...#'],
-    N: ['#..#', '##.#', '#.##', '#..#', '#..#'],
-    O: ['.##.', '#..#', '#..#', '#..#', '.##.'],
-    P: ['###.', '#..#', '###.', '#...', '#...'],
-    Q: ['.##.', '#..#', '#..#', '#.##', '.###'],
-    R: ['###.', '#..#', '###.', '#.#.', '#..#'],
-    S: ['.###', '#...', '.##.', '...#', '###.'],
-    T: ['###', '.#.', '.#.', '.#.', '.#.'],
-    U: ['#..#', '#..#', '#..#', '#..#', '.##.'],
-    V: ['#.#', '#.#', '#.#', '#.#', '.#.'],
-    W: ['#...#', '#...#', '#.#.#', '##.##', '#...#'],
-    X: ['#..#', '#..#', '.##.', '#..#', '#..#'],
-    Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
-    Z: ['####', '...#', '.##.', '#...', '####'],
-    0: ['.##.', '#..#', '#..#', '#..#', '.##.'],
-    1: ['.#.', '##.', '.#.', '.#.', '###'],
-    2: ['###.', '...#', '.##.', '#...', '####'],
-    3: ['###.', '...#', '.##.', '...#', '###.'],
-    4: ['#..#', '#..#', '####', '...#', '...#'],
-    5: ['####', '#...', '###.', '...#', '###.'],
-    6: ['.###', '#...', '###.', '#..#', '.##.'],
-    7: ['####', '...#', '..#.', '.#..', '.#..'],
-    8: ['.##.', '#..#', '.##.', '#..#', '.##.'],
-    9: ['.##.', '#..#', '.###', '...#', '##..'],
-    ',': ['.', '.', '.', '#', '#'],
-    '+': ['...', '.#.', '###', '.#.', '...'],
-    '-': ['...', '...', '###', '...', '...'],
-    ':': ['.', '#', '.', '#', '.'],
-    '.': ['.', '.', '.', '.', '#'],
-    '!': ['#', '#', '#', '.', '#'],
-    '?': ['###', '..#', '.#.', '...', '.#.'],
-    '/': ['..#', '..#', '.#.', '#..', '#..'],
-    '>': ['#..', '.#.', '..#', '.#.', '#..'],
-    ' ': ['..', '..', '..', '..', '..'],
-  };
+  // ---------------- typography ('pixel-art-font') ----------------
+  // SIZE is the hierarchy scale (TITLE 20 / SUBTITLE 15 / BUTTON+BODY 10 /
+  // CAPTION 5). drawText/measure keep the historical signature so every
+  // module (farm, ufo, pigeon, tornado, vfx) shares this one text path.
+  const SIZE = PixelFont.SIZE;
 
-  function measure(text, s) {
-    let w = 0;
-    for (const ch of String(text).toUpperCase()) {
-      const gl = FONT[ch] || FONT['?'];
-      w += (gl[0].length + 1) * s;
-    }
-    return w - s;
+  function measure(text, size) { return PixelFont.measure(text, size); }
+
+  function drawText(ctx, text, x, y, size = SIZE.BODY, col = '#fff', align = 'left', outline = false, shadow = false, maxWidth = 0) {
+    return PixelFont.draw(ctx, text, x, y, size, col, align, outline, shadow, maxWidth);
   }
 
-  function drawGlyphs(ctx, text, x, y, s, col) {
-    ctx.fillStyle = col;
-    let cx = x;
-    for (const ch of String(text).toUpperCase()) {
-      const gl = FONT[ch] || FONT['?'];
-      for (let r = 0; r < 5; r++) {
-        const row = gl[r];
-        for (let c = 0; c < row.length; c++) {
-          if (row[c] === '#') ctx.fillRect(cx + c * s, y + r * s, s, s);
-        }
-      }
-      cx += (gl[0].length + 1) * s;
-    }
-  }
-
-  /**
-   * drawText: size = glyph pixel scale * 5 (approx height in px).
-   * align: 'left' | 'center' | 'right'; outline adds dark border.
-   */
-  function drawText(ctx, text, x, y, size = 10, col = '#fff', align = 'left', outline = false, shadow = false) {
-    const s = Math.max(1, Math.round(size / 5));
-    const w = measure(text, s);
-    let px = x;
-    if (align === 'center') px = x - w / 2;
-    if (align === 'right') px = x - w;
-    px = Math.round(px); y = Math.round(y);
-    if (outline) {
-      for (const [ox, oy] of [[-s, 0], [s, 0], [0, -s], [0, s], [-s, -s], [s, -s], [-s, s], [s, s]]) {
-        drawGlyphs(ctx, text, px + ox, y + oy, s, PIXEL.OUTLINE);
-      }
-    } else if (shadow) {
-      drawGlyphs(ctx, text, px + s, y + s, s, 'rgba(0,0,0,0.4)');
-    }
-    drawGlyphs(ctx, text, px, y, s, col);
-    return w;
+  /** Popup title: auto-fitted to the bar width and vertically centered. */
+  function popupTitle(ctx, text, px, py, pw) {
+    const maxW = pw - 76;
+    const ts = PixelFont.fit(text, SIZE.SUBTITLE, maxW);
+    drawText(ctx, text, px + pw / 2, py - 10 + Math.round((26 - ts) / 2), ts, '#ffe98a', 'center', true, false, maxW);
   }
 
   // ---------------- wooden panels ----------------
@@ -177,31 +100,36 @@ const UI = (() => {
       const img = b.icon();
       const iw = img.width * 2, ih = img.height * 2;
       if (b.label) {
-        const lw = measure(b.label, 2);
+        const availW = b.w - iw - 8;
+        const fs = PixelFont.fit(b.label, SIZE.BUTTON, availW);
+        const lw = Math.min(measure(b.label, fs), availW);
         const total = iw + 6 + lw;
         ctx.drawImage(img, Math.round(tx - total / 2), Math.round(ty - ih / 2), iw, ih);
-        drawText(ctx, b.label, tx - total / 2 + iw + 6, ty - 5, 10, '#fff6e8', 'left', true);
+        drawText(ctx, b.label, tx - total / 2 + iw + 6, ty - fs / 2, fs, '#fff6e8', 'left', true, false, availW);
       } else {
         ctx.drawImage(img, Math.round(tx - iw / 2), Math.round(ty - ih / 2), iw, ih);
       }
     } else if (b.label) {
-      drawText(ctx, b.label, tx, ty - 5, 10, '#fff6e8', 'center', true);
+      const availW = b.w - 8;
+      const fs = PixelFont.fit(b.label, SIZE.BUTTON, availW);
+      drawText(ctx, b.label, tx, ty - fs / 2, fs, '#fff6e8', 'center', true, false, availW);
     }
   }
 
   /** Small wooden sign with 1-2 lines (used on world map). */
   function woodSign(ctx, cx, cy, line1, line2, cost) {
-    const w = Math.max(measure(line1, 2), line2 ? measure(line2, 1) : 0, cost ? measure(cost, 1) + 12 : 0) + 18;
+    const w = Math.max(measure(line1, SIZE.BUTTON), line2 ? measure(line2, SIZE.CAPTION) : 0,
+                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0) + 18;
     const h = 18 + (line2 ? 9 : 0) + (cost ? 11 : 0);
     woodPanel(ctx, cx - w / 2, cy, w, h, {});
-    drawText(ctx, line1, cx, cy + 5, 10, '#f4e8cc', 'center', true);
+    drawText(ctx, line1, cx, cy + 5, SIZE.BUTTON, '#f4e8cc', 'center', true);
     let yy = cy + 17;
-    if (line2) { drawText(ctx, line2, cx, yy, 5, '#e0cfa8', 'center'); yy += 10; }
+    if (line2) { drawText(ctx, line2, cx, yy, SIZE.CAPTION, '#e0cfa8', 'center'); yy += 10; }
     if (cost) {
       const img = SPRITES.coin(1);
-      const tw = measure(cost, 1);
+      const tw = measure(cost, SIZE.CAPTION);
       ctx.drawImage(img, cx - tw / 2 - 12, yy - 3, 10, 10);
-      drawText(ctx, cost, cx - tw / 2, yy, 5, '#ffe98a', 'left');
+      drawText(ctx, cost, cx - tw / 2, yy, SIZE.CAPTION, '#ffe98a', 'left');
     }
     // legs
     ctx.fillStyle = P().woodDk;
@@ -222,13 +150,16 @@ const UI = (() => {
     ctx.fillStyle = '#e8d8b4'; ctx.fillRect(x, y, w, h);
     ctx.fillStyle = '#f2e6c8'; ctx.fillRect(x, y, w, 3);
 
-    drawText(ctx, inf.label + ' LV ' + inf.level, x + 10, y + 9, 10, '#5c3a1d');
+    // text column ends before the BUY button column (bw + paddings)
+    const bw = 58, bh = 26;
+    const textW = w - bw - 26;
+    drawText(ctx, inf.label + ' LV ' + inf.level, x + 10, y + 9, SIZE.BODY, '#5c3a1d', 'left', false, false, textW);
     let ly = y + 28;
-    for (const line of inf.lines) { drawText(ctx, line, x + 10, ly, 5, '#7d5027'); ly += 12; }
+    const lh = PixelFont.lineHeight(SIZE.CAPTION) + 5;
+    for (const line of inf.lines) { drawText(ctx, line, x + 10, ly, SIZE.CAPTION, '#7d5027', 'left', false, false, textW); ly += lh; }
 
     // buy button + cost tag
     const fx = popup.fx[inf.key] || 0;
-    const bw = 58, bh = 26;
     const btn = { x: x + w - bw - 10, y: y + 9, w: bw, h: bh };
     const afford = SaveManager.data.coins >= inf.cost;
     drawButton(ctx, {
@@ -239,10 +170,10 @@ const UI = (() => {
     });
     if (!inf.maxed) {
       const cost = U.fmt(inf.cost);
-      const tw = measure(cost, 1);
+      const tw = measure(cost, SIZE.CAPTION);
       const cx = btn.x + btn.w / 2;
       ctx.drawImage(SPRITES.coin(1), cx - tw / 2 - 12, btn.y + bh + 6, 10, 10);
-      drawText(ctx, cost, cx - tw / 2, btn.y + bh + 8, 5, afford ? '#b8860b' : '#b0442f', 'left');
+      drawText(ctx, cost, cx - tw / 2, btn.y + bh + 8, SIZE.CAPTION, afford ? '#b8860b' : '#b0442f', 'left');
     }
 
     // purchase highlight flash
@@ -318,7 +249,7 @@ const UI = (() => {
     ctx.beginPath(); ctx.arc(cx - 1, cy - 1, r - 2, 0, 7); ctx.fill();
     ctx.fillStyle = '#c0453a';
     ctx.beginPath(); ctx.arc(cx, cy + 1, r - 2, 0, 7); ctx.fill();
-    drawText(ctx, '!', cx, cy - 5, 10, '#fff6e8', 'center');
+    drawText(ctx, '!', cx, cy - 5, SIZE.BODY, '#fff6e8', 'center');
   }
 
   // ---------------- HUD ----------------
@@ -336,13 +267,15 @@ const UI = (() => {
     coinPulse = Math.max(0, coinPulse - Game.dt * 4);
     const cs = 26 + coinPulse * 8;
     ctx.drawImage(coinImg, COIN_POS.x - cs / 2, COIN_POS.y - cs / 2, cs, cs);
-    drawText(ctx, U.fmt(displayedCoins), 48, 21, 10, '#fff6e8', 'left', false, true);
+    drawText(ctx, U.fmt(displayedCoins), 48, 22, SIZE.BODY, '#fff6e8', 'left', false, true, 78);
 
-    // farm name plaque
+    // farm name plaque — auto-fits between the coin capsule and settings button
     const name = scene === 'map' ? 'WORLD MAP' : CONFIG.FARMS[SaveManager.data.currentFarm].name;
-    const nw = measure(name, 2) + 28;
+    const plaqueMax = 132;
+    const ts = PixelFont.fit(name, SIZE.SUBTITLE, plaqueMax - 28);
+    const nw = Math.min(measure(name, ts) + 28, plaqueMax);
     woodPanel(ctx, Math.round(W / 2 - nw / 2) + 20, 12, nw, 30, { gold: true });
-    drawText(ctx, name, W / 2 + 20, 22, 10, '#f4e8cc', 'center', true);
+    drawText(ctx, name, W / 2 + 20, 12 + Math.round((30 - ts) / 2), ts, '#f4e8cc', 'center', true, false, plaqueMax - 28);
 
     // buttons for this scene
     for (const b of buttons) {
@@ -363,9 +296,10 @@ const UI = (() => {
       else {
         const a = Math.min(1, toast.t * 2);
         ctx.globalAlpha = a;
-        const tw2 = measure(toast.text, 2) + 24;
+        const tt = PixelFont.truncate(toast.text, SIZE.BODY, W - 52);
+        const tw2 = measure(tt, SIZE.BODY) + 24;
         inset(ctx, W / 2 - tw2 / 2, 84, tw2, 22);
-        drawText(ctx, toast.text, W / 2, 90, 10, '#ffb0a0', 'center');
+        drawText(ctx, tt, W / 2, 90, SIZE.BODY, '#ffb0a0', 'center');
         ctx.globalAlpha = 1;
       }
     }
@@ -382,8 +316,8 @@ const UI = (() => {
     const t = popup.fxT;
     const cx = px + pw / 2;
 
-    drawText(ctx, 'NEW EVOLUTION', cx, py - 2, 10, '#ffe98a', 'center', true);
-    drawText(ctx, 'DISCOVERED!', cx, py + 22, 15, '#ffe98a', 'center', true);
+    popupTitle(ctx, 'NEW EVOLUTION', px, py, pw);
+    drawText(ctx, 'DISCOVERED!', cx, py + 22, SIZE.TITLE, '#ffe98a', 'center', true, false, pw - 24);
 
     // golden frame
     const fs = 150, fx = cx - fs / 2, fy = py + 48;
@@ -438,10 +372,10 @@ const UI = (() => {
     }
     ctx.restore();
 
-    // name, stage, flavor
-    drawText(ctx, Discovery.displayName(popup.species, popup.stage), cx, fy + fs + 14, 10, '#ffe98a', 'center', true);
-    drawText(ctx, 'STAGE ' + (popup.stage + 1) + ' - ' + CONFIG.STAGE_NAMES[popup.stage], cx, fy + fs + 32, 5, '#f4e8cc', 'center');
-    drawText(ctx, Discovery.flavor(popup.species, popup.stage), cx, fy + fs + 46, 5, '#e0cfa8', 'center');
+    // name, stage, flavor (flavor auto-wraps inside the panel)
+    drawText(ctx, Discovery.displayName(popup.species, popup.stage), cx, fy + fs + 14, SIZE.BODY, '#ffe98a', 'center', true, false, pw - 24);
+    drawText(ctx, 'STAGE ' + (popup.stage + 1) + ' - ' + CONFIG.STAGE_NAMES[popup.stage], cx, fy + fs + 32, SIZE.CAPTION, '#f4e8cc', 'center');
+    PixelFont.drawWrapped(ctx, Discovery.flavor(popup.species, popup.stage), cx, fy + fs + 46, SIZE.CAPTION, '#e0cfa8', 'center', pw - 28, 2);
 
     // CONTINUE
     popup.okRect = { x: px + 50, y: py + ph - 56, w: pw - 100, h: 40 };
@@ -478,8 +412,8 @@ const UI = (() => {
       popup.t += Game.dt;
       ctx.fillStyle = 'rgba(8,8,12,0.94)';
       ctx.fillRect(0, 0, W, H);
-      drawText(ctx, 'REWARD AD', W / 2, H / 2 - 80, 15, '#fff6e8', 'center', true);
-      drawText(ctx, 'SIMULATED AD PLACEHOLDER', W / 2, H / 2 - 52, 5, '#8c8678', 'center');
+      drawText(ctx, 'REWARD AD', W / 2, H / 2 - 84, SIZE.TITLE, '#fff6e8', 'center', true);
+      drawText(ctx, 'SIMULATED AD PLACEHOLDER', W / 2, H / 2 - 52, SIZE.CAPTION, '#8c8678', 'center');
       // silly ad: pigeon on a bombing run across the screen
       const t = Math.min(popup.t / popup.dur, 1);
       const bx = U.lerp(40, W - 40, t);
@@ -491,7 +425,7 @@ const UI = (() => {
       inset(ctx, W / 2 - 80, H / 2 + 60, 160, 14);
       ctx.fillStyle = '#7dbb4a';
       ctx.fillRect(W / 2 - 78, H / 2 + 62, Math.max(0, Math.round(156 * t)), 10);
-      drawText(ctx, 'REWARD IN ' + Math.ceil(popup.dur - popup.t) + 'S', W / 2, H / 2 + 88, 5, '#c8b088', 'center');
+      drawText(ctx, 'REWARD IN ' + Math.ceil(popup.dur - popup.t) + 'S', W / 2, H / 2 + 88, SIZE.CAPTION, '#c8b088', 'center');
       if (popup.t >= popup.dur) { const done = popup.onDone; popup = null; done(); }
       return;
     }
@@ -521,7 +455,7 @@ const UI = (() => {
 
     if (popup.type === 'unlock') {
       const f = CONFIG.FARMS[popup.farmId];
-      drawText(ctx, 'UNLOCK ' + f.name, px + pw / 2, py - 2, 10, '#ffe98a', 'center', true);
+      popupTitle(ctx, 'UNLOCK ' + f.name, px, py, pw);
       // inner parchment card
       ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 28, pw - 36, 104);
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 30, pw - 40, 100);
@@ -529,24 +463,24 @@ const UI = (() => {
       // animal preview
       const img = SPRITES.animal(f.species, 1, 'idle', false);
       PIXEL.blit(ctx, img, px + 58, py + 116, 2.6);
-      drawText(ctx, f.label.replace(/S$/, '') + ' FARM', px + 144, py + 48, 10, '#5c3a1d', 'center');
-      drawText(ctx, 'UNLOCK COST:', px + 144, py + 72, 5, '#7d5027', 'center');
+      drawText(ctx, f.label.replace(/S$/, '') + ' FARM', px + 144, py + 48, SIZE.BODY, '#5c3a1d', 'center', false, false, 136);
+      drawText(ctx, 'UNLOCK COST:', px + 144, py + 72, SIZE.CAPTION, '#7d5027', 'center');
       const cost = U.fmt(CONFIG.UNLOCK_COSTS[popup.farmId]);
-      const cw = measure(cost, 2);
+      const cw = measure(cost, SIZE.BODY);
       ctx.drawImage(SPRITES.coin(2), px + 144 - cw / 2 - 20, py + 84, 16, 16);
-      drawText(ctx, cost, px + 144 - cw / 2, py + 88, 10, '#b8860b', 'left');
+      drawText(ctx, cost, px + 144 - cw / 2, py + 88, SIZE.BODY, '#b8860b', 'left');
       // unlock button
       const can = SaveManager.data.coins >= CONFIG.UNLOCK_COSTS[popup.farmId];
       popup.okRect = { x: px + 40, y: py + ph - 60, w: pw - 80, h: 40 };
       drawButton(ctx, { ...popup.okRect, color: 'green', label: 'UNLOCK', disabled: !can });
     } else if (popup.type === 'upgrades') {
       const f = CONFIG.FARMS[popup.farmId];
-      drawText(ctx, f.name + ' UPGRADES', px + pw / 2, py - 2, 10, '#ffe98a', 'center', true);
+      popupTitle(ctx, f.name + ' UPGRADES', px, py, pw);
       popup.cards = [];
       let yy = py + 20;
-      drawText(ctx, 'FARM', px + 14, yy, 5, '#e0cfa8'); yy += 12;
+      drawText(ctx, 'FARM', px + 14, yy, SIZE.CAPTION, '#e0cfa8'); yy += 12;
       yy = upgradeCard(ctx, popup, px + 12, yy, pw - 24, 62, Upgrades.info(popup.farmId, 'spawn')) + 10;
-      drawText(ctx, f.label, px + 14, yy, 5, '#e0cfa8'); yy += 12;
+      drawText(ctx, f.label, px + 14, yy, SIZE.CAPTION, '#e0cfa8'); yy += 12;
       for (let s = 0; s < CONFIG.UPGRADES.STAGES.length; s++) {
         yy = upgradeCard(ctx, popup, px + 12, yy, pw - 24, 78, Upgrades.info(popup.farmId, s)) + 8;
       }
@@ -555,7 +489,7 @@ const UI = (() => {
       drawDiscovery(ctx, px, py, pw, ph);
     } else if (popup.type === 'pigeonAd') {
       const inf = Pigeon.info();
-      drawText(ctx, 'SPECIAL DELIVERY!', px + pw / 2, py - 2, 10, '#ffe98a', 'center', true);
+      popupTitle(ctx, 'SPECIAL DELIVERY!', px, py, pw);
       // parchment card
       ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 132);
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 128);
@@ -564,22 +498,22 @@ const UI = (() => {
       popup.fxT = (popup.fxT || 0) + Game.dt;
       const bob = Math.sin(popup.fxT * 3) * 2;
       PIXEL.blit(ctx, SPRITES.pigeon('idle', false), px + 58, py + 92 + bob, 3);
-      drawText(ctx, 'COO!', px + 58, py + 104, 5, '#7d5027', 'center');
+      drawText(ctx, 'COO!', px + 58, py + 104, SIZE.CAPTION, '#7d5027', 'center');
       // reward explanation
-      drawText(ctx, 'WATCH AN AD', px + 152, py + 44, 10, '#5c3a1d', 'center');
-      drawText(ctx, 'TO GET A', px + 152, py + 64, 5, '#7d5027', 'center');
-      drawText(ctx, 'POOP RAIN!', px + 152, py + 78, 10, '#b8860b', 'center');
+      drawText(ctx, 'WATCH AN AD', px + 152, py + 44, SIZE.BODY, '#5c3a1d', 'center', false, false, 132);
+      drawText(ctx, 'TO GET A', px + 152, py + 64, SIZE.CAPTION, '#7d5027', 'center');
+      drawText(ctx, 'POOP RAIN!', px + 152, py + 78, SIZE.BODY, '#b8860b', 'center', false, false, 132);
       // payout breakdown
       PIXEL.blit(ctx, SPRITES.poop(0), px + 104, py + 138, 2);
-      drawText(ctx, 'X' + inf.count, px + 124, py + 118, 10, '#5c3a1d', 'left');
+      drawText(ctx, 'X' + inf.count, px + 124, py + 118, SIZE.BODY, '#5c3a1d', 'left');
       ctx.drawImage(SPRITES.coin(1), px + 150, py + 118, 12, 12);
-      drawText(ctx, '+' + U.fmt(inf.value) + ' EACH', px + 166, py + 120, 5, '#b8860b', 'left');
-      drawText(ctx, 'COINS COLLECT AUTOMATICALLY!', px + pw / 2, py + 144, 5, '#7d5027', 'center');
+      drawText(ctx, '+' + U.fmt(inf.value) + ' EACH', px + 166, py + 120, SIZE.CAPTION, '#b8860b', 'left');
+      drawText(ctx, 'COINS COLLECT AUTOMATICALLY!', px + pw / 2, py + 144, SIZE.CAPTION, '#7d5027', 'center', false, false, pw - 44);
       // watch button
       popup.okRect = { x: px + 40, y: py + ph - 62, w: pw - 80, h: 40 };
       drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
     } else if (popup.type === 'tornadoAd') {
-      drawText(ctx, 'TORNADO ALERT!', px + pw / 2, py - 2, 10, '#ffe98a', 'center', true);
+      popupTitle(ctx, 'TORNADO ALERT!', px, py, pw);
       // parchment card
       ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 132);
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 128);
@@ -590,22 +524,22 @@ const UI = (() => {
       const sway = Math.sin(popup.fxT * 4) * 2;
       PIXEL.blit(ctx, SPRITES.tornado(frame), px + 58 + sway, py + 122, 2);
       // reward explanation
-      drawText(ctx, 'WATCH AN AD', px + 152, py + 44, 10, '#5c3a1d', 'center');
-      drawText(ctx, 'TO UNLEASH A', px + 152, py + 64, 5, '#7d5027', 'center');
-      drawText(ctx, 'MERGE STORM!', px + 152, py + 78, 10, '#b8860b', 'center');
-      drawText(ctx, 'AUTO-MERGES EVERY', px + 152, py + 100, 5, '#7d5027', 'center');
-      drawText(ctx, 'POSSIBLE ANIMAL!', px + 152, py + 112, 5, '#7d5027', 'center');
+      drawText(ctx, 'WATCH AN AD', px + 152, py + 44, SIZE.BODY, '#5c3a1d', 'center', false, false, 132);
+      drawText(ctx, 'TO UNLEASH A', px + 152, py + 64, SIZE.CAPTION, '#7d5027', 'center');
+      drawText(ctx, 'MERGE STORM!', px + 152, py + 78, SIZE.BODY, '#b8860b', 'center', false, false, 132);
+      drawText(ctx, 'AUTO-MERGES EVERY', px + 152, py + 100, SIZE.CAPTION, '#7d5027', 'center');
+      drawText(ctx, 'POSSIBLE ANIMAL!', px + 152, py + 112, SIZE.CAPTION, '#7d5027', 'center');
       // mutants feed the UFO only where it has been unlocked
       const ufoReady = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
       drawText(ctx, ufoReady ? 'MUTANTS BECOME UFO ALIENS!' : 'MERGES ALL THE WAY TO MUTANTS!',
-        px + pw / 2, py + 144, 5, '#7d5027', 'center');
+        px + pw / 2, py + 144, SIZE.CAPTION, '#7d5027', 'center', false, false, pw - 44);
       // watch + cancel buttons
       popup.okRect = { x: px + 40, y: py + ph - 104, w: pw - 80, h: 40 };
       popup.cancelRect = { x: px + 60, y: py + ph - 54, w: pw - 120, h: 32 };
       drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
       drawButton(ctx, { ...popup.cancelRect, color: 'gray', label: 'CANCEL' });
     } else if (popup.type === 'settings') {
-      drawText(ctx, 'SETTINGS', px + pw / 2, py - 2, 10, '#ffe98a', 'center', true);
+      popupTitle(ctx, 'SETTINGS', px, py, pw);
       popup.musicRect = { x: px + 30, y: py + 34, w: pw - 60, h: 34 };
       popup.sfxRect = { x: px + 30, y: py + 78, w: pw - 60, h: 34 };
       popup.resetRect = { x: px + 30, y: py + 128, w: pw - 60, h: 34 };
@@ -613,9 +547,8 @@ const UI = (() => {
       drawButton(ctx, { ...popup.sfxRect, color: 'wood', label: 'SOUND: ' + (AudioManager.sfxOn ? 'ON' : 'OFF') });
       drawButton(ctx, { ...popup.resetRect, color: 'red', label: 'RESET SAVE' });
     } else if (popup.type === 'confirm-reset') {
-      drawText(ctx, 'RESET GAME?', px + pw / 2, py - 2, 10, '#ffe98a', 'center', true);
-      drawText(ctx, 'ALL PROGRESS WILL', px + pw / 2, py + 44, 5, '#f4e8cc', 'center');
-      drawText(ctx, 'BE LOST!', px + pw / 2, py + 56, 5, '#f4e8cc', 'center');
+      popupTitle(ctx, 'RESET GAME?', px, py, pw);
+      PixelFont.drawWrapped(ctx, 'ALL PROGRESS WILL BE LOST!', px + pw / 2, py + 44, SIZE.CAPTION, '#f4e8cc', 'center', pw - 60, 2);
       popup.okRect = { x: px + 30, y: py + 84, w: pw - 60, h: 36 };
       popup.cancelRect = { x: px + 30, y: py + 130, w: pw - 60, h: 36 };
       drawButton(ctx, { ...popup.okRect, color: 'red', label: 'YES, RESET' });
@@ -679,9 +612,9 @@ const UI = (() => {
     drawHand(ctx, target.x + target.w / 2 + 10, target.y + target.h / 2 + 8 + Math.sin(t * 4) * 4);
 
     // instruction label (kept fully on screen)
-    const lw = measure(label, 2);
+    const lw = measure(label, SIZE.BUTTON);
     const lx = U.clamp(target.x + target.w / 2, lw / 2 + 6, W - lw / 2 - 6);
-    drawText(ctx, label, lx, target.y - g - 22, 10, '#ffe98a', 'center', true);
+    drawText(ctx, label, lx, target.y - g - 22, SIZE.BUTTON, '#ffe98a', 'center', true, false, W - 12);
   }
 
   /** Returns true if the tap was consumed by UI. */
@@ -769,16 +702,16 @@ const UI = (() => {
     // decorative fence strip
     const f = SPRITES.fenceH(24);
     for (let x = 0; x < W; x += 44) ctx.drawImage(f, x, H / 2 + 60, 44, 26);
-    drawText(ctx, 'FARM EVOLUTION', W / 2, H / 2 - 60, 15, '#ffe98a', 'center', true);
+    drawText(ctx, 'FARM EVOLUTION', W / 2, H / 2 - 66, SIZE.TITLE, '#ffe98a', 'center', true, false, W - 24);
     const img = SPRITES.animal('chicken', 1, (t * 3 | 0) % 2 ? 'walk' : 'idle');
     PIXEL.blit(ctx, img, W / 2, H / 2 + 30, 3);
     const dots = '.'.repeat(1 + ((t * 2) | 0) % 3);
-    drawText(ctx, 'TAP TO START' , W / 2, H / 2 + 100, 10, '#f4e8cc', 'center', true);
-    drawText(ctx, 'LOADING' + dots, W / 2, H / 2 + 124, 5, '#c8b088', 'center');
+    drawText(ctx, 'TAP TO START' , W / 2, H / 2 + 100, SIZE.BUTTON, '#f4e8cc', 'center', true);
+    drawText(ctx, 'LOADING' + dots, W / 2, H / 2 + 124, SIZE.CAPTION, '#c8b088', 'center');
   }
 
   return {
-    drawText, measure, woodPanel, woodSign, drawButton, drawHUD, drawPopup, drawLoading,
+    SIZE, drawText, measure, woodPanel, woodSign, drawButton, drawHUD, drawPopup, drawLoading,
     drawHand, drawUpgradeTutorial,
     tap, coinTarget,
     pulseCoin() { coinPulse = 1; },

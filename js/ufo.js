@@ -206,7 +206,7 @@ const UFO = (() => {
     // collection counter under the saucer
     if (data().aliens > 0) {
       PIXEL.blit(ctx, SPRITES.alien(), p.x - 12, p.y + 30, 1);
-      UI.drawText(ctx, 'X' + data().aliens, p.x - 4, p.y + 16, 10, '#c4ffb8', 'left', true);
+      UI.drawText(ctx, 'X' + data().aliens, p.x - 4, p.y + 16, UI.SIZE.BODY, '#c4ffb8', 'left', true);
     }
   }
 

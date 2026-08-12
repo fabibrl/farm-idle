@@ -315,7 +315,7 @@ class FarmScene {
     ctx.save();
     ctx.globalAlpha = 0.85 + Math.sin(t * 4) * 0.15;
     const lx = (a.x + b.x) / 2, ly = Math.min(a.y, b.y) - 48;
-    UI.drawText(ctx, 'DRAG TO MERGE!', lx, ly, 10, '#fff6e8', 'center', true);
+    UI.drawText(ctx, 'DRAG TO MERGE!', lx, ly, UI.SIZE.BUTTON, '#fff6e8', 'center', true);
     ctx.restore();
   }
 }
