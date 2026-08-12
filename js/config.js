@@ -15,20 +15,37 @@ const CONFIG = {
   MAX_ANIMALS: 14,         // maximum simultaneous animals per farm
   SPAWN_POP_TIME: 0.35,
 
-  // Economy
-  INCOME_BY_STAGE: [2, 5, 12, 32],      // coins per poop for stage 1/2/3/4
+  // ---------------- Economy ----------------
+  // Poop is the primary income source. Per-animal passive rate (coins/sec)
+  // = coins-per-poop / (interval + jitter/2):
+  //   BABY 2/5s = 0.4    ADULT 4/5s = 0.8    ELDER 10/5s = 2.0    MUTANT 24/3.6s = 6.7
+  // Each merge tier roughly doubles per-poop value without going fully
+  // exponential (x2, x2.5, x2.4), and the animal cap means every merge
+  // frees a pen slot that a free spawn refills — so merging always grows
+  // the idle rate, and the idle rate is never zero.
+  INCOME_BY_STAGE: [2, 4, 10, 24],      // coins per poop for stage 1/2/3/4
   POOP_INTERVAL: 4.0,                   // default seconds between poops per animal
   POOP_INTERVAL_BY_STAGE: [4.0, 4.0, 4.0, 2.6],  // per-stage base poop interval (mutant poops fastest)
   POOP_INTERVAL_JITTER: 2.0,     // random extra seconds
   POOP_TO_COIN_DELAY: 1.4,       // poop sits, then transforms
   COIN_FLY_SPEED: 620,           // px/sec toward HUD
   // Per-farm upgrade system (see js/upgrades.js). All values data-driven.
+  //
+  // Pacing targets (farm 1 baseline; later farms scale via costMult):
+  //   short-term  (30-90s): BABY level, SPAWN level, another merge
+  //   medium-term (3-8min): ADULT/ELDER levels, first ELDER, first MUTANT
+  //   long-term  (10-20m+): MUTANT levels, farm unlock, first alien
+  // Each tier has its own cost growth (no single global curve): cheap tiers
+  // grow slowest so there is always a small purchase within reach, while
+  // rising income keeps time-to-next-upgrade roughly flat instead of
+  // walling. Every level adds a visible +coinStep per poop.
   UPGRADES: {
-    COST_GROWTH: 1.22,           // cost multiplier per level (1.15–1.30 recommended)
+    COST_GROWTH: 1.18,           // fallback cost multiplier per level
     FARM: {
       SPAWN: {
         label: 'SPAWN SPEED',
         baseCost: 100,
+        costGrowth: 1.3,         // strong effect (more animals = more merges), few levels
         maxLevel: 10,            // levels until minInterval is reached
         intervalStep: 0.2,       // seconds removed from spawn interval per level
         minInterval: 1.0,        // spawn interval floor
@@ -36,10 +53,10 @@ const CONFIG = {
     },
     // One entry per evolution stage; each level improves poop speed AND coin value.
     STAGES: [
-      { label: 'BABY',   baseCost: 50,   maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 1 },
-      { label: 'ADULT',  baseCost: 300,  maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 2 },
-      { label: 'ELDER',  baseCost: 1000, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 3 },
-      { label: 'MUTANT', baseCost: 4000, maxLevel: 30, poopStep: 0.25, minPoop: 0.8, coinStep: 8 },
+      { label: 'BABY',   baseCost: 30,   costGrowth: 1.16, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 1 },
+      { label: 'ADULT',  baseCost: 120,  costGrowth: 1.17, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 2 },
+      { label: 'ELDER',  baseCost: 500,  costGrowth: 1.18, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 4 },
+      { label: 'MUTANT', baseCost: 2500, costGrowth: 1.20, maxLevel: 30, poopStep: 0.25, minPoop: 0.8, coinStep: 8 },
     ],
   },
 
@@ -94,17 +111,20 @@ const CONFIG = {
   // Pigeon reward-ad event (see js/pigeon.js). Every value here is a
   // Remote Config default: override at runtime via
   // window.RemoteConfig = { PIGEON: { SPAWN_INTERVAL: 30, ... } }.
+  // Reward = REWARD_MINUTES of the farm's CURRENT passive income, split
+  // across the rain — the ad scales with the player's economy forever
+  // (meaningful acceleration, never mandatory, never game-breaking).
   PIGEON: {
     ENABLED: true,         // reward ad offer on/off (kill switch)
-    SPAWN_INTERVAL: 60,    // seconds between pigeon visits
+    SPAWN_INTERVAL: 75,    // seconds between pigeon visits (offers stay occasional)
     STAY_TIME: 120,        // seconds the pigeon waits on the fence
     FLY_TIME: 2.6,         // fly-across-and-land duration (s)
     LEAVE_TIME: 1.6,       // fly-away duration when ignored (s)
-    POOP_COUNT: 8,         // poops per Poop Rain
-    COIN_PER_POOP: 0,      // 0 = auto: REWARD_MULT x one Level REWARD_STAGE+1 poop
-    REWARD_STAGE: 1,       // stage index the auto reward scales from (1 = Level 2 / ADULT)
-    REWARD_MULT: 2,        // reward multiplier on that stage's poop value
-    RAIN_DURATION: 3.0,    // seconds over which the poops spawn
+    POOP_COUNT: 10,        // poops per Poop Rain
+    COIN_PER_POOP: 0,      // 0 = auto: income-based (see REWARD_MINUTES); >0 = fixed override
+    REWARD_MINUTES: 4,     // rain total = this many minutes of current passive income
+    MIN_PER_POOP: 5,       // reward floor per poop (fresh-farm early game)
+    RAIN_DURATION: 3.5,    // seconds over which the poops spawn
     REWARD_COOLDOWN: 0,    // extra seconds before the next visit after a claim
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
   },
@@ -112,18 +132,25 @@ const CONFIG = {
   // Tornado Auto Merge reward-ad event (see js/tornado.js). Every value
   // here is a Remote Config default: override at runtime via
   // window.RemoteConfig = { TORNADO: { SPAWN_INTERVAL: 30, ... } }.
+  // The offer waits for a moment where it saves real work: it only appears
+  // once the countdown has elapsed AND the pen is crowded with several
+  // merges pending ("here's a boost if you want it", never a nag).
   TORNADO: {
     ENABLED: true,         // reward ad offer on/off (kill switch)
-    SPAWN_INTERVAL: 120,   // seconds between tornado offers
+    SPAWN_INTERVAL: 150,   // seconds between tornado offers (minimum)
     STAY_TIME: 60,         // seconds the icon stays available once it appears
+    MIN_ANIMALS: 8,        // pen crowding required before the offer appears
+    MIN_PAIRS: 2,          // pending merge pairs required before the offer appears
     TRAVEL_SPEED: 1.0,     // tornado animation speed multiplier
     MERGE_INTERVAL: 0.12,  // seconds between survivors tossed back out after the merge blast
     REWARD_COOLDOWN: 0,    // extra seconds before the next offer after a claim
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
   },
 
-  // Farm unlock costs
-  UNLOCK_COSTS: [0, 10000, 250000],
+  // Farm unlock costs — the long-term goals. Tuned to ~15-25 min of the
+  // previous farm's mature income (goal windows stretch as the player
+  // progresses, but never wall).
+  UNLOCK_COSTS: [0, 12000, 120000],
 
   // Animal behaviour
   WALK_SPEED_MIN: 14,
@@ -159,10 +186,13 @@ const CONFIG = {
   SAVE_KEY: 'farm-evolution-save-v1',
   AUTOSAVE_INTERVAL: 10,   // seconds
 
-  // Farms
+  // Farms. Dynamic balance: each farm scales the whole economy up —
+  // incomeMult multiplies every coin payout (poops, aliens) and costMult
+  // multiplies every upgrade cost, so the curve keeps its early-game shape
+  // while numbers, goals and ad rewards grow with the player.
   FARMS: [
-    { id: 0, name: 'FARM 1', species: 'chicken', label: 'CHICKENS' },
-    { id: 1, name: 'FARM 2', species: 'sheep',   label: 'SHEEP' },
-    { id: 2, name: 'FARM 3', species: 'cow',     label: 'COWS' },
+    { id: 0, name: 'FARM 1', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1 },
+    { id: 1, name: 'FARM 2', species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4 },
+    { id: 2, name: 'FARM 3', species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12 },
   ],
 };

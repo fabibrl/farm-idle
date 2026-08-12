@@ -6,9 +6,11 @@
  * seconds playing idle animations (blinking, looking around, the odd wing
  * flap). Tapping it opens the reward-ad popup; completing the ad removes
  * the pigeon and triggers a Poop Rain: poops (the same asset the animals
- * produce) fall over the pen and each one auto-collects into coins worth
- * one Level 1 (baby) animal drop. Ignoring the pigeon for STAY_TIME loses
- * the opportunity until the next visit.
+ * produce) fall over the pen and each one auto-collects into coins. The
+ * whole rain is worth REWARD_MINUTES of the farm's current passive income
+ * (see poopValue), so the offer scales with the player's economy forever.
+ * Ignoring the pigeon for STAY_TIME loses the opportunity until the next
+ * visit.
  *
  * Per-farm state (spawn countdown + remaining perch time) lives in
  * SaveManager.data.pigeon, so every farm runs its own independent event
@@ -46,14 +48,19 @@ const Pigeon = (() => {
   }
 
   /**
-   * Coins one poop pays out. Auto mode (COIN_PER_POOP = 0):
-   * REWARD_MULT x the current poop value of a Level REWARD_STAGE+1 animal,
-   * so the reward keeps scaling with future stage rebalances and upgrades.
+   * Coins one poop pays out. Auto mode (COIN_PER_POOP = 0): the whole rain
+   * is worth REWARD_MINUTES of the farm's CURRENT passive income, split
+   * evenly across POOP_COUNT poops. Pricing the ad off the live income
+   * rate keeps it a meaningful accelerator at every stage of the game —
+   * "a few minutes of progress, right now" — without ever dwarfing normal
+   * play or going stale late-game. MIN_PER_POOP floors a fresh farm.
    */
   function poopValue() {
     const cfg = C();
     if (cfg.COIN_PER_POOP > 0) return cfg.COIN_PER_POOP;
-    return cfg.REWARD_MULT * Upgrades.coinValue(SaveManager.data.currentFarm, cfg.REWARD_STAGE);
+    const farm = Game.farm;
+    const rate = Upgrades.incomeRate(SaveManager.data.currentFarm, farm ? farm.animals : []);
+    return Math.max(cfg.MIN_PER_POOP, Math.round(rate * cfg.REWARD_MINUTES * 60 / cfg.POOP_COUNT));
   }
 
   function spawn(restore) {

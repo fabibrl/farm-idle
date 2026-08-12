@@ -1,8 +1,10 @@
 /**
  * TornadoManager — reward-ad event layer (Tornado Auto Merge).
  *
- * Every SPAWN_INTERVAL seconds a tornado icon appears on the left side of
- * the screen and stays available for STAY_TIME seconds. Tapping it opens
+ * At most every SPAWN_INTERVAL seconds — and only once the pen is crowded
+ * with several merges pending (see offerWorthwhile) — a tornado icon
+ * appears on the left side of the screen and stays available for
+ * STAY_TIME seconds. Tapping it opens
  * the reward-ad popup; completing the ad sends a large pixel tornado
  * sweeping across the farm. The tornado is pure quality-of-life: it
  * performs exactly the merges the player could make by hand, only much
@@ -41,6 +43,32 @@ const Tornado = (() => {
 
   const smooth = t => { t = U.clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 
+  /**
+   * Reward-ad timing: only offer the tornado at a moment where it saves
+   * real manual work — a crowded pen with several merges waiting. The
+   * countdown may have long elapsed; the icon then appears the moment the
+   * farm actually fills up ("here's a boost if you want it", not a nag).
+   * Mutant pairs only count where the UFO is unlocked (they can't merge
+   * otherwise, matching the funnel's own rule).
+   */
+  function offerWorthwhile() {
+    const scene = Game.farm;
+    if (!scene || scene.tutorial) return false;
+    if (scene.animals.length < C().MIN_ANIMALS) return false;
+    const top = CONFIG.STAGE_NAMES.length - 1;
+    const landed = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
+    const counts = {};
+    for (const a of scene.animals) {
+      if (a.state === 'merging') continue;
+      if (a.stage === top && !landed) continue;
+      const k = a.species + ':' + a.stage;
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    let pairs = 0;
+    for (const k in counts) pairs += Math.floor(counts[k] / 2);
+    return pairs >= C().MIN_PAIRS;
+  }
+
   // ---------------- availability cycle ----------------
   function update(dt, tutorialActive) {
     clockT += dt;
@@ -50,10 +78,11 @@ const Tornado = (() => {
     // restore an offer that was left available on this farm
     if (!icon && d.remaining > 0 && !tutorialActive) icon = { t: 0 };
 
-    // offer countdown: one offer at a time, never during the tutorial
+    // offer countdown: one offer at a time, never during the tutorial,
+    // and only released once the pen is crowded enough to be worth it
     if (!icon && d.remaining <= 0 && !tutorialActive) {
       d.next -= dt;
-      if (d.next <= 0) {
+      if (d.next <= 0 && offerWorthwhile()) {
         icon = { t: 0 };
         d.remaining = C().STAY_TIME;
         SaveManager.save();

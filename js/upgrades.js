@@ -19,8 +19,9 @@ const Upgrades = (() => {
   }
 
   function cost(farmId, key) {
-    const base = key === 'spawn' ? CU().FARM.SPAWN.baseCost : CU().STAGES[key].baseCost;
-    return Math.round(base * Math.pow(CU().COST_GROWTH, level(farmId, key)));
+    const def = key === 'spawn' ? CU().FARM.SPAWN : CU().STAGES[key];
+    const growth = def.costGrowth || CU().COST_GROWTH;
+    return Math.round(def.baseCost * Math.pow(growth, level(farmId, key)) * CONFIG.FARMS[farmId].costMult);
   }
 
   function maxLevel(key) {
@@ -46,7 +47,31 @@ const Upgrades = (() => {
 
   /** Coins granted when a poop of this stage transforms on this farm. */
   function coinValue(farmId, stage, lv = level(farmId, stage)) {
-    return CONFIG.INCOME_BY_STAGE[stage] + lv * CU().STAGES[stage].coinStep;
+    return Math.round((CONFIG.INCOME_BY_STAGE[stage] + lv * CU().STAGES[stage].coinStep)
+                      * CONFIG.FARMS[farmId].incomeMult);
+  }
+
+  /** Coins one UFO alien pays out per production drop on this farm. */
+  function alienValue(farmId) {
+    return Math.round(CONFIG.UFO.INCOME_PER_ALIEN * CONFIG.FARMS[farmId].incomeMult);
+  }
+
+  /**
+   * Current passive income of a farm in coins/sec: every animal's poop
+   * value over its average cycle, plus the landed UFO's alien drip.
+   * This is the economy's yardstick — reward ads price themselves off it
+   * so acceleration always stays proportional to normal play.
+   */
+  function incomeRate(farmId, animals) {
+    let rate = 0;
+    for (const a of animals) {
+      if (a.state === 'merging') continue;
+      rate += coinValue(farmId, a.stage)
+            / (poopInterval(farmId, a.stage) + CONFIG.POOP_INTERVAL_JITTER / 2);
+    }
+    const ufo = SaveManager.data.ufo[farmId];
+    if (ufo && ufo.landed) rate += ufo.aliens * alienValue(farmId) / CONFIG.UFO.INTERVAL;
+    return rate;
   }
 
   /** Attempt a purchase. Returns {ok} or {ok:false, reason}. */
@@ -94,5 +119,5 @@ const Upgrades = (() => {
     return { key, label, level: lv, maxed, cost: maxed ? 0 : cost(farmId, key), stats };
   }
 
-  return { level, cost, isMaxed, spawnInterval, poopInterval, coinValue, buy, info, anyAffordable };
+  return { level, cost, isMaxed, spawnInterval, poopInterval, coinValue, alienValue, incomeRate, buy, info, anyAffordable };
 })();

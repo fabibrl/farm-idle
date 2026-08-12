@@ -60,7 +60,7 @@ const UFO = (() => {
     VFXManager.burst(p.x, p.y - 24, ['#7de87a', '#c4ffb8', '#ffe98a', '#ffffff'], 20, 120);
     VFXManager.sparkle(p.x, p.y - 26, 14, 26);
     VFXManager.floatText(p.x, p.y - 52, '+1 ALIEN', '#c4ffb8');
-    VFXManager.floatText(p.x, p.y - 38, '+' + C().INCOME_PER_ALIEN + '/' + C().INTERVAL.toFixed(0) + 'S');
+    VFXManager.floatText(p.x, p.y - 38, '+' + Upgrades.alienValue(SaveManager.data.currentFarm) + '/' + C().INTERVAL.toFixed(0) + 'S');
     flashT = 0.3;
   }
 
@@ -99,7 +99,7 @@ const UFO = (() => {
       if (prodT >= C().INTERVAL) {
         prodT = 0;
         const p = spot();
-        const value = data().aliens * C().INCOME_PER_ALIEN;
+        const value = data().aliens * Upgrades.alienValue(SaveManager.data.currentFarm);
         const t = UI.coinTarget();
         VFXManager.flyCoin(p.x, p.y - 18, t.x, t.y, () => {
           Game.addCoins(value);
