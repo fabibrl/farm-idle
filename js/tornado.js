@@ -15,7 +15,7 @@
  * at every level — e.g. 4 babies -> 2 adults -> 1 elder). Animals are
  * pooled and merged strictly per species, never across species, matching
  * the manual drag-merge rule. Odd leftovers survive unchanged, and
- * max-level Mutants only pair off into UFO aliens on farms where the UFO
+ * max-level Mutants only pair off into MUTANT 2s on farms where the UFO
  * has already been unlocked — otherwise they are never even collected.
  * The evolved survivors are tossed back onto the farm and the tornado
  * leaves. Ignoring the icon loses the offer until the next cycle.
@@ -254,7 +254,7 @@ const Tornado = (() => {
    * Per species (never across species), from the lowest level up:
    * 2 x level N -> 1 x level N+1, newly created animals feeding straight
    * into the next level, until fewer than 2 remain at every level. Odd
-   * leftovers survive unchanged. Max-level Mutant pairs become UFO aliens
+   * leftovers survive unchanged. Max-level Mutant pairs become MUTANT 2s
    * only where the UFO is unlocked; otherwise Mutants pass through as-is.
    * The survivors replace the funnel contents for the eject phase.
    */
@@ -298,7 +298,7 @@ const Tornado = (() => {
     VFXManager.sparkle(r.x, r.y - 50, 16, 26);
     if (aliens > 0) {
       VFXManager.burst(r.x, r.y - 44, ['#7de87a', '#c4ffb8', '#a07cc0'], 14, 110);
-      VFXManager.floatText(r.x, ty, aliens + 'X ALIEN!', '#c4ffb8');
+      VFXManager.floatText(r.x, ty, aliens + 'X MUTANT 2!', '#c4ffb8');
       for (let i = 0; i < aliens; i++) UFO.collect(r.x + U.rand(-10, 10), r.y - 40);
     }
     // survivors keep spinning in the funnel until ejected one by one

@@ -552,7 +552,7 @@ const UI = (() => {
       drawText(ctx, 'POSSIBLE ANIMAL!', px + 152, py + 112, SIZE.CAPTION, '#7d5027', 'center');
       // mutants feed the UFO only where it has been unlocked
       const ufoReady = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
-      drawText(ctx, ufoReady ? 'MUTANTS BECOME UFO ALIENS!' : 'MERGES ALL THE WAY TO MUTANTS!',
+      drawText(ctx, ufoReady ? 'MUTANTS BECOME MUTANT 2!' : 'MERGES ALL THE WAY TO MUTANTS!',
         px + pw / 2, py + 144, SIZE.CAPTION, '#7d5027', 'center', false, false, pw - 44);
       // watch + cancel buttons
       popup.okRect = { x: px + 40, y: py + ph - 104, w: pw - 80, h: 40 };

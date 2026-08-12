@@ -93,16 +93,18 @@ const CONFIG = {
     },
   },
 
-  // UFO alien-collection layer (end-game, see js/ufo.js).
-  // Mutant + Mutant merges feed aliens to a permanently parked UFO.
+  // UFO Mutant 2 collection layer (end-game, see js/ufo.js).
+  // Mutant + Mutant merges feed MUTANT 2s (each farm's final, fully
+  // mutated animal form) to a permanently parked UFO. Internal ALIEN key
+  // names are kept for save compatibility.
   UFO: {
-    INCOME_PER_ALIEN: 25,      // coins per production drop, per collected alien
+    INCOME_PER_ALIEN: 25,      // coins per production drop, per collected Mutant 2
     INTERVAL: 5.0,             // seconds between automatic UFO coin drops
     QUICK_COLLECT_TIME: 0.7,   // fast tractor-beam collection after landing (s)
     CINEMATIC: {               // first-abduction cinematic phase durations (s)
-      SPAWN: 0.9,              // alien lifeform materializes at the merge point
+      SPAWN: 0.9,              // Mutant 2 materializes at the merge point
       ARRIVE: 1.5,             // UFO flies in from the sky
-      BEAM: 1.5,               // tractor beam pulls the alien up
+      BEAM: 1.5,               // tractor beam pulls the Mutant 2 up
       FLY: 1.6,                // UFO travels to its landing corner
       LAND: 0.7,               // touchdown settle
     },

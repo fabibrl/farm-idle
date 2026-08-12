@@ -485,29 +485,143 @@ const SPRITES = (() => {
   }
 
   // ============================================================
-  //  UFO / ALIEN (end-game collection layer)
+  //  UFO / MUTANT 2 (end-game collection layer)
   // ============================================================
 
-  /** The alien lifeform born from a Mutant + Mutant merge. */
-  function alien() {
-    return PIXEL.sprite('alien', 18, 20, s => {
-      // antennae with purple tips
-      s.line(7, 4, 5, 2, P.tentacle); s.px(4, 1, P.purpleHi);
-      s.line(11, 4, 13, 2, P.tentacle); s.px(14, 1, P.purpleHi);
-      // big head
-      s.ellipse(9, 8, 6, 5, P.glow);
-      s.shadeEllipse(9, 8, 6, 5, P.glowDk, 1, 0.35);
-      s.ellipse(7, 6, 2.5, 2, P.glowHi);
-      // huge dark eyes with a white glint
-      s.ellipse(6.5, 8, 1.6, 2.2, P.pupil); s.px(6, 7, P.eyeWhite);
-      s.ellipse(11.5, 8, 1.6, 2.2, P.pupil); s.px(11, 7, P.eyeWhite);
-      s.px(9, 11, P.glowDk);   // tiny mouth
-      // small body + stubby arms
-      s.ellipse(9, 15, 4, 3.5, P.glow);
-      s.shadeEllipse(9, 15, 4, 3.5, P.glowDk, 1, 0.4);
-      s.ellipse(8, 14, 1.5, 1.2, P.glowHi);
-      s.px(4, 14, P.glow); s.px(3, 13, P.glowDk);
-      s.px(14, 14, P.glow); s.px(15, 13, P.glowDk);
+  /**
+   * MUTANT 2 — the final match stage, born from a Mutant + Mutant merge.
+   * Built from scratch, sharing no silhouette, pose, or feature set with
+   * the stage-4 Mutant: the escalation is structural chaos — extra heads,
+   * extra legs, eyes budding where they shouldn't, duplicated and
+   * mismatched anatomy — while each still reads as the farm's animal.
+   * Bottom-anchored 30x28, blitted by the UFO exactly like the old alien.
+   */
+  function mutant2(species) {
+    return PIXEL.sprite(`mut2:${species}`, 30, 28, s => {
+      if (species === 'chicken') {
+        // HYDRA CHICK — THREE heads on necks of different heights, FOUR
+        // mismatched legs (one is a tentacle), eyes budding on the body,
+        // one feathered wing and one tentacle wing
+        // four legs, no two alike
+        s.line(8, 23, 8, 25, P.leg); s.px(7, 26, P.leg); s.px(9, 26, P.leg);
+        s.line(12, 23, 12, 27, P.leg); s.px(11, 27, P.leg); s.px(13, 27, P.leg);
+        s.line(18, 23, 18, 26, P.leg); s.px(17, 27, P.leg); s.px(19, 27, P.leg);
+        s.line(22, 23, 24, 26, P.tentacle); s.px(25, 27, P.tentacleHi); // tentacle leg
+        // round body
+        s.ellipse(15, 18, 8, 6, P.chickBody);
+        s.shadeEllipse(15, 18, 8, 6, P.chickShade, 1, 0.36);
+        s.ellipse(11, 15, 3, 2.2, P.chickLight);
+        // one FEATHERED wing (left) ...
+        s.ellipse(8, 18, 3, 4, P.chickShade);
+        s.ellipse(8, 17, 2.2, 3, P.chickBody);
+        // ... and one TENTACLE wing (right)
+        s.line(22, 16, 26, 13, P.tentacle); s.line(26, 13, 27, 10, P.tentacle);
+        s.px(27, 9, P.tentacleHi); s.px(25, 14, P.tentacleDk);
+        // stray eyes budding on the body
+        smallGlowEye(s, 12, 20, false);
+        smallGlowEye(s, 18, 19, false);
+        s.px(15, 22, P.glowDk); s.px(16, 22, P.glow);
+        // CENTER head — big, tall neck, jagged crest, two glowing eyes
+        s.rect(13, 8, 4, 5, P.chickBody);
+        s.ellipse(15, 5, 4.5, 4, P.chickBody);
+        s.shadeEllipse(15, 5, 4.5, 4, P.chickShade, 1, 0.3);
+        s.px(12, 1, P.purple); s.px(14, 0, P.purpleHi); s.px(16, 1, P.purple); s.px(18, 2, P.purpleDk);
+        s.rect(13, 6, 4, 2, P.beak); s.px(14, 7, P.beakShade);
+        glowEye(s, 12, 4, false); glowEye(s, 16, 4, false);
+        // LEFT head — small, low neck, beak points left, ONE eye
+        s.rect(7, 12, 3, 3, P.chickBody);
+        s.ellipse(6, 10, 3.2, 2.8, P.chickBody);
+        s.shadeEllipse(6, 10, 3.2, 2.8, P.chickShade, 1, 0.35);
+        s.px(2, 10, P.beak); s.px(1, 10, P.beak); s.px(2, 11, P.beakShade);
+        s.px(5, 6, P.purple); s.px(6, 7, P.purpleDk);
+        glowEye(s, 5, 9, false);
+        // RIGHT head — tiny, high crooked neck, THREE stacked eyes
+        s.rect(21, 8, 2, 6, P.chickBody); s.rect(22, 6, 2, 4, P.chickBody);
+        s.ellipse(24, 4, 3, 2.6, P.chickBody);
+        s.shadeEllipse(24, 4, 3, 2.6, P.chickShade, 1, 0.35);
+        s.px(28, 4, P.beak); s.px(28, 5, P.beakShade);
+        s.px(23, 0, P.purpleHi); s.px(24, 1, P.purple);
+        smallGlowEye(s, 22, 3, false); smallGlowEye(s, 25, 3, false);
+        s.px(24, 5, P.glow);
+      } else if (species === 'sheep') {
+        // WOOL TOTEM WORM — three wool blobs stacked askew, a face on
+        // EVERY segment, SIX caterpillar legs, one giant oversized horn
+        // six stubby legs in a row
+        for (let i = 0; i < 6; i++) {
+          const lx = 5 + i * 4;
+          s.line(lx, 24, lx, 27, P.sheepFace); s.px(lx - 1, 27, P.sheepFace);
+        }
+        // BOTTOM segment — widest blob, face on its right side
+        woolCloud(s, 15, 21, 10, 4.5, P.woolLight, P.woolMid, P.woolShade);
+        s.ellipse(23, 20, 3.2, 2.8, P.sheepFace);
+        s.px(22, 18.5, P.sheepFaceHi);
+        glowEye(s, 22, 19.5, false);
+        s.px(25, 21, P.pupil); // nose
+        // MIDDLE segment — shoved left, one big lonely eye
+        woolCloud(s, 11, 14, 7.5, 4, P.woolLight, P.woolMid, P.woolShade);
+        s.ellipse(6, 13, 2.8, 2.6, P.sheepFace);
+        s.rect(5, 12, 3, 2, P.glow); s.px(6, 12, P.glowHi); s.px(6, 13, P.pupil);
+        // TOP segment — shoved right, the "real" two-eyed face
+        woolCloud(s, 18, 7, 6, 3.6, P.woolLight, P.woolMid, P.woolShade);
+        s.ellipse(19, 7, 3.4, 2.8, P.sheepFace);
+        s.px(17.5, 5.5, P.sheepFaceHi);
+        smallGlowEye(s, 17, 6.5, false); smallGlowEye(s, 21, 6.5, false);
+        s.px(19, 9, P.pupil); // mouth
+        // GIANT oversized curled horn bursting from the top-left
+        s.ellipse(10, 4, 3.6, 3.6, P.purple);
+        s.ellipse(10, 4, 1.8, 1.8, P.purpleDk);
+        s.px(8, 1, P.purpleHi); s.px(12, 6, P.purple);
+        // tiny mismatched nub horn top-right
+        s.px(24, 3, P.purple); s.px(25, 4, P.purpleDk);
+        // stray eyes + glowing tufts buried in the wool
+        s.px(15, 16, P.glow); s.px(16, 16, P.pupil);
+        s.px(9, 22, P.glowDk); s.px(4, 17, P.glow);
+        s.px(21, 12, P.glowHi);
+      } else {
+        // TWIN-HEAD STAMPEDE — a cow with TWO unequal heads, an eye-stalk
+        // sprouting between them, SIX legs, twin tentacle tails, and
+        // eyes budding on the flank
+        // six legs with hooves
+        for (let i = 0; i < 6; i++) {
+          const lx = 6 + i * 3.6;
+          s.line(lx, 22, lx, 26, P.cowShade);
+          s.rect(lx - 1, 26, 3, 1, P.cowPatch);
+        }
+        // long wide body
+        s.ellipse(15, 18, 11, 5.5, P.cowBody);
+        s.shadeEllipse(15, 18, 11, 5.5, P.cowShade, 1, 0.34);
+        // patches: brown left, one BIG purple blotch right
+        s.ellipse(11, 17, 2.4, 1.8, P.cowPatch); s.px(10, 16, P.cowPatchHi);
+        s.ellipse(20, 18, 3, 2.2, P.purple); s.px(19, 17, P.purpleHi);
+        // eyes budding on the flank
+        smallGlowEye(s, 14, 20, false);
+        s.px(17, 21, P.glow); s.px(18, 21, P.pupil);
+        // twin tentacle tails, curling apart
+        s.line(4, 16, 1, 12, P.tentacle); s.px(1, 11, P.tentacleHi);
+        s.line(5, 18, 2, 19, P.tentacleDk); s.px(1, 18, P.tentacle);
+        // BIG head (left) — one huge up-swept horn, one broken nub
+        s.rect(7, 9, 5, 6, P.cowBody);
+        s.ellipse(9, 7, 5, 4.5, P.cowBody);
+        s.shadeEllipse(9, 7, 5, 4.5, P.cowShade, 1, 0.3);
+        s.rect(3, 2, 2, 4, P.horn); s.rect(5, 1, 2, 3, P.horn); s.px(4, 1, P.hornShade); // huge horn
+        s.px(13, 3, P.horn); s.px(13, 2, P.hornShade); // broken nub
+        glowEye(s, 6, 6, false); glowEye(s, 10, 6, false);
+        s.px(8, 4, P.glow); // third pinprick eye
+        s.ellipse(9, 10, 3.4, 2, P.muzzle);
+        s.shadeEllipse(9, 10, 3.4, 2, P.muzzleShade, 1, 0.5);
+        s.px(8, 10, P.pupil); s.px(11, 10, P.pupil);
+        // SMALL head (right) — half size, its own tiny horns and muzzle
+        s.rect(21, 11, 4, 4, P.cowBody);
+        s.ellipse(23, 9, 3.4, 3, P.cowBody);
+        s.shadeEllipse(23, 9, 3.4, 3, P.cowShade, 1, 0.35);
+        s.px(20, 5, P.horn); s.px(26, 5, P.horn); s.px(26, 4, P.hornShade);
+        glowEye(s, 22, 8, false);
+        s.ellipse(23, 11, 2, 1.4, P.muzzle);
+        s.px(22, 11, P.pupil); s.px(24, 11, P.pupil);
+        // eye-stalk sprouting between the heads
+        s.line(16, 10, 16, 4, P.tentacle); s.px(16, 5, P.tentacleDk);
+        s.rect(15, 2, 3, 2, P.glow); s.px(16, 2, P.glowHi); s.px(16, 3, P.pupil);
+      }
       s.outline();
     });
   }
@@ -1068,7 +1182,7 @@ const SPRITES = (() => {
   }
 
   return {
-    animal, ANIMAL_SIZES, poop, coin, alien, ufo, pigeon, tornado,
+    animal, ANIMAL_SIZES, poop, coin, mutant2, ufo, pigeon, tornado,
     tree, bush, flower, rock, barrel, crate, haystack, sign, fenceH,
     farmhouse, barn, shed,
     coop, nest, cottage, windmillTower, windmillBlades, silo, milkCan, woolBale,

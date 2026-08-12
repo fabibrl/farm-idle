@@ -144,7 +144,7 @@ class FarmScene {
     let best = null, bestDist = CONFIG.MERGE_RADIUS + d.radius * 0.5;
     for (const a of this.animals) {
       if (a === d || a.dead || a.state === 'merging' || a.state === 'spawning') continue;
-      // mutants (final stage) can still pair up — they become a UFO alien
+      // mutants (final stage) can still pair up — they become a MUTANT 2
       if (a.species !== d.species || a.stage !== d.stage) continue;
       const dist = U.dist(a.x, a.y, d.x, d.y);
       if (dist < bestDist) { best = a; bestDist = dist; }
@@ -174,8 +174,8 @@ class FarmScene {
     a.dead = b.dead = true;
     this.animals = this.animals.filter(an => !an.dead);
     AudioManager.play('merge');
-    // Mutant + Mutant: no stage 5 — the pair permanently becomes an alien
-    // collected by the UFO (full cinematic first time, quick beam after)
+    // Mutant + Mutant: no separate stage — the pair permanently becomes a
+    // MUTANT 2 collected by the UFO (full cinematic first time, quick beam after)
     if (newStage >= CONFIG.STAGE_NAMES.length) {
       VFXManager.burst(mx, my - 14, ['#7de87a', '#c4ffb8', '#a07cc0', '#ffffff'], 20, 120);
       VFXManager.sparkle(mx, my - 20, 12, 22);
