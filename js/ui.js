@@ -139,9 +139,11 @@ const UI = (() => {
 
   // ---------------- upgrade panel cards ----------------
   /**
-   * One parchment card in the upgrade panel: label + level, stat lines with
-   * next-level preview, BUY button + cost. Registers its hit rect on
-   * popup.cards and applies the purchase flash from popup.fx.
+   * One parchment card in the upgrade panel, laid out COST > BENEFIT > ACTION:
+   * the right column leads with a big coin+cost (gold when affordable, red
+   * with a NEED hint when not) above the UPGRADE button; the left column has
+   * the upgrade name and per-stat "cur > next" improvement rows. Registers
+   * its hit rect on popup.cards and applies the purchase flash from popup.fx.
    * Returns the card's bottom y.
    */
   function upgradeCard(ctx, popup, x, y, w, h, inf) {
@@ -150,30 +152,48 @@ const UI = (() => {
     ctx.fillStyle = '#e8d8b4'; ctx.fillRect(x, y, w, h);
     ctx.fillStyle = '#f2e6c8'; ctx.fillRect(x, y, w, 3);
 
-    // text column ends before the BUY button column (bw + paddings)
-    const bw = 58, bh = 26;
-    const textW = w - bw - 26;
-    drawText(ctx, inf.label + ' LV ' + inf.level, x + 10, y + 9, SIZE.BODY, '#5c3a1d', 'left', false, false, textW);
-    let ly = y + 28;
-    const lh = PixelFont.lineHeight(SIZE.CAPTION) + 5;
-    for (const line of inf.lines) { drawText(ctx, line, x + 10, ly, SIZE.CAPTION, '#7d5027', 'left', false, false, textW); ly += lh; }
+    const afford = !inf.maxed && SaveManager.data.coins >= inf.cost;
 
-    // buy button + cost tag
+    // ---- right column: cost (most prominent), NEED hint, UPGRADE button ----
+    const colW = 104;
+    const colX = x + w - colW;
+    const ccx = colX + colW / 2;
+    if (!inf.maxed) {
+      const costTxt = U.fmt(inf.cost);
+      const costSize = PixelFont.fit(costTxt, SIZE.SUBTITLE, colW - 28);
+      const cw = measure(costTxt, costSize);
+      const coinS = 16;
+      const cx0 = Math.round(ccx - (coinS + 4 + cw) / 2);
+      ctx.drawImage(SPRITES.coin(2), cx0, y + 7, coinS, coinS);
+      drawText(ctx, costTxt, cx0 + coinS + 4, y + 8, costSize, afford ? '#b8860b' : '#b0442f', 'left');
+      if (!afford) {
+        drawText(ctx, 'NEED ' + U.fmt(inf.cost - SaveManager.data.coins), ccx, y + 28,
+                 SIZE.CAPTION, '#b0442f', 'center', false, false, colW - 6);
+      }
+    }
     const fx = popup.fx[inf.key] || 0;
-    const btn = { x: x + w - bw - 10, y: y + 9, w: bw, h: bh };
-    const afford = SaveManager.data.coins >= inf.cost;
+    const bh = 28;
+    const btn = { x: colX + 4, y: y + h - bh - 8, w: colW - 8, h: bh };
     drawButton(ctx, {
-      ...btn, color: 'green',
-      label: inf.maxed ? 'MAX' : 'BUY',
+      ...btn, color: afford ? 'green' : 'gray',
+      label: inf.maxed ? 'MAX' : 'UPGRADE',
       disabled: inf.maxed || !afford,
       pressed: fx > 0.85,
     });
-    if (!inf.maxed) {
-      const cost = U.fmt(inf.cost);
-      const tw = measure(cost, SIZE.CAPTION);
-      const cx = btn.x + btn.w / 2;
-      ctx.drawImage(SPRITES.coin(1), cx - tw / 2 - 12, btn.y + bh + 6, 10, 10);
-      drawText(ctx, cost, cx - tw / 2, btn.y + bh + 8, SIZE.CAPTION, afford ? '#b8860b' : '#b0442f', 'left');
+
+    // ---- left column: name, then "cur > next" improvement rows ----
+    const textW = colX - x - 18;
+    drawText(ctx, inf.label + ' LV ' + inf.level, x + 10, y + 8, SIZE.BODY, '#5c3a1d', 'left', false, false, textW);
+    let ly = y + 26;
+    for (const st of inf.stats) {
+      drawText(ctx, st.name, x + 10, ly + 4, SIZE.CAPTION, '#8a6a3c');
+      let vx = x + 56;
+      vx += drawText(ctx, st.cur, vx, ly, SIZE.BODY, '#7d5027') + 6;
+      if (st.next && st.next !== st.cur) {
+        vx += drawText(ctx, '>', vx, ly, SIZE.BODY, '#4a8f2c') + 6;
+        drawText(ctx, st.next, vx, ly, SIZE.BODY, '#3f7d1e');
+      }
+      ly += 17;
     }
 
     // purchase highlight flash
@@ -434,12 +454,13 @@ const UI = (() => {
     ctx.fillRect(0, 0, W, H);
 
     const pw = popup.type === 'upgrades' ? 324 : popup.type === 'discovery' ? 280 : 240;
-    const ph = popup.type === 'upgrades' ? 470
+    const ph = popup.type === 'upgrades' ? 528
              : popup.type === 'discovery' ? 344
              : popup.type === 'unlock' ? 210
              : popup.type === 'pigeonAd' ? 254
              : popup.type === 'tornadoAd' ? 296 : 190;
-    const px = (W - pw) / 2, py = (H - ph) / 2 - 20;
+    // upgrades panel sits lower so the HUD coin counter stays visible
+    const px = (W - pw) / 2, py = (H - ph) / 2 - (popup.type === 'upgrades' ? 0 : 20);
     popup.rect = { x: px, y: py, w: pw, h: ph };
     woodPanel(ctx, px, py, pw, ph, { gold: true });
     // title bar
@@ -479,10 +500,10 @@ const UI = (() => {
       popup.cards = [];
       let yy = py + 20;
       drawText(ctx, 'FARM', px + 14, yy, SIZE.CAPTION, '#e0cfa8'); yy += 12;
-      yy = upgradeCard(ctx, popup, px + 12, yy, pw - 24, 62, Upgrades.info(popup.farmId, 'spawn')) + 10;
+      yy = upgradeCard(ctx, popup, px + 12, yy, pw - 24, 76, Upgrades.info(popup.farmId, 'spawn')) + 10;
       drawText(ctx, f.label, px + 14, yy, SIZE.CAPTION, '#e0cfa8'); yy += 12;
       for (let s = 0; s < CONFIG.UPGRADES.STAGES.length; s++) {
-        yy = upgradeCard(ctx, popup, px + 12, yy, pw - 24, 78, Upgrades.info(popup.farmId, s)) + 8;
+        yy = upgradeCard(ctx, popup, px + 12, yy, pw - 24, 88, Upgrades.info(popup.farmId, s)) + 8;
       }
       drawPanelFx(ctx);
     } else if (popup.type === 'discovery') {

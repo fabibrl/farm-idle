@@ -68,26 +68,30 @@ const Upgrades = (() => {
     return keys.some(k => !isMaxed(farmId, k) && SaveManager.data.coins >= cost(farmId, k));
   }
 
-  /** Everything the upgrade panel needs to render one card. */
+  /**
+   * Everything the upgrade panel needs to render one card.
+   * stats: [{name, cur, next}] — next is null when maxed, so the UI can
+   * render a "cur > next" improvement comparison per stat.
+   */
   function info(farmId, key) {
     const lv = level(farmId, key);
     const maxed = isMaxed(farmId, key);
     const fmtS = v => v.toFixed(1) + 'S';
-    let label, lines;
+    let label, stats;
     if (key === 'spawn') {
       label = CU().FARM.SPAWN.label;
-      const cur = spawnInterval(farmId, lv);
-      lines = [maxed ? 'EVERY ' + fmtS(cur)
-                     : 'EVERY ' + fmtS(cur) + ' > ' + fmtS(spawnInterval(farmId, lv + 1))];
+      stats = [{ name: 'EVERY', cur: fmtS(spawnInterval(farmId, lv)),
+                 next: maxed ? null : fmtS(spawnInterval(farmId, lv + 1)) }];
     } else {
       label = CU().STAGES[key].label;
-      const curP = poopInterval(farmId, key, lv), curC = coinValue(farmId, key, lv);
-      lines = maxed
-        ? ['POOP ' + fmtS(curP), 'COINS ' + curC]
-        : ['POOP ' + fmtS(curP) + ' > ' + fmtS(poopInterval(farmId, key, lv + 1)),
-           'COINS ' + curC + ' > ' + coinValue(farmId, key, lv + 1)];
+      stats = [
+        { name: 'POOP', cur: fmtS(poopInterval(farmId, key, lv)),
+          next: maxed ? null : fmtS(poopInterval(farmId, key, lv + 1)) },
+        { name: 'COINS', cur: String(coinValue(farmId, key, lv)),
+          next: maxed ? null : String(coinValue(farmId, key, lv + 1)) },
+      ];
     }
-    return { key, label, level: lv, maxed, cost: maxed ? 0 : cost(farmId, key), lines };
+    return { key, label, level: lv, maxed, cost: maxed ? 0 : cost(farmId, key), stats };
   }
 
   return { level, cost, isMaxed, spawnInterval, poopInterval, coinValue, buy, info, anyAffordable };
