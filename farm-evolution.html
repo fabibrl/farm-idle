@@ -202,6 +202,20 @@ const CONFIG = {
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
   },
 
+  // Background / offline production (see js/idle.js). Every unlocked farm
+  // keeps spawning animals and earning coins while the player is elsewhere
+  // (another farm, the map, or with the game closed).
+  IDLE: {
+    OFFLINE_CAP_HOURS: 2,    // max hours of production applied after being away
+    TICK_INTERVAL: 5,        // seconds between background reconcile ticks
+    MAP_STAGGER: 0.5,        // seconds between each farm's coin-collect burst on the map
+    COINS_PER_COLLECT: 5,    // max flying coins used to deliver one pending balance
+    // offline spawning stops at this fraction of MAX_ANIMALS (default; each
+    // farm can override via its offlinePenFill) so the board comes back
+    // playable, never merged-locked at the 100% active-play cap
+    OFFLINE_PEN_FILL: 0.65,
+  },
+
   // Farm unlock costs — the long-term goals. Tuned to ~15-25 min of the
   // previous farm's mature income (goal windows stretch as the player
   // progresses, but never wall).
@@ -245,10 +259,12 @@ const CONFIG = {
   // incomeMult multiplies every coin payout (poops, aliens) and costMult
   // multiplies every upgrade cost, so the curve keeps its early-game shape
   // while numbers, goals and ad rewards grow with the player.
+  // offlinePenFill: fraction of MAX_ANIMALS that offline spawning may fill
+  // (per-farm balance knob; falls back to IDLE.OFFLINE_PEN_FILL if omitted).
   FARMS: [
-    { id: 0, name: 'FARM 1', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1 },
-    { id: 1, name: 'FARM 2', species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4 },
-    { id: 2, name: 'FARM 3', species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12 },
+    { id: 0, name: 'FARM 1', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.65 },
+    { id: 1, name: 'FARM 2', species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4,  offlinePenFill: 0.65 },
+    { id: 2, name: 'FARM 3', species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12, offlinePenFill: 0.65 },
   ],
 };
 </script>
@@ -2343,6 +2359,9 @@ const SaveManager = (() => {
       // per-farm tornado auto-merge reward-ad event: independent offer
       // countdown + remaining availability window
       tornado: CONFIG.FARMS.map(() => ({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 })),
+      // per-farm background production: last reconcile timestamp (ms epoch),
+      // uncollected coin balance, and the carried spawn-timer remainder
+      idle: CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 })),
       firstRun: true,
     };
   }
@@ -2372,6 +2391,8 @@ const SaveManager = (() => {
     while (d.pigeon.length < CONFIG.FARMS.length) d.pigeon.push({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 });
     if (!d.tornado) d.tornado = CONFIG.FARMS.map(() => ({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 }));
     while (d.tornado.length < CONFIG.FARMS.length) d.tornado.push({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 });
+    if (!d.idle) d.idle = CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 }));
+    while (d.idle.length < CONFIG.FARMS.length) d.idle.push({ last: 0, pending: 0, carry: 0 });
     // players from before the tutorial existed (or with animals already) skip it
     if (!d.tutorialDone) d.tutorialDone = CONFIG.FARMS.map(f => (d.animals[f.id] || []).length > 0);
     // players who already bought an upgrade skip the first-upgrade tutorial
@@ -2592,6 +2613,92 @@ const Upgrades = (() => {
 </script>
 <script>
 /**
+ * Idle — background & offline production for every unlocked farm.
+ * Nothing is simulated frame by frame: each farm carries a lastUpdate
+ * timestamp and elapsed production is computed on demand (launch, map,
+ * entering a farm, periodic tick). Earnings accumulate into a per-farm
+ * pending balance that is auto-collected on the map / on farm entry.
+ */
+const Idle = (() => {
+  const capSeconds = () => CONFIG.IDLE.OFFLINE_CAP_HOURS * 3600;
+
+  function rec(farmId) { return SaveManager.data.idle[farmId]; }
+
+  /** Passive coins/sec of one saved animal, matching Upgrades.incomeRate. */
+  function animalRate(farmId, stage) {
+    return Upgrades.coinValue(farmId, stage)
+         / (Upgrades.poopInterval(farmId, stage) + CONFIG.POOP_INTERVAL_JITTER / 2);
+  }
+
+  /**
+   * Advance one farm's clock to `now`. When `live` (the farm is being
+   * simulated on-screen) only the timestamp is stamped; otherwise the
+   * elapsed time (capped) becomes spawned babies + pending coins.
+   */
+  function reconcile(farmId, now, live) {
+    const r = rec(farmId);
+    // fresh save / clock rolled backwards: no elapsed time, restamp
+    if (!r.last || now < r.last) { r.last = now; return; }
+    const elapsed = Math.min((now - r.last) / 1000, capSeconds());
+    r.last = now;
+    if (live || elapsed <= 0) return;
+    const d = SaveManager.data;
+    // locked farms produce nothing; spawning is paused until the farm's
+    // first-merge tutorial is done, exactly like the live scene
+    if (!d.unlocked[farmId] || !d.tutorialDone[farmId]) return;
+
+    // existing animals poop the whole time
+    const animals = d.animals[farmId] || (d.animals[farmId] = []);
+    let coins = 0;
+    for (const a of animals) coins += animalRate(farmId, a.stage) * elapsed;
+
+    // babies keep spawning on the farm's interval, but only up to the
+    // offline pen-fill threshold (a partial fill so the board comes back
+    // playable — active play can still reach MAX_ANIMALS as usual);
+    // the timer remainder carries across ticks so short ticks don't slow it
+    const int = Upgrades.spawnInterval(farmId);
+    const t = elapsed + (r.carry || 0);
+    const fillCap = Math.floor(CONFIG.MAX_ANIMALS *
+      (CONFIG.FARMS[farmId].offlinePenFill ?? CONFIG.IDLE.OFFLINE_PEN_FILL));
+    const free = Math.max(0, fillCap - animals.length);
+    const spawns = Math.min(free, Math.floor(t / int));
+    r.carry = t % int;
+    for (let i = 1; i <= spawns; i++) {
+      animals.push({ stage: 0 });
+      coins += animalRate(farmId, 0) * Math.max(0, elapsed - i * int);
+    }
+
+    // landed UFO keeps dripping its alien income
+    const ufo = d.ufo[farmId];
+    if (ufo && ufo.landed && ufo.aliens > 0) {
+      coins += ufo.aliens * Upgrades.alienValue(farmId) / CONFIG.UFO.INTERVAL * elapsed;
+    }
+
+    r.pending += coins;
+  }
+
+  /** Advance every farm; pass the farm currently simulated on-screen (or -1). */
+  function tick(liveFarmId = -1) {
+    const now = Date.now();
+    for (const f of CONFIG.FARMS) reconcile(f.id, now, f.id === liveFarmId);
+  }
+
+  /** Whole coins waiting to be collected on this farm. */
+  function pending(farmId) { return Math.floor(rec(farmId).pending); }
+
+  /** Take the whole-coin pending balance; the fraction keeps accruing. */
+  function collect(farmId) {
+    const r = rec(farmId);
+    const amount = Math.floor(r.pending);
+    r.pending -= amount;
+    return amount;
+  }
+
+  return { tick, pending, collect };
+})();
+</script>
+<script>
+/**
  * VFXManager — pooled particles, flying coins, floating numbers,
  * transient glow effects. Zero per-frame allocations once warm.
  */
@@ -2659,6 +2766,25 @@ const VFXManager = (() => {
     });
   }
 
+  /**
+   * A few coins arcing to the HUD wallet, together carrying `amount`:
+   * each adds its share as it lands so the counter visibly ticks up.
+   */
+  function coinPayout(x, y, amount, spreadX = 16, spreadY = 8) {
+    const target = UI.coinTarget();
+    const n = Math.min(CONFIG.IDLE.COINS_PER_COLLECT, amount);
+    const base = Math.floor(amount / n);
+    for (let i = 0; i < n; i++) {
+      const share = i === n - 1 ? amount - base * (n - 1) : base;
+      flyCoin(x + U.rand(-spreadX, spreadX), y + U.rand(-spreadY, spreadY),
+        target.x, target.y, () => {
+          Game.addCoins(share);
+          AudioManager.play('coin');
+        });
+    }
+    floatText(x, y - 26, '+' + U.fmt(amount));
+  }
+
   /** Floating "+N" text. */
   function floatText(x, y, text, col = '#ffe98a') {
     spawn({ x, y, vx: 0, vy: -28, g: 0, life: 1.0, kind: 'text', text, col });
@@ -2723,7 +2849,7 @@ const VFXManager = (() => {
     }
   }
 
-  return { burst, dust, sparkle, flyCoin, floatText, update, draw };
+  return { burst, dust, sparkle, flyCoin, coinPayout, floatText, update, draw };
 })();
 </script>
 <script>
@@ -3967,10 +4093,10 @@ class FarmScene {
       // first visit: exactly two babies pre-placed, spawning paused until they merge
       this.startTutorial();
     } else {
-      // restore saved animals
+      // restore saved animals (incl. offline-spawned ones) on free spots
       const saved = SaveManager.data.animals[farmId] || [];
       for (const a of saved) {
-        const p = this.randomSpot();
+        const p = this.freeSpot();
         const an = new Animal(this.def.species, a.stage, p.x, p.y);
         an.setState('idle', U.rand(0.5, 2));
         an.scaleX = an.scaleY = 1;
@@ -4002,13 +4128,19 @@ class FarmScene {
     };
   }
 
-  /** SpawnManager: place a new animal at a free spot. */
-  spawnAnimal(stage = 0, sfx = true) {
-    if (this.animals.length >= CONFIG.MAX_ANIMALS) return null;
+  /** Random pen position kept clear of existing animals (best effort). */
+  freeSpot() {
     let p = this.randomSpot(), tries = 0;
     while (tries++ < 12 && this.animals.some(a => U.dist(a.x, a.y, p.x, p.y) < 40)) {
       p = this.randomSpot();
     }
+    return p;
+  }
+
+  /** SpawnManager: place a new animal at a free spot. */
+  spawnAnimal(stage = 0, sfx = true) {
+    if (this.animals.length >= CONFIG.MAX_ANIMALS) return null;
+    const p = this.freeSpot();
     const a = new Animal(this.def.species, stage, p.x, p.y);
     this.animals.push(a);
     Discovery.mark(this.def.species, stage); // babies count for the collection, no celebration
@@ -4275,6 +4407,22 @@ class MapScene {
     this.time = 0;
     this.smoke = [];          // rising chimney puffs {x,y,age,life,drift}
     this.smokeT = 0;
+    this.collectQueue = [];   // staggered pending-coin collections {farmId, amount, delay}
+  }
+
+  /**
+   * Auto-collect every farm's accumulated background earnings: queue one
+   * coins-fly-to-wallet burst per farm, staggered so they don't all fire
+   * at once. Each farm's pending balance resets as it is queued.
+   */
+  queuePendingCollect() {
+    let delay = 0.25;
+    for (const f of CONFIG.FARMS) {
+      const amt = Idle.collect(f.id);
+      if (amt <= 0) continue;
+      this.collectQueue.push({ farmId: f.id, amount: amt, delay });
+      delay += CONFIG.IDLE.MAP_STAGGER;
+    }
   }
 
   /** Begin glowing-path unlock animation toward farmId. */
@@ -4306,6 +4454,17 @@ class MapScene {
     }
     for (const p of this.smoke) { p.age += dt; }
     this.smoke = this.smoke.filter(p => p.age < p.life);
+
+    // fire queued pending-coin collections once their stagger delay elapses
+    for (let i = this.collectQueue.length - 1; i >= 0; i--) {
+      const c = this.collectQueue[i];
+      c.delay -= dt;
+      if (c.delay > 0) continue;
+      this.collectQueue.splice(i, 1);
+      const n = ENVIRONMENT.MAP_NODES[c.farmId];
+      VFXManager.coinPayout(n.x, n.y - 6, c.amount);
+      AudioManager.play('pop');
+    }
 
     const a = this.unlockAnim;
     if (!a) return;
@@ -5196,7 +5355,7 @@ const Game = (() => {
   let scene = 'loading';         // 'loading' | 'farm' | 'map'
   let farmScene = null;
   let mapScene = null;
-  let lastT = 0, dt = 0, elapsed = 0, autosaveT = 0;
+  let lastT = 0, dt = 0, elapsed = 0, autosaveT = 0, idleT = 0;
   let started = false;
   let celebration = null;        // active discovery celebration, see startCelebration()
   let upgradeTutorial = null;    // active first-upgrade tutorial: {t}, see maybeStartUpgradeTutorial()
@@ -5206,6 +5365,7 @@ const Game = (() => {
     canvas = document.getElementById('game');
     ctx = canvas.getContext('2d');
     SaveManager.load();
+    Idle.tick(); // apply capped offline production to every farm before scenes build
     AudioManager.setMusic(SaveManager.data.settings.music);
     AudioManager.setSfx(SaveManager.data.settings.sfx);
     resize();
@@ -5295,6 +5455,15 @@ const Game = (() => {
     started = true;
     scene = 'farm';
     AudioManager.play('click');
+    collectFarmPending(SaveManager.data.currentFarm);
+  }
+
+  /** Deliver a farm's accumulated background earnings as flying coins. */
+  function collectFarmPending(farmId) {
+    const amt = Idle.collect(farmId);
+    if (amt <= 0) return;
+    const b = farmScene.bounds;
+    VFXManager.coinPayout(b.x + b.w / 2, b.y + b.h / 2, amt, 40, 25);
   }
 
   // ---------------- discovery celebration ----------------
@@ -5411,6 +5580,7 @@ const Game = (() => {
     AudioManager.play('click');
     if (SaveManager.data.unlocked[id]) {
       // switch farm: load that farm's own animals, upgrades and UFO state
+      Idle.tick(); // reconcile so the board matches what accumulated offscreen
       Pigeon.reset(); // pays out any rain still falling, keeps saved perch state
       Tornado.reset();
       SaveManager.data.currentFarm = id;
@@ -5418,6 +5588,7 @@ const Game = (() => {
       UFO.reset();
       farmScene = new FarmScene(id);
       scene = 'farm';
+      collectFarmPending(id);
     } else {
       UI.openPopup({ type: 'unlock', farmId: id });
     }
@@ -5456,7 +5627,10 @@ const Game = (() => {
 
   function goToMap() {
     farmScene.persist();
+    // stamp the live farm's clock before it goes background, accrue the rest
+    Idle.tick(SaveManager.data.currentFarm);
     scene = 'map';
+    mapScene.queuePendingCollect();
   }
 
   function resetAll() {
@@ -5504,6 +5678,15 @@ const Game = (() => {
     }
     else mapScene.update(dt);
     VFXManager.update(dt);
+
+    // background farms: reconcile elapsed production on a coarse tick
+    idleT += dt;
+    if (idleT >= CONFIG.IDLE.TICK_INTERVAL) {
+      idleT = 0;
+      Idle.tick(scene === 'farm' ? SaveManager.data.currentFarm : -1);
+      // while watching the map, freshly accrued coins keep flying in
+      if (scene === 'map' && !mapScene.unlockAnim) mapScene.queuePendingCollect();
+    }
 
     // autosave
     autosaveT += dt;
@@ -5556,6 +5739,7 @@ const Game = (() => {
 
   window.addEventListener('load', init);
   window.addEventListener('beforeunload', () => {
+    Idle.tick(scene === 'farm' ? SaveManager.data.currentFarm : -1);
     if (farmScene) farmScene.persist();
     SaveManager.save();
   });

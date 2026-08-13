@@ -8,7 +8,7 @@ const Game = (() => {
   let scene = 'loading';         // 'loading' | 'farm' | 'map'
   let farmScene = null;
   let mapScene = null;
-  let lastT = 0, dt = 0, elapsed = 0, autosaveT = 0;
+  let lastT = 0, dt = 0, elapsed = 0, autosaveT = 0, idleT = 0;
   let started = false;
   let celebration = null;        // active discovery celebration, see startCelebration()
   let upgradeTutorial = null;    // active first-upgrade tutorial: {t}, see maybeStartUpgradeTutorial()
@@ -18,6 +18,7 @@ const Game = (() => {
     canvas = document.getElementById('game');
     ctx = canvas.getContext('2d');
     SaveManager.load();
+    Idle.tick(); // apply capped offline production to every farm before scenes build
     AudioManager.setMusic(SaveManager.data.settings.music);
     AudioManager.setSfx(SaveManager.data.settings.sfx);
     resize();
@@ -107,6 +108,15 @@ const Game = (() => {
     started = true;
     scene = 'farm';
     AudioManager.play('click');
+    collectFarmPending(SaveManager.data.currentFarm);
+  }
+
+  /** Deliver a farm's accumulated background earnings as flying coins. */
+  function collectFarmPending(farmId) {
+    const amt = Idle.collect(farmId);
+    if (amt <= 0) return;
+    const b = farmScene.bounds;
+    VFXManager.coinPayout(b.x + b.w / 2, b.y + b.h / 2, amt, 40, 25);
   }
 
   // ---------------- discovery celebration ----------------
@@ -223,6 +233,7 @@ const Game = (() => {
     AudioManager.play('click');
     if (SaveManager.data.unlocked[id]) {
       // switch farm: load that farm's own animals, upgrades and UFO state
+      Idle.tick(); // reconcile so the board matches what accumulated offscreen
       Pigeon.reset(); // pays out any rain still falling, keeps saved perch state
       Tornado.reset();
       SaveManager.data.currentFarm = id;
@@ -230,6 +241,7 @@ const Game = (() => {
       UFO.reset();
       farmScene = new FarmScene(id);
       scene = 'farm';
+      collectFarmPending(id);
     } else {
       UI.openPopup({ type: 'unlock', farmId: id });
     }
@@ -268,7 +280,10 @@ const Game = (() => {
 
   function goToMap() {
     farmScene.persist();
+    // stamp the live farm's clock before it goes background, accrue the rest
+    Idle.tick(SaveManager.data.currentFarm);
     scene = 'map';
+    mapScene.queuePendingCollect();
   }
 
   function resetAll() {
@@ -316,6 +331,15 @@ const Game = (() => {
     }
     else mapScene.update(dt);
     VFXManager.update(dt);
+
+    // background farms: reconcile elapsed production on a coarse tick
+    idleT += dt;
+    if (idleT >= CONFIG.IDLE.TICK_INTERVAL) {
+      idleT = 0;
+      Idle.tick(scene === 'farm' ? SaveManager.data.currentFarm : -1);
+      // while watching the map, freshly accrued coins keep flying in
+      if (scene === 'map' && !mapScene.unlockAnim) mapScene.queuePendingCollect();
+    }
 
     // autosave
     autosaveT += dt;
@@ -368,6 +392,7 @@ const Game = (() => {
 
   window.addEventListener('load', init);
   window.addEventListener('beforeunload', () => {
+    Idle.tick(scene === 'farm' ? SaveManager.data.currentFarm : -1);
     if (farmScene) farmScene.persist();
     SaveManager.save();
   });

@@ -25,10 +25,10 @@ class FarmScene {
       // first visit: exactly two babies pre-placed, spawning paused until they merge
       this.startTutorial();
     } else {
-      // restore saved animals
+      // restore saved animals (incl. offline-spawned ones) on free spots
       const saved = SaveManager.data.animals[farmId] || [];
       for (const a of saved) {
-        const p = this.randomSpot();
+        const p = this.freeSpot();
         const an = new Animal(this.def.species, a.stage, p.x, p.y);
         an.setState('idle', U.rand(0.5, 2));
         an.scaleX = an.scaleY = 1;
@@ -60,13 +60,19 @@ class FarmScene {
     };
   }
 
-  /** SpawnManager: place a new animal at a free spot. */
-  spawnAnimal(stage = 0, sfx = true) {
-    if (this.animals.length >= CONFIG.MAX_ANIMALS) return null;
+  /** Random pen position kept clear of existing animals (best effort). */
+  freeSpot() {
     let p = this.randomSpot(), tries = 0;
     while (tries++ < 12 && this.animals.some(a => U.dist(a.x, a.y, p.x, p.y) < 40)) {
       p = this.randomSpot();
     }
+    return p;
+  }
+
+  /** SpawnManager: place a new animal at a free spot. */
+  spawnAnimal(stage = 0, sfx = true) {
+    if (this.animals.length >= CONFIG.MAX_ANIMALS) return null;
+    const p = this.freeSpot();
     const a = new Animal(this.def.species, stage, p.x, p.y);
     this.animals.push(a);
     Discovery.mark(this.def.species, stage); // babies count for the collection, no celebration

@@ -149,6 +149,20 @@ const CONFIG = {
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
   },
 
+  // Background / offline production (see js/idle.js). Every unlocked farm
+  // keeps spawning animals and earning coins while the player is elsewhere
+  // (another farm, the map, or with the game closed).
+  IDLE: {
+    OFFLINE_CAP_HOURS: 2,    // max hours of production applied after being away
+    TICK_INTERVAL: 5,        // seconds between background reconcile ticks
+    MAP_STAGGER: 0.5,        // seconds between each farm's coin-collect burst on the map
+    COINS_PER_COLLECT: 5,    // max flying coins used to deliver one pending balance
+    // offline spawning stops at this fraction of MAX_ANIMALS (default; each
+    // farm can override via its offlinePenFill) so the board comes back
+    // playable, never merged-locked at the 100% active-play cap
+    OFFLINE_PEN_FILL: 0.65,
+  },
+
   // Farm unlock costs — the long-term goals. Tuned to ~15-25 min of the
   // previous farm's mature income (goal windows stretch as the player
   // progresses, but never wall).
@@ -192,9 +206,11 @@ const CONFIG = {
   // incomeMult multiplies every coin payout (poops, aliens) and costMult
   // multiplies every upgrade cost, so the curve keeps its early-game shape
   // while numbers, goals and ad rewards grow with the player.
+  // offlinePenFill: fraction of MAX_ANIMALS that offline spawning may fill
+  // (per-farm balance knob; falls back to IDLE.OFFLINE_PEN_FILL if omitted).
   FARMS: [
-    { id: 0, name: 'FARM 1', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1 },
-    { id: 1, name: 'FARM 2', species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4 },
-    { id: 2, name: 'FARM 3', species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12 },
+    { id: 0, name: 'FARM 1', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.65 },
+    { id: 1, name: 'FARM 2', species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4,  offlinePenFill: 0.65 },
+    { id: 2, name: 'FARM 3', species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12, offlinePenFill: 0.65 },
   ],
 };

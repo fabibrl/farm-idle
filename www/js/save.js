@@ -31,6 +31,9 @@ const SaveManager = (() => {
       // per-farm tornado auto-merge reward-ad event: independent offer
       // countdown + remaining availability window
       tornado: CONFIG.FARMS.map(() => ({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 })),
+      // per-farm background production: last reconcile timestamp (ms epoch),
+      // uncollected coin balance, and the carried spawn-timer remainder
+      idle: CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 })),
       firstRun: true,
     };
   }
@@ -60,6 +63,8 @@ const SaveManager = (() => {
     while (d.pigeon.length < CONFIG.FARMS.length) d.pigeon.push({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 });
     if (!d.tornado) d.tornado = CONFIG.FARMS.map(() => ({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 }));
     while (d.tornado.length < CONFIG.FARMS.length) d.tornado.push({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 });
+    if (!d.idle) d.idle = CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 }));
+    while (d.idle.length < CONFIG.FARMS.length) d.idle.push({ last: 0, pending: 0, carry: 0 });
     // players from before the tutorial existed (or with animals already) skip it
     if (!d.tutorialDone) d.tutorialDone = CONFIG.FARMS.map(f => (d.animals[f.id] || []).length > 0);
     // players who already bought an upgrade skip the first-upgrade tutorial

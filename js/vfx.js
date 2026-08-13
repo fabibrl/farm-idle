@@ -66,6 +66,25 @@ const VFXManager = (() => {
     });
   }
 
+  /**
+   * A few coins arcing to the HUD wallet, together carrying `amount`:
+   * each adds its share as it lands so the counter visibly ticks up.
+   */
+  function coinPayout(x, y, amount, spreadX = 16, spreadY = 8) {
+    const target = UI.coinTarget();
+    const n = Math.min(CONFIG.IDLE.COINS_PER_COLLECT, amount);
+    const base = Math.floor(amount / n);
+    for (let i = 0; i < n; i++) {
+      const share = i === n - 1 ? amount - base * (n - 1) : base;
+      flyCoin(x + U.rand(-spreadX, spreadX), y + U.rand(-spreadY, spreadY),
+        target.x, target.y, () => {
+          Game.addCoins(share);
+          AudioManager.play('coin');
+        });
+    }
+    floatText(x, y - 26, '+' + U.fmt(amount));
+  }
+
   /** Floating "+N" text. */
   function floatText(x, y, text, col = '#ffe98a') {
     spawn({ x, y, vx: 0, vy: -28, g: 0, life: 1.0, kind: 'text', text, col });
@@ -130,5 +149,5 @@ const VFXManager = (() => {
     }
   }
 
-  return { burst, dust, sparkle, flyCoin, floatText, update, draw };
+  return { burst, dust, sparkle, flyCoin, coinPayout, floatText, update, draw };
 })();

@@ -10,6 +10,22 @@ class MapScene {
     this.time = 0;
     this.smoke = [];          // rising chimney puffs {x,y,age,life,drift}
     this.smokeT = 0;
+    this.collectQueue = [];   // staggered pending-coin collections {farmId, amount, delay}
+  }
+
+  /**
+   * Auto-collect every farm's accumulated background earnings: queue one
+   * coins-fly-to-wallet burst per farm, staggered so they don't all fire
+   * at once. Each farm's pending balance resets as it is queued.
+   */
+  queuePendingCollect() {
+    let delay = 0.25;
+    for (const f of CONFIG.FARMS) {
+      const amt = Idle.collect(f.id);
+      if (amt <= 0) continue;
+      this.collectQueue.push({ farmId: f.id, amount: amt, delay });
+      delay += CONFIG.IDLE.MAP_STAGGER;
+    }
   }
 
   /** Begin glowing-path unlock animation toward farmId. */
@@ -41,6 +57,17 @@ class MapScene {
     }
     for (const p of this.smoke) { p.age += dt; }
     this.smoke = this.smoke.filter(p => p.age < p.life);
+
+    // fire queued pending-coin collections once their stagger delay elapses
+    for (let i = this.collectQueue.length - 1; i >= 0; i--) {
+      const c = this.collectQueue[i];
+      c.delay -= dt;
+      if (c.delay > 0) continue;
+      this.collectQueue.splice(i, 1);
+      const n = ENVIRONMENT.MAP_NODES[c.farmId];
+      VFXManager.coinPayout(n.x, n.y - 6, c.amount);
+      AudioManager.play('pop');
+    }
 
     const a = this.unlockAnim;
     if (!a) return;
