@@ -214,6 +214,11 @@ const CONFIG = {
     // farm can override via its offlinePenFill) so the board comes back
     // playable, never merged-locked at the 100% active-play cap
     OFFLINE_PEN_FILL: 0.65,
+    // welcome-back popup: summarizes offline earnings on launch with an
+    // optional rewarded-ad 2x. Only shown after a real absence so quick
+    // app switches don't trigger it.
+    WELCOME_MIN_AWAY: 60,      // seconds away required before the popup shows
+    WELCOME_AD_DURATION: 3.0,  // simulated reward-ad length (s)
   },
 
   // Farm unlock costs — the long-term goals. Tuned to ~15-25 min of the
@@ -286,6 +291,14 @@ const U = {
   fmt(n) { return Math.floor(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ','); },
   // Compact 250000 -> "250,000" (kept full per reference HUD style)
   fmtCost(n) { return U.fmt(n); },
+  // Format seconds -> "1H 47M" / "12M" / "45S"
+  fmtDur(sec) {
+    sec = Math.floor(sec);
+    const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60);
+    if (h > 0) return h + 'H ' + m + 'M';
+    if (m > 0) return m + 'M';
+    return sec + 'S';
+  },
 };
 
 /** Simple object pool to avoid per-frame allocations. */
@@ -1820,12 +1833,22 @@ const SPRITES = (() => {
     });
   }
 
+  /** Rewarded-video icon: little screen with a play triangle. */
+  function adPlay() {
+    return PIXEL.sprite('adPlay', 16, 12, s => {
+      s.rect(1, 1, 14, 10, '#f4ece0');   // screen frame
+      s.rect(2, 2, 12, 8, '#4a4440');    // dark screen
+      for (let i = 0; i < 3; i++) s.rect(6 + i, 3 + i, 1, 6 - i * 2, '#7dbb4a');
+      s.outline();
+    });
+  }
+
   return {
     animal, ANIMAL_SIZES, poop, coin, mutant2, ufo, pigeon, tornado,
     tree, bush, flower, rock, barrel, crate, haystack, sign, fenceH,
     farmhouse, barn, shed,
     coop, nest, cottage, windmillTower, windmillBlades, silo, milkCan, woolBale,
-    mapPin, lock, gear, arrowUp, xIcon,
+    mapPin, lock, gear, arrowUp, xIcon, adPlay,
     P,
   };
 })();
@@ -2683,6 +2706,33 @@ const Idle = (() => {
     for (const f of CONFIG.FARMS) reconcile(f.id, now, f.id === liveFarmId);
   }
 
+  let launchReport = null; // {awaySec, capped, perFarm, total} captured once at boot
+
+  /**
+   * Boot-time reconcile for the welcome-back popup: measures how long the
+   * game was closed (the most recent farm stamp from the previous session)
+   * and how many coins each farm produced over that capped window (the
+   * per-farm pending deltas the reconcile itself generates).
+   */
+  function launchTick() {
+    const now = Date.now();
+    let lastSeen = 0;
+    for (const f of CONFIG.FARMS) lastSeen = Math.max(lastSeen, rec(f.id).last || 0);
+    const before = CONFIG.FARMS.map(f => rec(f.id).pending);
+    tick();
+    const perFarm = CONFIG.FARMS.map(f => rec(f.id).pending - before[f.id]);
+    const awaySec = lastSeen && now > lastSeen ? (now - lastSeen) / 1000 : 0;
+    launchReport = {
+      awaySec: Math.min(awaySec, capSeconds()),
+      capped: awaySec > capSeconds(),
+      perFarm,
+      total: perFarm.reduce((a, b) => a + b, 0),
+    };
+  }
+
+  /** One-shot: the boot report for the welcome-back popup (null after use). */
+  function takeLaunchReport() { const r = launchReport; launchReport = null; return r; }
+
   /** Whole coins waiting to be collected on this farm. */
   function pending(farmId) { return Math.floor(rec(farmId).pending); }
 
@@ -2694,7 +2744,7 @@ const Idle = (() => {
     return amount;
   }
 
-  return { tick, pending, collect };
+  return { tick, launchTick, takeLaunchReport, pending, collect };
 })();
 </script>
 <script>
@@ -4420,9 +4470,14 @@ class MapScene {
     for (const f of CONFIG.FARMS) {
       const amt = Idle.collect(f.id);
       if (amt <= 0) continue;
-      this.collectQueue.push({ farmId: f.id, amount: amt, delay });
+      this.queueBurst(f.id, amt, delay);
       delay += CONFIG.IDLE.MAP_STAGGER;
     }
+  }
+
+  /** Queue one coins-fly-to-wallet burst from a farm's map node. */
+  queueBurst(farmId, amount, delay = 0.25) {
+    this.collectQueue.push({ farmId, amount, delay });
   }
 
   /** Begin glowing-path unlock animation toward farmId. */
@@ -5023,6 +5078,60 @@ const UI = (() => {
     }
   }
 
+  // ---------------- welcome-back popup ----------------
+  /**
+   * Layout numbers for the welcome-back popup. The per-farm breakdown only
+   * appears when 2+ farms actually earned something; the panel height grows
+   * with the rows and the cap note.
+   */
+  function welcomeMetrics(rep) {
+    const rows = [];
+    for (const f of CONFIG.FARMS) {
+      const amt = Math.floor(rep.perFarm[f.id]);
+      if (amt >= 1) rows.push({ name: f.name, amt });
+    }
+    const list = rows.length > 1 ? rows : [];
+    const cardH = 76 + (rep.capped ? 12 : 0) + (list.length ? list.length * 14 + 4 : 0);
+    return { rows: list, cardH, ph: cardH + 134 };
+  }
+
+  function drawWelcome(ctx, px, py, pw) {
+    const rep = popup.rep;
+    const m = welcomeMetrics(rep);
+    const total = Math.floor(rep.total);
+    popupTitle(ctx, 'WELCOME BACK!', px, py, pw);
+    // parchment card
+    const cy0 = py + 26;
+    ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, cy0 - 2, pw - 36, m.cardH + 4);
+    ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, cy0, pw - 40, m.cardH);
+    ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, cy0, pw - 40, 3);
+    const cx = px + pw / 2;
+    let yy = cy0 + 12;
+    drawText(ctx, 'YOU WERE AWAY FOR', cx, yy, SIZE.CAPTION, '#7d5027', 'center'); yy += 12;
+    drawText(ctx, U.fmtDur(rep.awaySec), cx, yy, SIZE.BODY, '#b8860b', 'center'); yy += 20;
+    if (rep.capped) {
+      drawText(ctx, 'OFFLINE EARNINGS MAX OUT AT 2H', cx, yy, SIZE.CAPTION, '#b0442f', 'center', false, false, pw - 52);
+      yy += 12;
+    }
+    // per-farm breakdown (only when several farms earned)
+    for (const r of m.rows) {
+      drawText(ctx, r.name, px + 32, yy, SIZE.CAPTION, '#7d5027', 'left');
+      drawText(ctx, U.fmt(r.amt), px + pw - 32 - measure(U.fmt(r.amt), SIZE.CAPTION), yy, SIZE.CAPTION, '#b8860b', 'left');
+      yy += 14;
+    }
+    if (m.rows.length) yy += 4;
+    // total earned while away
+    const totTxt = '+' + U.fmt(total);
+    const tw = measure(totTxt, SIZE.SUBTITLE);
+    ctx.drawImage(SPRITES.coin(2), cx - tw / 2 - 20, yy - 1, 16, 16);
+    drawText(ctx, totTxt, cx - tw / 2, yy, SIZE.SUBTITLE, '#b8860b', 'left');
+    // primary collect + secondary rewarded-ad 2x
+    popup.okRect = { x: px + 30, y: cy0 + m.cardH + 10, w: pw - 60, h: 40 };
+    popup.adRect = { x: px + 30, y: popup.okRect.y + 48, w: pw - 60, h: 34 };
+    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'COLLECT' });
+    drawButton(ctx, { ...popup.adRect, color: 'wood', icon: () => SPRITES.adPlay(), label: '2X ' + U.fmt(total * 2) });
+  }
+
   // ---------------- popups ----------------
   function drawPopup(ctx) {
     if (!popup) return;
@@ -5058,7 +5167,8 @@ const UI = (() => {
              : popup.type === 'discovery' ? 344
              : popup.type === 'unlock' ? 210
              : popup.type === 'pigeonAd' ? 254
-             : popup.type === 'tornadoAd' ? 296 : 190;
+             : popup.type === 'tornadoAd' ? 296
+             : popup.type === 'welcomeBack' ? welcomeMetrics(popup.rep).ph : 190;
     // upgrades panel sits lower so the HUD coin counter stays visible
     const px = (W - pw) / 2, py = (H - ph) / 2 - (popup.type === 'upgrades' ? 0 : 20);
     popup.rect = { x: px, y: py, w: pw, h: ph };
@@ -5159,6 +5269,8 @@ const UI = (() => {
       popup.cancelRect = { x: px + 60, y: py + ph - 54, w: pw - 120, h: 32 };
       drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
       drawButton(ctx, { ...popup.cancelRect, color: 'gray', label: 'CANCEL' });
+    } else if (popup.type === 'welcomeBack') {
+      drawWelcome(ctx, px, py, pw);
     } else if (popup.type === 'settings') {
       popupTitle(ctx, 'SETTINGS', px, py, pw);
       popup.musicRect = { x: px + 30, y: py + 34, w: pw - 60, h: 34 };
@@ -5241,6 +5353,18 @@ const UI = (() => {
   /** Returns true if the tap was consumed by UI. */
   function tap(x, y) {
     if (popup) {
+      if (popup.type === 'welcomeBack') {
+        // every way out pays at least the base amount (claim is idempotent)
+        if (inRect(x, y, popup.closeRect) || inRect(x, y, popup.okRect)) {
+          AudioManager.play('click');
+          Game.claimWelcome(1);
+        } else if (inRect(x, y, popup.adRect)) {
+          // ad popup replaces this one, blocking further taps until it ends
+          AudioManager.play('click');
+          popup = { type: 'adPlaying', t: 0, dur: CONFIG.IDLE.WELCOME_AD_DURATION, onDone: Game.onWelcomeAdDone };
+        }
+        return true;
+      }
       if (inRect(x, y, popup.closeRect)) {
         if (Game.upgradeTutorialActive) return true; // tutorial: must buy before closing
         AudioManager.play('click'); popup = null; panelFx = []; return true;
@@ -5365,7 +5489,9 @@ const Game = (() => {
     canvas = document.getElementById('game');
     ctx = canvas.getContext('2d');
     SaveManager.load();
-    Idle.tick(); // apply capped offline production to every farm before scenes build
+    // apply capped offline production to every farm before scenes build,
+    // recording time away + earnings for the welcome-back popup
+    Idle.launchTick();
     AudioManager.setMusic(SaveManager.data.settings.music);
     AudioManager.setSfx(SaveManager.data.settings.sfx);
     resize();
@@ -5453,9 +5579,67 @@ const Game = (() => {
   function start() {
     if (started) return;
     started = true;
-    scene = 'farm';
+    // the map is the default entry point after a launch, whatever farm the
+    // player was in when they left
+    scene = 'map';
     AudioManager.play('click');
-    collectFarmPending(SaveManager.data.currentFarm);
+    const rep = Idle.takeLaunchReport();
+    if (rep && rep.awaySec >= CONFIG.IDLE.WELCOME_MIN_AWAY && Math.floor(rep.total) >= 1) {
+      // once per launch, only after a real absence with something to show;
+      // openT lets the map render a beat before the popup layers over it
+      welcome = { rep, claimed: false, openT: 0.5 };
+    } else {
+      mapScene.queuePendingCollect();
+    }
+  }
+
+  // ---------------- welcome-back offline earnings ----------------
+  let welcome = null;   // {rep, claimed, openT} while the welcome-back popup is pending/up
+
+  /**
+   * Grant the welcome-back earnings exactly once. mult=2 after a completed
+   * reward ad doubles the offline part; every dismissal path (COLLECT, the
+   * X, an ad that fails or is skipped) grants mult=1 so the player can
+   * never lose the base amount. The claimed flag makes any second call
+   * (double-tap, stray ad callback) a no-op.
+   */
+  function claimWelcome(mult = 1) {
+    if (!welcome || welcome.claimed) return;
+    welcome.claimed = true;
+    const rep = welcome.rep;
+    UI.closePopup();
+    // coins fly to the wallet from each farm's map node, staggered like the
+    // regular map collection, the counter ticking up as each lands
+    let delay = 0.25, granted = 0;
+    for (const f of CONFIG.FARMS) {
+      const amt = Idle.collect(f.id)
+                + Math.floor(rep.perFarm[f.id]) * (mult - 1); // ad bonus: the offline part again
+      if (amt <= 0) continue;
+      granted += amt;
+      mapScene.queueBurst(f.id, amt, delay);
+      delay += CONFIG.IDLE.MAP_STAGGER;
+    }
+    if (granted > 0 && mult > 1) {
+      VFXManager.burst(W / 2, H / 2 - 60, ['#ffe98a', '#f4c437', '#fff6d0', '#ffffff'], 26, 130);
+      VFXManager.sparkle(W / 2, H / 2 - 70, 14, 40);
+      AudioManager.play('unlock');
+    }
+    SaveManager.save();
+    welcome = null;
+  }
+
+  /** Rewarded ad completed successfully: double the offline earnings. */
+  function onWelcomeAdDone() { claimWelcome(2); }
+
+  /**
+   * Rewarded ad failed, was unavailable, or was skipped: collection never
+   * blocks on the ad — the base amount is granted with a short non-blocking
+   * note. A real ad SDK should call this from its failure/skip callbacks
+   * (the built-in simulated ad always completes).
+   */
+  function onWelcomeAdFailed() {
+    UI.showToast('AD NOT AVAILABLE - COINS COLLECTED!');
+    claimWelcome(1);
   }
 
   /** Deliver a farm's accumulated background earnings as flying coins. */
@@ -5577,6 +5761,7 @@ const Game = (() => {
   }
 
   function onMapFarmTap(id) {
+    if (welcome) return; // welcome-back popup pending/up: claim it first
     AudioManager.play('click');
     if (SaveManager.data.unlocked[id]) {
       // switch farm: load that farm's own animals, upgrades and UFO state
@@ -5639,6 +5824,7 @@ const Game = (() => {
     SaveManager.reset();
     celebration = null;
     upgradeTutorial = null;
+    welcome = null;
     UFO.reset();
     UI.syncCoins();
     mapScene = new MapScene();
@@ -5657,6 +5843,15 @@ const Game = (() => {
       UI.drawLoading(ctx, elapsed);
       scheduleFrame(loop);
       return;
+    }
+
+    // welcome-back popup: opens over the map once it has rendered a beat
+    // (and never clobbers another popup — it waits for the slot instead)
+    if (welcome && !welcome.claimed) {
+      welcome.openT -= dt;
+      if (welcome.openT <= 0 && !UI.popup) {
+        UI.openPopup({ type: 'welcomeBack', rep: welcome.rep });
+      }
     }
 
     // update (gameplay pauses during a celebration, the upgrade tutorial,
@@ -5685,7 +5880,9 @@ const Game = (() => {
       idleT = 0;
       Idle.tick(scene === 'farm' ? SaveManager.data.currentFarm : -1);
       // while watching the map, freshly accrued coins keep flying in
-      if (scene === 'map' && !mapScene.unlockAnim) mapScene.queuePendingCollect();
+      // (paused while the welcome-back popup is pending/up: that pending
+      // balance belongs to the popup's COLLECT, not the ambient sweep)
+      if (scene === 'map' && !mapScene.unlockAnim && !welcome) mapScene.queuePendingCollect();
     }
 
     // autosave
@@ -5747,6 +5944,7 @@ const Game = (() => {
   return {
     addCoins, onButton, tryUnlock, onUnlockAnimDone, resetAll,
     startCelebration, endCelebration, onUpgradePurchased,
+    claimWelcome, onWelcomeAdDone, onWelcomeAdFailed,
     get scene() { return scene; },
     get farm() { return farmScene; },
     get celebrating() { return !!celebration; },

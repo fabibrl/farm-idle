@@ -423,6 +423,60 @@ const UI = (() => {
     }
   }
 
+  // ---------------- welcome-back popup ----------------
+  /**
+   * Layout numbers for the welcome-back popup. The per-farm breakdown only
+   * appears when 2+ farms actually earned something; the panel height grows
+   * with the rows and the cap note.
+   */
+  function welcomeMetrics(rep) {
+    const rows = [];
+    for (const f of CONFIG.FARMS) {
+      const amt = Math.floor(rep.perFarm[f.id]);
+      if (amt >= 1) rows.push({ name: f.name, amt });
+    }
+    const list = rows.length > 1 ? rows : [];
+    const cardH = 76 + (rep.capped ? 12 : 0) + (list.length ? list.length * 14 + 4 : 0);
+    return { rows: list, cardH, ph: cardH + 134 };
+  }
+
+  function drawWelcome(ctx, px, py, pw) {
+    const rep = popup.rep;
+    const m = welcomeMetrics(rep);
+    const total = Math.floor(rep.total);
+    popupTitle(ctx, 'WELCOME BACK!', px, py, pw);
+    // parchment card
+    const cy0 = py + 26;
+    ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, cy0 - 2, pw - 36, m.cardH + 4);
+    ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, cy0, pw - 40, m.cardH);
+    ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, cy0, pw - 40, 3);
+    const cx = px + pw / 2;
+    let yy = cy0 + 12;
+    drawText(ctx, 'YOU WERE AWAY FOR', cx, yy, SIZE.CAPTION, '#7d5027', 'center'); yy += 12;
+    drawText(ctx, U.fmtDur(rep.awaySec), cx, yy, SIZE.BODY, '#b8860b', 'center'); yy += 20;
+    if (rep.capped) {
+      drawText(ctx, 'OFFLINE EARNINGS MAX OUT AT 2H', cx, yy, SIZE.CAPTION, '#b0442f', 'center', false, false, pw - 52);
+      yy += 12;
+    }
+    // per-farm breakdown (only when several farms earned)
+    for (const r of m.rows) {
+      drawText(ctx, r.name, px + 32, yy, SIZE.CAPTION, '#7d5027', 'left');
+      drawText(ctx, U.fmt(r.amt), px + pw - 32 - measure(U.fmt(r.amt), SIZE.CAPTION), yy, SIZE.CAPTION, '#b8860b', 'left');
+      yy += 14;
+    }
+    if (m.rows.length) yy += 4;
+    // total earned while away
+    const totTxt = '+' + U.fmt(total);
+    const tw = measure(totTxt, SIZE.SUBTITLE);
+    ctx.drawImage(SPRITES.coin(2), cx - tw / 2 - 20, yy - 1, 16, 16);
+    drawText(ctx, totTxt, cx - tw / 2, yy, SIZE.SUBTITLE, '#b8860b', 'left');
+    // primary collect + secondary rewarded-ad 2x
+    popup.okRect = { x: px + 30, y: cy0 + m.cardH + 10, w: pw - 60, h: 40 };
+    popup.adRect = { x: px + 30, y: popup.okRect.y + 48, w: pw - 60, h: 34 };
+    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'COLLECT' });
+    drawButton(ctx, { ...popup.adRect, color: 'wood', icon: () => SPRITES.adPlay(), label: '2X ' + U.fmt(total * 2) });
+  }
+
   // ---------------- popups ----------------
   function drawPopup(ctx) {
     if (!popup) return;
@@ -458,7 +512,8 @@ const UI = (() => {
              : popup.type === 'discovery' ? 344
              : popup.type === 'unlock' ? 210
              : popup.type === 'pigeonAd' ? 254
-             : popup.type === 'tornadoAd' ? 296 : 190;
+             : popup.type === 'tornadoAd' ? 296
+             : popup.type === 'welcomeBack' ? welcomeMetrics(popup.rep).ph : 190;
     // upgrades panel sits lower so the HUD coin counter stays visible
     const px = (W - pw) / 2, py = (H - ph) / 2 - (popup.type === 'upgrades' ? 0 : 20);
     popup.rect = { x: px, y: py, w: pw, h: ph };
@@ -559,6 +614,8 @@ const UI = (() => {
       popup.cancelRect = { x: px + 60, y: py + ph - 54, w: pw - 120, h: 32 };
       drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
       drawButton(ctx, { ...popup.cancelRect, color: 'gray', label: 'CANCEL' });
+    } else if (popup.type === 'welcomeBack') {
+      drawWelcome(ctx, px, py, pw);
     } else if (popup.type === 'settings') {
       popupTitle(ctx, 'SETTINGS', px, py, pw);
       popup.musicRect = { x: px + 30, y: py + 34, w: pw - 60, h: 34 };
@@ -641,6 +698,18 @@ const UI = (() => {
   /** Returns true if the tap was consumed by UI. */
   function tap(x, y) {
     if (popup) {
+      if (popup.type === 'welcomeBack') {
+        // every way out pays at least the base amount (claim is idempotent)
+        if (inRect(x, y, popup.closeRect) || inRect(x, y, popup.okRect)) {
+          AudioManager.play('click');
+          Game.claimWelcome(1);
+        } else if (inRect(x, y, popup.adRect)) {
+          // ad popup replaces this one, blocking further taps until it ends
+          AudioManager.play('click');
+          popup = { type: 'adPlaying', t: 0, dur: CONFIG.IDLE.WELCOME_AD_DURATION, onDone: Game.onWelcomeAdDone };
+        }
+        return true;
+      }
       if (inRect(x, y, popup.closeRect)) {
         if (Game.upgradeTutorialActive) return true; // tutorial: must buy before closing
         AudioManager.play('click'); popup = null; panelFx = []; return true;

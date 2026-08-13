@@ -18,7 +18,9 @@ const Game = (() => {
     canvas = document.getElementById('game');
     ctx = canvas.getContext('2d');
     SaveManager.load();
-    Idle.tick(); // apply capped offline production to every farm before scenes build
+    // apply capped offline production to every farm before scenes build,
+    // recording time away + earnings for the welcome-back popup
+    Idle.launchTick();
     AudioManager.setMusic(SaveManager.data.settings.music);
     AudioManager.setSfx(SaveManager.data.settings.sfx);
     resize();
@@ -106,9 +108,67 @@ const Game = (() => {
   function start() {
     if (started) return;
     started = true;
-    scene = 'farm';
+    // the map is the default entry point after a launch, whatever farm the
+    // player was in when they left
+    scene = 'map';
     AudioManager.play('click');
-    collectFarmPending(SaveManager.data.currentFarm);
+    const rep = Idle.takeLaunchReport();
+    if (rep && rep.awaySec >= CONFIG.IDLE.WELCOME_MIN_AWAY && Math.floor(rep.total) >= 1) {
+      // once per launch, only after a real absence with something to show;
+      // openT lets the map render a beat before the popup layers over it
+      welcome = { rep, claimed: false, openT: 0.5 };
+    } else {
+      mapScene.queuePendingCollect();
+    }
+  }
+
+  // ---------------- welcome-back offline earnings ----------------
+  let welcome = null;   // {rep, claimed, openT} while the welcome-back popup is pending/up
+
+  /**
+   * Grant the welcome-back earnings exactly once. mult=2 after a completed
+   * reward ad doubles the offline part; every dismissal path (COLLECT, the
+   * X, an ad that fails or is skipped) grants mult=1 so the player can
+   * never lose the base amount. The claimed flag makes any second call
+   * (double-tap, stray ad callback) a no-op.
+   */
+  function claimWelcome(mult = 1) {
+    if (!welcome || welcome.claimed) return;
+    welcome.claimed = true;
+    const rep = welcome.rep;
+    UI.closePopup();
+    // coins fly to the wallet from each farm's map node, staggered like the
+    // regular map collection, the counter ticking up as each lands
+    let delay = 0.25, granted = 0;
+    for (const f of CONFIG.FARMS) {
+      const amt = Idle.collect(f.id)
+                + Math.floor(rep.perFarm[f.id]) * (mult - 1); // ad bonus: the offline part again
+      if (amt <= 0) continue;
+      granted += amt;
+      mapScene.queueBurst(f.id, amt, delay);
+      delay += CONFIG.IDLE.MAP_STAGGER;
+    }
+    if (granted > 0 && mult > 1) {
+      VFXManager.burst(W / 2, H / 2 - 60, ['#ffe98a', '#f4c437', '#fff6d0', '#ffffff'], 26, 130);
+      VFXManager.sparkle(W / 2, H / 2 - 70, 14, 40);
+      AudioManager.play('unlock');
+    }
+    SaveManager.save();
+    welcome = null;
+  }
+
+  /** Rewarded ad completed successfully: double the offline earnings. */
+  function onWelcomeAdDone() { claimWelcome(2); }
+
+  /**
+   * Rewarded ad failed, was unavailable, or was skipped: collection never
+   * blocks on the ad — the base amount is granted with a short non-blocking
+   * note. A real ad SDK should call this from its failure/skip callbacks
+   * (the built-in simulated ad always completes).
+   */
+  function onWelcomeAdFailed() {
+    UI.showToast('AD NOT AVAILABLE - COINS COLLECTED!');
+    claimWelcome(1);
   }
 
   /** Deliver a farm's accumulated background earnings as flying coins. */
@@ -230,6 +290,7 @@ const Game = (() => {
   }
 
   function onMapFarmTap(id) {
+    if (welcome) return; // welcome-back popup pending/up: claim it first
     AudioManager.play('click');
     if (SaveManager.data.unlocked[id]) {
       // switch farm: load that farm's own animals, upgrades and UFO state
@@ -292,6 +353,7 @@ const Game = (() => {
     SaveManager.reset();
     celebration = null;
     upgradeTutorial = null;
+    welcome = null;
     UFO.reset();
     UI.syncCoins();
     mapScene = new MapScene();
@@ -310,6 +372,15 @@ const Game = (() => {
       UI.drawLoading(ctx, elapsed);
       scheduleFrame(loop);
       return;
+    }
+
+    // welcome-back popup: opens over the map once it has rendered a beat
+    // (and never clobbers another popup — it waits for the slot instead)
+    if (welcome && !welcome.claimed) {
+      welcome.openT -= dt;
+      if (welcome.openT <= 0 && !UI.popup) {
+        UI.openPopup({ type: 'welcomeBack', rep: welcome.rep });
+      }
     }
 
     // update (gameplay pauses during a celebration, the upgrade tutorial,
@@ -338,7 +409,9 @@ const Game = (() => {
       idleT = 0;
       Idle.tick(scene === 'farm' ? SaveManager.data.currentFarm : -1);
       // while watching the map, freshly accrued coins keep flying in
-      if (scene === 'map' && !mapScene.unlockAnim) mapScene.queuePendingCollect();
+      // (paused while the welcome-back popup is pending/up: that pending
+      // balance belongs to the popup's COLLECT, not the ambient sweep)
+      if (scene === 'map' && !mapScene.unlockAnim && !welcome) mapScene.queuePendingCollect();
     }
 
     // autosave
@@ -400,6 +473,7 @@ const Game = (() => {
   return {
     addCoins, onButton, tryUnlock, onUnlockAnimDone, resetAll,
     startCelebration, endCelebration, onUpgradePurchased,
+    claimWelcome, onWelcomeAdDone, onWelcomeAdFailed,
     get scene() { return scene; },
     get farm() { return farmScene; },
     get celebrating() { return !!celebration; },

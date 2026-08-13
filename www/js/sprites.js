@@ -1206,12 +1206,22 @@ const SPRITES = (() => {
     });
   }
 
+  /** Rewarded-video icon: little screen with a play triangle. */
+  function adPlay() {
+    return PIXEL.sprite('adPlay', 16, 12, s => {
+      s.rect(1, 1, 14, 10, '#f4ece0');   // screen frame
+      s.rect(2, 2, 12, 8, '#4a4440');    // dark screen
+      for (let i = 0; i < 3; i++) s.rect(6 + i, 3 + i, 1, 6 - i * 2, '#7dbb4a');
+      s.outline();
+    });
+  }
+
   return {
     animal, ANIMAL_SIZES, poop, coin, mutant2, ufo, pigeon, tornado,
     tree, bush, flower, rock, barrel, crate, haystack, sign, fenceH,
     farmhouse, barn, shed,
     coop, nest, cottage, windmillTower, windmillBlades, silo, milkCan, woolBale,
-    mapPin, lock, gear, arrowUp, xIcon,
+    mapPin, lock, gear, arrowUp, xIcon, adPlay,
     P,
   };
 })();

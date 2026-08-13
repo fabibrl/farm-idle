@@ -161,6 +161,11 @@ const CONFIG = {
     // farm can override via its offlinePenFill) so the board comes back
     // playable, never merged-locked at the 100% active-play cap
     OFFLINE_PEN_FILL: 0.65,
+    // welcome-back popup: summarizes offline earnings on launch with an
+    // optional rewarded-ad 2x. Only shown after a real absence so quick
+    // app switches don't trigger it.
+    WELCOME_MIN_AWAY: 60,      // seconds away required before the popup shows
+    WELCOME_AD_DURATION: 3.0,  // simulated reward-ad length (s)
   },
 
   // Farm unlock costs — the long-term goals. Tuned to ~15-25 min of the

@@ -23,9 +23,14 @@ class MapScene {
     for (const f of CONFIG.FARMS) {
       const amt = Idle.collect(f.id);
       if (amt <= 0) continue;
-      this.collectQueue.push({ farmId: f.id, amount: amt, delay });
+      this.queueBurst(f.id, amt, delay);
       delay += CONFIG.IDLE.MAP_STAGGER;
     }
+  }
+
+  /** Queue one coins-fly-to-wallet burst from a farm's map node. */
+  queueBurst(farmId, amount, delay = 0.25) {
+    this.collectQueue.push({ farmId, amount, delay });
   }
 
   /** Begin glowing-path unlock animation toward farmId. */

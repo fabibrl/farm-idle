@@ -69,6 +69,33 @@ const Idle = (() => {
     for (const f of CONFIG.FARMS) reconcile(f.id, now, f.id === liveFarmId);
   }
 
+  let launchReport = null; // {awaySec, capped, perFarm, total} captured once at boot
+
+  /**
+   * Boot-time reconcile for the welcome-back popup: measures how long the
+   * game was closed (the most recent farm stamp from the previous session)
+   * and how many coins each farm produced over that capped window (the
+   * per-farm pending deltas the reconcile itself generates).
+   */
+  function launchTick() {
+    const now = Date.now();
+    let lastSeen = 0;
+    for (const f of CONFIG.FARMS) lastSeen = Math.max(lastSeen, rec(f.id).last || 0);
+    const before = CONFIG.FARMS.map(f => rec(f.id).pending);
+    tick();
+    const perFarm = CONFIG.FARMS.map(f => rec(f.id).pending - before[f.id]);
+    const awaySec = lastSeen && now > lastSeen ? (now - lastSeen) / 1000 : 0;
+    launchReport = {
+      awaySec: Math.min(awaySec, capSeconds()),
+      capped: awaySec > capSeconds(),
+      perFarm,
+      total: perFarm.reduce((a, b) => a + b, 0),
+    };
+  }
+
+  /** One-shot: the boot report for the welcome-back popup (null after use). */
+  function takeLaunchReport() { const r = launchReport; launchReport = null; return r; }
+
   /** Whole coins waiting to be collected on this farm. */
   function pending(farmId) { return Math.floor(rec(farmId).pending); }
 
@@ -80,5 +107,5 @@ const Idle = (() => {
     return amount;
   }
 
-  return { tick, pending, collect };
+  return { tick, launchTick, takeLaunchReport, pending, collect };
 })();

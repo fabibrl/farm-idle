@@ -15,6 +15,14 @@ const U = {
   fmt(n) { return Math.floor(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ','); },
   // Compact 250000 -> "250,000" (kept full per reference HUD style)
   fmtCost(n) { return U.fmt(n); },
+  // Format seconds -> "1H 47M" / "12M" / "45S"
+  fmtDur(sec) {
+    sec = Math.floor(sec);
+    const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60);
+    if (h > 0) return h + 'H ' + m + 'M';
+    if (m > 0) return m + 'M';
+    return sec + 'S';
+  },
 };
 
 /** Simple object pool to avoid per-frame allocations. */
