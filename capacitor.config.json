@@ -1,0 +1,9 @@
+{
+  "appId": "io.infinitygames.farmevolution",
+  "appName": "Farm Evolution",
+  "webDir": "www",
+  "backgroundColor": "#1a140e",
+  "android": {
+    "backgroundColor": "#1a140e"
+  }
+}
