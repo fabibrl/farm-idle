@@ -108,11 +108,13 @@ const ENVIRONMENT = (() => {
     const bw = building.width * 3, bh = building.height * 3;
     g.drawImage(building, (W - bw) / 2 | 0, PLAY.y - 16 - bh, bw, bh);
 
-    // trees flanking the farmhouse
+    // trees: one flanking the farmhouse on the left, one on the
+    // bottom-right grass — the upper-right corner is kept clear for the
+    // UFO's permanent parking spot (see ufo.js spot())
     const treeV = id === 0 ? 0 : 1;
     const treeImg = SPRITES.tree(treeV);
     g.drawImage(treeImg, 6, PLAY.y - 94, 60, 72);
-    g.drawImage(treeImg, W - 66, PLAY.y - 94, 60, 72);
+    g.drawImage(treeImg, W - 68, PLAY.y + PLAY.h + 40, 60, 72);
 
     // flowers beside the path entrance
     g.drawImage(SPRITES.flower(id), W / 2 - 52, PLAY.y - 40, 16, 20);
@@ -121,7 +123,8 @@ const ENVIRONMENT = (() => {
     // tidy row of decorations on the grass below the front fence
     const botY = PLAY.y + PLAY.h + 32;
     g.drawImage(SPRITES.bush(id === 0 ? 2 : 1), 28, botY, 36, 24);
-    g.drawImage(SPRITES.bush(1), W - 62, botY + 4, 36, 24);
+    // (kept left of x~250: the relocated tree stands on the bottom-right grass)
+    g.drawImage(SPRITES.bush(1), 206, botY + 4, 36, 24);
     if (id === 2) {
       g.drawImage(SPRITES.haystack(), W / 2 - 20, botY - 2, 40, 32);
     } else {

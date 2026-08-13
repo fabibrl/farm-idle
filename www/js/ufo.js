@@ -5,9 +5,9 @@
  * merge on a farm plays the full abduction cinematic (gameplay paused,
  * input blocked): the pair becomes a MUTANT 2 (the final, fully mutated
  * form of the farm's animal), a UFO flies in, beams it up, then parks
- * permanently in the top-right corner of that farm. Every later Mutant +
- * Mutant merge there is a sub-second quick collect straight into the
- * parked UFO.
+ * permanently beside the farmhouse in the upper-right corner of the scene,
+ * outside the pen. Every later Mutant + Mutant merge there is a sub-second
+ * quick collect straight into the parked UFO.
  *
  * Each collected Mutant 2 permanently raises the UFO's passive coin
  * drip (aliens * INCOME_PER_ALIEN coins every INTERVAL seconds — the
@@ -28,11 +28,24 @@ const UFO = (() => {
 
   const smooth = t => { t = U.clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 
-  /** Permanent landing spot: top-right corner of the pen. */
+  /**
+   * Permanent parking spot: hovering beside the farmhouse in the upper-right
+   * corner of the scene, anchored to the view's top/right edges (not the
+   * pen). It fills the clear sky strip between the top HUD bar (backdrop
+   * ends at y 56) and the pen's back fence (starts at y 140), to the right
+   * of the farmhouse (widest building ends at x 234) — fully outside the
+   * fenced animal area, never covering the house, and clear of the settings
+   * button (ends at y 44). The right flanking tree was moved to the
+   * bottom-right grass (environment.js) to keep this corner open. The whole
+   * 360x640 virtual view is letterboxed on every device, so an edge anchor
+   * inside it stays fully visible and tappable at any resolution or aspect
+   * ratio. (Saucer is 88x52 px, bottom-anchored; counter extends ~30 px
+   * below.)
+   */
   function spot() {
     return {
-      x: ENVIRONMENT.PLAY.x + ENVIRONMENT.PLAY.w - 40,
-      y: ENVIRONMENT.PLAY.y + 40,
+      x: CONFIG.VIEW_W - 48,   // right-edge anchored: saucer spans x 268-356
+      y: 110,                  // top-edge anchored: saucer spans y 58-110
     };
   }
 
@@ -207,10 +220,11 @@ const UFO = (() => {
 
     drawSaucer(ctx, p.x, p.y + bob, data().aliens);
 
-    // collection counter under the saucer
+    // collection counter under the saucer, in the sky gap above the pen's
+    // back fence (fence starts at y 140; the counter ends right there)
     if (data().aliens > 0) {
-      PIXEL.blit(ctx, SPRITES.mutant2(species()), p.x - 12, p.y + 30, 1);
-      UI.drawText(ctx, 'X' + data().aliens, p.x - 4, p.y + 16, UI.SIZE.BODY, '#c4ffb8', 'left', true);
+      PIXEL.blit(ctx, SPRITES.mutant2(species()), p.x - 2, p.y + 30, 1);
+      UI.drawText(ctx, 'X' + data().aliens, p.x + 6, p.y + 16, UI.SIZE.BODY, '#c4ffb8', 'left', true);
     }
   }
 
