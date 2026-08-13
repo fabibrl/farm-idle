@@ -1,0 +1,39 @@
+# Farm Idle
+
+**Title:** Farm Idle
+**Genre:** Idle + Match
+**Tone:** Slightly comedic
+**Reference:** Cow Evolution
+
+
+## 1. Player Goal
+
+Have the highest number of unlocked farms.
+
+## 2. Core Loop
+
+1. Animals poop, and the poop generates money.
+2. The player matches animals, creating/discovering more and more mutant animals.
+3. The rarer the animal, the more profitable its poop.
+4. With the money, the player buys upgrades and/or new farms.
+5. New farms lead to the discovery of new animals.
+
+## 3. Features
+
+The idea is to have several idle game features.
+
+**Not yet implemented:**
+- **Offline system per farm:** the farm generates money for X hours offline (very common in idle games).
+
+## 4. Monetization
+
+**Implemented:**
+- **Pigeon:** generates a poop rain, meaning money (very common in idle games).
+- **Tornado:** helps the player match animals when there are too many of them.
+
+**Ideas:**
+- Level 2 animals being generated every X minutes.
+- Selling more hours of offline generation (if the game generates offline revenue for 2 hours, sell 4 hours — idle games have this).
+- Revenue multiplier on poop: poop generates 2x the value it already generates.
+- Ad break.
+- Double offline revenue.
