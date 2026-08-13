@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "build:www": "node scripts/build-www.js",
+    "build:single": "node scripts/build-single.js",
     "android:sync": "npm run build:www && npx cap sync android",
     "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug"
   },

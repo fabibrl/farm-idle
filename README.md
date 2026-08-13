@@ -1,5 +1,7 @@
 # Farm Evolution
 
+**▶ Play now: https://fabibrl.github.io/farm-idle/**
+
 A polished mobile-first merge/idle game prototype inspired by *Cow Evolution*, built with
 vanilla JavaScript + HTML5 Canvas. Every visual asset is handcrafted pixel art generated
 procedurally in code, following a single art bible (warm palette, dark warm-brown outlines,
