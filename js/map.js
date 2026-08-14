@@ -101,9 +101,39 @@ class MapScene {
     }
   }
 
+  /**
+   * Decorative striped flag (blue/black/white) on a wooden pole planted
+   * roadside between Farm 1 and Farm 2. Purely cosmetic: not tappable, no
+   * gameplay effect. The cloth flies left of the pole (over open grass,
+   * above the road) and waves in vertical slices with a slow, low-amplitude
+   * ripple; the slice at the pole stays fixed.
+   */
+  drawFlag(ctx) {
+    const f = ENVIRONMENT.FLAG;
+    // pole with tiny knob
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(f.x - 1, f.y - 33, 4, 34);
+    ctx.fillStyle = SPRITES.P.wood;
+    ctx.fillRect(f.x, f.y - 32, 2, 32);
+    ctx.fillStyle = SPRITES.P.woodHi;
+    ctx.fillRect(f.x, f.y - 32, 1, 32);
+    ctx.fillRect(f.x - 1, f.y - 34, 4, 2);
+    // cloth: three horizontal stripes in 3px vertical slices, rippling
+    // toward the free end (leftmost slices)
+    const stripes = ['#2a6db4', '#23232b', '#e9e9e4'];
+    for (let sx = 0; sx < 18; sx += 3) {
+      const wave = sx === 0 ? 0 : Math.round(Math.sin(this.time * 1.4 + sx * 0.5));
+      for (let s = 0; s < 3; s++) {
+        ctx.fillStyle = stripes[s];
+        ctx.fillRect(f.x - 3 - sx, f.y - 31 + s * 4 + wave, 3, 4);
+      }
+    }
+  }
+
   draw(ctx) {
     ctx.drawImage(this.bg, 0, 0);
     const save = SaveManager.data;
+    this.drawFlag(ctx);
     const a = this.unlockAnim;
 
     // glowing unlock path

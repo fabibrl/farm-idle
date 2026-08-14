@@ -194,6 +194,22 @@ const ENVIRONMENT = (() => {
     [{ x: 250, y: 330 }, { x: 230, y: 390 }, { x: 170, y: 440 }, { x: 110, y: 470 }],
   ];
 
+  // Decorative striped flag planted roadside on the Farm 1 → Farm 2 stretch —
+  // anchored to the road segment's middle control points so it tracks any
+  // road re-routing. Offset perpendicular to the upper-right side of the
+  // road, outside every node's tap radius and clear of the windmill blades.
+  // Purely visual.
+  const FLAG = (() => {
+    const a = ROADS[0][1], b = ROADS[0][2];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    // unit perpendicular pointing away from the road's upper-right edge
+    const px = (b.y - a.y) / len, py = -(b.x - a.x) / len;
+    return {
+      x: Math.round((a.x + b.x) / 2 + px * 14),
+      y: Math.round((a.y + b.y) / 2 + py * 14),
+    };
+  })();
+
   function roadPoints(seg, step = 6) {
     // Catmull-rom-ish smooth sampling through control points
     const pts = [];
@@ -340,5 +356,5 @@ const ENVIRONMENT = (() => {
     return c;
   }
 
-  return { farm, worldMap, PLAY, MAP_NODES, THEME, roadPoints, GROUNDS };
+  return { farm, worldMap, PLAY, MAP_NODES, THEME, FLAG, roadPoints, GROUNDS };
 })();
