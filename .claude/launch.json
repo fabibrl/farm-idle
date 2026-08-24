@@ -6,6 +6,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["serve.js"],
       "port": 8471
+    },
+    {
+      "name": "capture",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["/private/tmp/claude-502/-Users-infinity-Documents-GitHub-farm-idle/7c476c27-7f6a-4618-addc-f3267a0ff701/scratchpad/capture-server.js"],
+      "port": 8990
     }
   ]
 }

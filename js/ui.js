@@ -95,8 +95,76 @@ const UI = (() => {
     ctx.fillRect(x, y, w, 2);
   }
 
+  /**
+   * Figma upgrade-button component (46:67, "Upgrades — States" page):
+   * seven `state` variants sharing one geometry — only fills, opacity,
+   * icons and label change. All values are Figma px / 2, offsets relative
+   * to the outer rect (b.x-2, b.y-2).
+   */
+  const BTN_STATES = {
+    'default':   { face: '#5e9c31', bevel: '#7dbb4a', drop: '#41701f' },
+    'pressed':   { face: '#41701f', bevel: '#5e9c31', drop: '#41701f' },
+    'disabled':  { face: '#8c8678', bevel: '#aaa596', drop: '#635e52', dim: true },
+    'max-level': { face: '#f4c437', bevel: '#ffe98a', drop: '#c88f1e', label: 'MAX', labelCol: '#5c3a1d' },
+    'locked':    { face: '#7d5027', bevel: '#a9743f', drop: '#5c3a1d', labelCol: '#e0cfa8' },
+    'ad-unlock': { face: '#5e9c31', bevel: '#7dbb4a', drop: '#41701f', label: 'WATCH AD', labelCx: 55.5 },
+    'loading':   { face: '#8c8678', bevel: '#aaa596', drop: '#635e52', dim: true, label: 'LOADING', labelCol: '#e0cfa8', labelCx: 54.5 },
+  };
+
+  function drawStateButton(ctx, b) {
+    const st = BTN_STATES[b.state];
+    const ox = b.x - 2, oy = b.y - 2;
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(ox, oy, b.w + 4, b.h + 4);
+    ctx.fillStyle = st.drop;
+    ctx.fillRect(b.x, b.y + b.h - 4, b.w, 4);
+    ctx.fillStyle = st.face;
+    ctx.fillRect(b.x, b.y, b.w, b.h - 2);
+    ctx.fillStyle = st.bevel;
+    ctx.fillRect(b.x, b.y, b.w, 3);
+    ctx.fillRect(b.x, b.y, 3, b.h - 6);
+    if (b.state === 'locked') {
+      // pixel lock (cream/300) + face-colored keyhole
+      ctx.fillStyle = '#e0cfa8';
+      ctx.fillRect(ox + 13.5, oy + 9.5, 2, 4);
+      ctx.fillRect(ox + 19.5, oy + 9.5, 2, 4);
+      ctx.fillRect(ox + 13.5, oy + 7.5, 8, 2);
+      ctx.fillRect(ox + 11.5, oy + 13.5, 12, 9);
+      ctx.fillStyle = st.face;
+      ctx.fillRect(ox + 16.5, oy + 16.5, 2, 3);
+    } else if (b.state === 'ad-unlock') {
+      // play plate + stepped triangle
+      ctx.fillStyle = PIXEL.OUTLINE;
+      ctx.fillRect(ox + 6.5, oy + 11, 12, 10);
+      ctx.fillStyle = '#fff6e8';
+      ctx.fillRect(ox + 10, oy + 13, 2, 6);
+      ctx.fillRect(ox + 12, oy + 14, 2, 4);
+      ctx.fillRect(ox + 14, oy + 15, 2, 2);
+    }
+    if (st.dim) {
+      ctx.fillStyle = 'rgba(40,30,20,0.45)';
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+    }
+    if (b.state === 'loading') {
+      // 4-dot pixel spinner, stepped opacity, rotating with time
+      const step = Math.floor(performance.now() / 150) % 4;
+      const dots = [[13.5, 10.5], [17.5, 14.5], [13.5, 18.5], [9.5, 14.5]];
+      for (let i = 0; i < 4; i++) {
+        ctx.globalAlpha = [1, 0.7, 0.45, 0.2][(i - step + 4) % 4];
+        ctx.fillStyle = '#fff6e8';
+        ctx.fillRect(ox + dots[i][0], oy + dots[i][1], 3, 3);
+      }
+      ctx.globalAlpha = 1;
+    }
+    const label = st.label !== undefined ? st.label : b.label;
+    if (label) {
+      drawText(ctx, label, ox + (st.labelCx || 50), oy + 11.75, 8.5, st.labelCol || '#fff6e8', 'center', false, false, 92);
+    }
+  }
+
   /** Colored button (green/gray/red) with bevel + icon + label. */
   function drawButton(ctx, b) {
+    if (b.state) { drawStateButton(ctx, b); return; }
     const p = P();
     const cols = {
       green: ['#5e9c31', '#7dbb4a', '#41701f'],
@@ -204,19 +272,17 @@ const UI = (() => {
     if (!inf.maxed) {
       const costTxt = U.fmt(inf.cost);
       const costSize = PixelFont.fit(costTxt, 13, 51);
-      ctx.drawImage(SPRITES.coin(2), x + (spawn ? 225.5 : 225), y + (spawn ? 12.5 : 18.5), 16, 16);
-      drawText(ctx, costTxt, x + (spawn ? 245.5 : 245), y + (spawn ? 14.5 : 20.5) + (13 - costSize) / 2,
-               costSize, afford ? '#e9b51a' : '#b0442f', 'left');
+      ctx.drawImage(SPRITES.coin(2), x + (spawn ? 196 : 195.5), y + (spawn ? 12.5 : 18.5), 16, 16);
+      drawText(ctx, costTxt, x + (spawn ? 216 : 215.5), y + (spawn ? 14.5 : 20.5) + (13 - costSize) / 2,
+               costSize, afford ? '#58972a' : '#b0442f', 'left');
     }
     const fx = popup.fx[inf.key] || 0;
     const btn = { x: x + 200, y: y + (spawn ? 40 : 52), w: 96, h: 28 };
-    drawButton(ctx, {
-      ...btn, color: afford ? 'green' : 'gray',
-      label: inf.maxed ? 'MAX' : 'UPGRADE',
-      disabled: inf.maxed || !afford,
-      pressed: fx > 0.85,
-      layout: { labelX: 20.5, labelY: 9.75, labelPx: 8.5 },
-    });
+    // state mapping per the Figma upgrade-button component (46:67)
+    const state = inf.maxed ? 'max-level'
+                : fx > 0.85 ? 'pressed'
+                : afford ? 'default' : 'disabled';
+    drawButton(ctx, { ...btn, state, label: 'UPGRADE' });
 
     // ---- left column: name, then per-stat label line + "cur > next" line ----
     const textW = 190;
@@ -438,7 +504,7 @@ const UI = (() => {
 
     // flavor first (white, 30:106), then the name below it (22:20)
     PixelFont.drawWrapped(ctx, Discovery.flavor(popup.species, popup.stage), cx, py + 230.75, 5.5, '#ffffff', 'center', pw - 28, 2);
-    drawText(ctx, Discovery.displayName(popup.species, popup.stage), cx, py + 259.75, 8.5, '#ffe98a', 'center', false, false, pw - 24);
+    drawText(ctx, Discovery.displayName(popup.species, popup.stage), cx, py + 257.5, 12, '#ffe98a', 'center', false, false, pw - 24);
 
     // CONTINUE
     popup.okRect = { x: px + 50, y: py + ph - 56, w: pw - 100, h: 40 };
@@ -601,17 +667,17 @@ const UI = (() => {
       popup.fxT = (popup.fxT || 0) + Game.dt;
       const bob = Math.sin(popup.fxT * 3) * 2;
       PIXEL.blit(ctx, SPRITES.pigeon('idle', false), px + 58, py + 92 + bob, 3);
-      drawText(ctx, 'COO!', px + 82, py + 61.75, 4.5, '#7d5027', 'left');
-      // reward explanation
-      drawText(ctx, 'WATCH AN AD', px + 120, py + 55.25, 8.5, '#5c3a1d', 'left', false, false, 100);
-      drawText(ctx, 'POOP MEANS MONEY', px + 130, py + 72.75, 4.5, '#7d5027', 'left', false, false, 90);
+      drawText(ctx, 'COO!', px + 87.5, py + 36.75, 4.5, '#7d5027', 'left');
+      // reward explanation (24:37 / 30:38)
+      drawText(ctx, 'WATCH AN AD', px + 97, py + 72.5, 10, '#5c3a1d', 'left', false, false, 110);
+      drawText(ctx, 'POOP MEANS MONEY', px + 97, py + 88.5, 7, '#7d5027', 'left', false, false, 115);
       // scattered poop cluster (30:33..30:36, 24:40 — bottom-center anchors)
       for (const [bx2, by2] of [[73.5, 116.5], [39.25, 109], [56.5, 125], [67, 146], [39.5, 140]]) {
         PIXEL.blit(ctx, SPRITES.poop(0), px + bx2, py + by2, 1.25);
       }
-      // payout: coin + big value
-      ctx.drawImage(SPRITES.coin(2), px + 137.5, py + 90.5, 18.5, 18.5);
-      drawText(ctx, '+' + U.fmt(inf.value), px + 160, py + 94, 12, '#000000', 'left');
+      // payout: coin + big value (30:39 / 24:43)
+      ctx.drawImage(SPRITES.coin(2), px + 115, py + 111, 22.5, 22.5);
+      drawText(ctx, '+' + U.fmt(inf.value), px + 140.5, py + 116.5, 15, '#000000', 'left', false, false, 56);
       // watch button + note below it
       popup.okRect = { x: px + 40, y: py + 175, w: pw - 80, h: 40 };
       drawButton(ctx, { ...popup.okRect, color: 'green', icon: () => SPRITES.adPlay(), label: 'REWARD AD',
@@ -633,7 +699,7 @@ const UI = (() => {
       // reward explanation
       drawText(ctx, 'WATCH AN AD', px + 112.5, py + 60.75, 8.5, '#5c3a1d', 'left', false, false, 100);
       drawText(ctx, 'TO UNLEASH A', px + 132, py + 80.25, 4.5, '#7d5027', 'left');
-      drawText(ctx, 'MERGE STORM!', px + 108, py + 94.75, 8.5, '#b8860b', 'left', false, false, 105);
+      drawText(ctx, 'MERGE STORM!', px + 96.5, py + 106.5, 10, '#b8860b', 'left', false, false, 120);
       // mutants feed the UFO only where it has been unlocked
       const ufoReady = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
       drawText(ctx, ufoReady ? 'MUTANTS BECOME MUTANT 2!' : 'MERGES ALL THE WAY TO MUTANTS!',

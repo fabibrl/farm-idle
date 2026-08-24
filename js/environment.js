@@ -292,20 +292,16 @@ const ENVIRONMENT = (() => {
       }
     }
 
-    // ---- themed farm plots ----
-    // Farm 0: CHICKEN — wooden coop, nest with eggs, hay bale, feed specks
+    // ---- ground details on the plots (kept procedural; part of the
+    // terrain layers in the Figma "World Map — Props" scene) ----
     {
       const n = MAP_NODES[0];
-      g.drawImage(SPRITES.haystack(), n.x - 46, n.y - 8, 40, 32);
-      g.drawImage(SPRITES.coop(), n.x - 32, n.y - 54, 64, 56);
-      g.drawImage(SPRITES.nest(), n.x + 14, n.y - 2, 32, 20);
       // scattered feed
       g.fillStyle = '#e0b656';
       for (let k = 0; k < 10; k++) {
         g.fillRect(n.x - 24 + rnd() * 48 | 0, n.y + 8 + rnd() * 18 | 0, 2, 2);
       }
     }
-    // Farm 1: SHEEP — cozy cottage, windmill tower, wool bales, pasture flowers
     {
       const n = MAP_NODES[1];
       // pasture tufts (lighter green)
@@ -313,14 +309,7 @@ const ENVIRONMENT = (() => {
       for (let k = 0; k < 12; k++) {
         g.fillRect(n.x - 36 + rnd() * 72 | 0, n.y - 20 + rnd() * 42 | 0, 3, 2);
       }
-      g.drawImage(SPRITES.windmillTower(), THEME[1].windmill.x - 18, THEME[1].windmill.y - 12, 36, 60);
-      g.drawImage(SPRITES.cottage(), n.x - 34, n.y - 56, 68, 64);
-      g.drawImage(SPRITES.woolBale(), n.x + 18, n.y + 12, 28, 22);
-      g.drawImage(SPRITES.woolBale(), n.x - 22, n.y + 18, 22, 18);
-      g.drawImage(SPRITES.flower(0), n.x - 38, n.y + 6, 16, 20);
-      g.drawImage(SPRITES.flower(2), n.x - 42, n.y + 2, 16, 20);
     }
-    // Farm 2: COW — big red barn, silo, milk cans, grazing patches
     {
       const n = MAP_NODES[2];
       // grazing patches on the dirt plot
@@ -328,29 +317,40 @@ const ENVIRONMENT = (() => {
       g.beginPath(); g.ellipse(n.x - 26, n.y + 16, 14, 7, 0, 0, 7); g.fill();
       g.beginPath(); g.ellipse(n.x + 30, n.y + 8, 11, 6, 0, 0, 7); g.fill();
       g.globalAlpha = 1;
-      g.drawImage(SPRITES.silo(), n.x + 30, n.y - 62, 32, 68);
-      g.drawImage(SPRITES.barn(), n.x - 36, n.y - 58, 72, 64);
-      g.drawImage(SPRITES.milkCan(), n.x - 48, n.y + 10, 20, 24);
-      g.drawImage(SPRITES.milkCan(), n.x - 34, n.y + 16, 16, 20);
     }
 
-    // trees scattered
-    for (let i = 0; i < 9; i++) {
-      const img = SPRITES.tree(rnd() < 0.5 ? 0 : 1);
-      let x, y, tries = 0;
-      do {
-        x = 8 + rnd() * (W - 90); y = 8 + rnd() * (H - 140);
-        tries++;
-      } while (tries < 20 && MAP_NODES.some(n => U.dist(x + 30, y + 36, n.x, n.y) < 90));
-      g.drawImage(img, x | 0, y | 0, 60, 72);
-    }
-    // bushes & rocks
-    for (let i = 0; i < 6; i++) {
-      const img = rnd() < 0.5 ? SPRITES.bush(1) : SPRITES.rock(0);
-      const x = 10 + rnd() * (W - 100), y = 20 + rnd() * (H - 120);
-      if (MAP_NODES.some(n => U.dist(x, y, n.x, n.y) < 70)) continue;
-      g.drawImage(img, x | 0, y | 0, img.width * 2, img.height * 2);
-    }
+    // ---- props: fixed layout from the Figma "World Map — Props" scene
+    // (50:3), Figma px / 2, trim offsets unfolded to full-sprite rects.
+    // Layer order here mirrors the design's z-order. ----
+    const SPR = {
+      haystack: () => SPRITES.haystack(), coop: () => SPRITES.coop(), nest: () => SPRITES.nest(),
+      windmillTower: () => SPRITES.windmillTower(), cottage: () => SPRITES.cottage(),
+      woolBale: () => SPRITES.woolBale(), flower0: () => SPRITES.flower(0), flower2: () => SPRITES.flower(2),
+      silo: () => SPRITES.silo(), barn: () => SPRITES.barn(), milkCan: () => SPRITES.milkCan(),
+      tree0: () => SPRITES.tree(0), tree1: () => SPRITES.tree(1),
+      bush1: () => SPRITES.bush(1), rock0: () => SPRITES.rock(0),
+    };
+    const MID_PROPS = [
+      ['haystack', 47.5, 197, 24, 19], ['coop', 45, 121.84, 71, 62.16], ['nest', 85.5, 194, 32, 20],
+      ['windmillTower', 170, 282, 36, 60], ['cottage', 212.3, 248.09, 79.9, 75.26],
+      ['woolBale', 268, 342, 28, 22], ['woolBale', 256, 354.36, 22, 18],
+      ['flower0', 212, 336, 16, 20], ['flower2', 208, 332, 16, 20],
+      ['silo', 37, 397, 32, 68], ['barn', 67.15, 379.22, 88.2, 78.22],
+      ['milkCan', 62, 480, 20, 24], ['milkCan', 76, 486, 16, 20],
+    ];
+    const FG_PROPS = [
+      ['tree1', 206, 79.5, 60, 72], ['tree0', 258, 409, 60, 72], ['tree1', 244, 490, 60, 72],
+      ['tree1', 16, 511, 60, 72], ['tree0', 168, 490, 60, 72], ['tree1', 84.5, 297, 60, 72],
+      ['tree1', 124, 67, 60, 72], ['tree0', 167.5, 125, 60, 72], ['tree0', 72, 1, 60, 72],
+      ['tree0', 3, 250, 60, 72], ['tree0', 202, 200, 60, 72], ['tree0', 209, 561, 60, 72],
+      ['tree0', 75.5, 556, 60, 72],
+      ['bush1', 104, 252, 36, 24], ['bush1', 14, 354, 36, 24], ['bush1', 128, 147, 36, 24],
+      ['bush1', 197.5, 43, 36, 24],
+      ['rock0', 12, 151, 28, 20], ['rock0', 121, 502, 28, 20], ['bush1', 42, 65, 36, 24],
+      ['rock0', 48, 314, 28, 20], ['rock0', 271.5, 554, 28, 20],
+    ];
+    for (const [kind, x, y, w, h] of MID_PROPS) g.drawImage(SPR[kind](), x, y, w, h);
+    for (const [kind, x, y, w, h] of FG_PROPS) g.drawImage(SPR[kind](), x, y, w, h);
 
     cache.map = c;
     return c;

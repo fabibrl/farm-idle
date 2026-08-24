@@ -109,7 +109,13 @@ class MapScene {
    * ripple; the slice at the pole stays fixed.
    */
   drawFlag(ctx) {
-    const f = ENVIRONMENT.FLAG;
+    // anchor + scale from the Figma "World Map — Props" scene (flag_gremio,
+    // top-left 316,367 at 53x87 Figma px): art's local top-left is
+    // (f.x-18, f.y-34), so the transform maps that corner to the design spot
+    ctx.save();
+    ctx.translate(158, 183.5);
+    ctx.scale(53 / 44, 87 / 72);
+    const f = { x: 18, y: 34 };
     // pole with tiny knob
     ctx.fillStyle = PIXEL.OUTLINE;
     ctx.fillRect(f.x - 1, f.y - 33, 4, 34);
@@ -128,6 +134,7 @@ class MapScene {
         ctx.fillRect(f.x - 3 - sx, f.y - 31 + s * 4 + wave, 3, 4);
       }
     }
+    ctx.restore();
   }
 
   draw(ctx) {
