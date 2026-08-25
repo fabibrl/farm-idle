@@ -55,7 +55,8 @@ class MapScene {
       this.smokeT = 0.9 + Math.random() * 0.5;
       for (let i = 0; i < 3; i++) {
         const ch = ENVIRONMENT.THEME[i].chimney;
-        if (ch && SaveManager.data.unlocked[i]) {
+        // no house on the plot yet: no chimney, no smoke
+        if (ch && SaveManager.data.unlocked[i] && Construction.houseBuilt(i)) {
           this.smoke.push({ x: ch.x, y: ch.y, age: 0, life: 2.2 + Math.random(), drift: 4 + Math.random() * 6 });
         }
       }
@@ -101,9 +102,48 @@ class MapScene {
     }
   }
 
+  /**
+   * Decorative striped flag (blue/black/white) on a wooden pole planted
+   * roadside between Farm 1 and Farm 2. Purely cosmetic: not tappable, no
+   * gameplay effect. The cloth flies left of the pole (over open grass,
+   * above the road) and waves in vertical slices with a slow, low-amplitude
+   * ripple; the slice at the pole stays fixed.
+   */
+  drawFlag(ctx) {
+    // anchor + scale from the Figma "World Map — Props" scene (flag_gremio,
+    // top-left 316,367 at 53x87 Figma px): art's local top-left is
+    // (f.x-18, f.y-34), so the transform maps that corner to the design spot
+    ctx.save();
+    ctx.translate(158, 183.5);
+    ctx.scale(53 / 44, 87 / 72);
+    const f = { x: 18, y: 34 };
+    // pole with tiny knob
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(f.x - 1, f.y - 33, 4, 34);
+    ctx.fillStyle = SPRITES.P.wood;
+    ctx.fillRect(f.x, f.y - 32, 2, 32);
+    ctx.fillStyle = SPRITES.P.woodHi;
+    ctx.fillRect(f.x, f.y - 32, 1, 32);
+    ctx.fillRect(f.x - 1, f.y - 34, 4, 2);
+    // cloth: three horizontal stripes in 3px vertical slices, rippling
+    // toward the free end (leftmost slices)
+    const stripes = ['#2a6db4', '#23232b', '#e9e9e4'];
+    for (let sx = 0; sx < 18; sx += 3) {
+      const wave = sx === 0 ? 0 : Math.round(Math.sin(this.time * 1.4 + sx * 0.5));
+      for (let s = 0; s < 3; s++) {
+        ctx.fillStyle = stripes[s];
+        ctx.fillRect(f.x - 3 - sx, f.y - 31 + s * 4 + wave, 3, 4);
+      }
+    }
+    ctx.restore();
+  }
+
   draw(ctx) {
+    // the background re-bakes itself whenever a plot's build stage changes
+    this.bg = ENVIRONMENT.worldMap();
     ctx.drawImage(this.bg, 0, 0);
     const save = SaveManager.data;
+    this.drawFlag(ctx);
     const a = this.unlockAnim;
 
     // glowing unlock path
@@ -133,6 +173,9 @@ class MapScene {
       const theme = ENVIRONMENT.THEME[i];
       const unlocked = save.unlocked[i];
       const hideLock = a && a.farmId === i && (a.phase === 'burst');
+      // 'owned-unbuilt': bought, but a build step is still waiting there
+      const unbuilt = unlocked && !Construction.isComplete(i);
+      const stage = ENVIRONMENT.mapStage(i);
 
       // waving grass tufts (static when locked)
       for (let t = 0; t < theme.grass.length; t++) {
@@ -145,8 +188,9 @@ class MapScene {
         ctx.fillRect(gp.x + 9 + sway, gp.y - 7, 2, 3); ctx.fillRect(gp.x + 9, gp.y - 4, 2, 4);
       }
 
-      // spinning windmill blades (frozen when locked)
-      if (theme.windmill) {
+      // spinning windmill blades (frozen when locked, absent until the plot
+      // is finished — the tower itself only appears with the fence)
+      if (theme.windmill && stage >= 2) {
         const frame = unlocked ? Math.floor(this.time * 7) % 4 : 0;
         const bl = SPRITES.windmillBlades(frame);
         ctx.drawImage(bl, theme.windmill.x - 28, theme.windmill.y - 28, 56, 56);
@@ -157,7 +201,10 @@ class MapScene {
       const species = CONFIG.FARMS[i].species;
       const frame = unlocked && Math.sin(this.time * 1.6 + i * 2.1) > 0.55 ? 'peck' : 'idle';
       const blink = unlocked && Math.sin(this.time * 3 + i) > 0.96;
-      PIXEL.blit(ctx, SPRITES.animal(species, 1, frame, blink), theme.animal.x, theme.animal.y, 2, i === 1);
+      // an undeveloped plot has no animals on it at all
+      if (stage >= 1) {
+        PIXEL.blit(ctx, SPRITES.animal(species, 1, frame, blink), theme.animal.x, theme.animal.y, 2, i === 1);
+      }
 
       if (unlocked) {
         const pin = SPRITES.mapPin();
@@ -176,9 +223,15 @@ class MapScene {
         PIXEL.blit(ctx, SPRITES.lock(), n.x, n.y + 16, 2);
       }
 
-      // wooden sign with farm name
+      // construction-pending indicator: a bought plot with a build step
+      // still waiting on it gets the standard red "!" badge over its pin
+      if (unbuilt) UI.drawBadge(ctx, n.x + 20, n.y - 16);
+
+      // wooden sign with farm name (price while locked, build call while
+      // the plot is owned but unfinished)
       UI.woodSign(ctx, n.x, n.y + 40, CONFIG.FARMS[i].name, CONFIG.FARMS[i].label,
-        unlocked ? null : U.fmtCost(CONFIG.UNLOCK_COSTS[i]));
+        unlocked ? null : U.fmtCost(Construction.landCost(i)),
+        unbuilt ? 'UNDER CONSTRUCTION' : null);
     }
 
     // chimney smoke puffs (spawned only for unlocked farms)

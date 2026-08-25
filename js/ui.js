@@ -229,11 +229,13 @@ const UI = (() => {
     }
   }
 
-  /** Small wooden sign with 1-2 lines (used on world map). */
-  function woodSign(ctx, cx, cy, line1, line2, cost) {
+  /** Small wooden sign with 1-2 lines (used on world map). An optional
+   *  `note` replaces the cost line on owned-but-unfinished plots. */
+  function woodSign(ctx, cx, cy, line1, line2, cost, note) {
     const w = Math.max(measure(line1, SIZE.BUTTON), line2 ? measure(line2, SIZE.CAPTION) : 0,
-                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0) + 18;
-    const h = 18 + (line2 ? 9 : 0) + (cost ? 11 : 0);
+                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0,
+                       note ? measure(note, SIZE.CAPTION) : 0) + 18;
+    const h = 18 + (line2 ? 9 : 0) + (cost || note ? 11 : 0);
     woodPanel(ctx, cx - w / 2, cy, w, h, {});
     drawText(ctx, line1, cx, cy + 5, SIZE.BUTTON, '#f4e8cc', 'center', true);
     let yy = cy + 17;
@@ -243,6 +245,8 @@ const UI = (() => {
       const tw = measure(cost, SIZE.CAPTION);
       ctx.drawImage(img, cx - tw / 2 - 12, yy - 3, 10, 10);
       drawText(ctx, cost, cx - tw / 2, yy, SIZE.CAPTION, '#ffe98a', 'left');
+    } else if (note) {
+      drawText(ctx, note, cx, yy, SIZE.CAPTION, '#ffb0a0', 'center', false, false, w - 8);
     }
     // legs
     ctx.fillStyle = P().woodDk;
@@ -353,6 +357,28 @@ const UI = (() => {
   const COIN_POS = { x: 30, y: 27 };
   function coinTarget() { return { x: COIN_POS.x, y: COIN_POS.y }; }
 
+  // Height of the HUD's top bar backdrop (Figma 30:3, 112/2).
+  const HUD_H = 56;
+
+  /**
+   * The band of the scene that in-scene UI may occupy: below the HUD bar,
+   * above the bottom button row, inset from the stage edges. Derived from
+   * the live HUD geometry rather than fixed coordinates, so anything
+   * anchored through it stays clear of both bars — the 360x640 stage itself
+   * is letterboxed to fit the device, which keeps it inside notches and
+   * rounded corners at every resolution and aspect ratio.
+   */
+  function safeArea() {
+    const M = 10;
+    let bottom = H - M;
+    // the bottom action row (top-anchored buttons live under the HUD bar)
+    for (const b of buttons) {
+      if (b.y > H / 2) bottom = Math.min(bottom, b.y - 8);
+    }
+    const top = HUD_H + 8;
+    return { x: M, y: top, w: W - M * 2, h: Math.max(0, bottom - top) };
+  }
+
   function makeButtons() {
     // rects and icon/label placement from Figma E03 (14:29), Figma px / 2
     buttons = [
@@ -386,7 +412,7 @@ const UI = (() => {
     const p = P();
     // top bar backdrop (Figma 30:3 — rgba(26,20,14,0.5), h 112/2)
     ctx.fillStyle = 'rgba(26,20,14,0.5)';
-    ctx.fillRect(0, 0, W, 56);
+    ctx.fillRect(0, 0, W, HUD_H);
 
     // coin capsule
     displayedCoins = U.lerp(displayedCoins, SaveManager.data.coins, Math.min(1, CONFIG.COIN_COUNT_LERP * Game.dt));
@@ -568,6 +594,78 @@ const UI = (() => {
     drawText(ctx, U.fmt(total * 2), px + 104, py + 219, 10, '#fff6e8', 'left', false, false, 64);
   }
 
+  // ---------------- build / fence-upgrade panel ----------------
+  /**
+   * Construction panel for a staged farm (see js/construction.js): where the
+   * player is in the build sequence, what the next purchase is, what it
+   * costs and what it unlocks — plus the live fence tier and animal count
+   * once the fence exists. The action button reuses the Figma upgrade-button
+   * component states (default / disabled / max-level / pressed).
+   */
+  function drawBuild(ctx, px, py, pw, ph) {
+    const id = popup.farmId;
+    const scene = Game.farm && Game.farm.farmId === id ? Game.farm : null;
+    const inf = Construction.info(id, scene ? scene.animals.length : 0);
+    const cx = px + pw / 2;
+    popupTitle(ctx, 'BUILD ' + CONFIG.FARMS[id].name, px, py, pw, { size: 10, top: py - 2 });
+
+    // parchment card
+    ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 154);
+    ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 150);
+    ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 28, pw - 40, 3);
+
+    // where we are in the sequence, and what comes next
+    drawText(ctx, 'STEP ' + inf.step + ' OF ' + inf.steps, cx, py + 38, 5.5, '#7d5027', 'center');
+    drawText(ctx, inf.title, cx, py + 50, 10, '#5c3a1d', 'center', false, false, pw - 52);
+    PixelFont.drawWrapped(ctx, inf.unlocks, cx, py + 68, 5.5, '#7d5027', 'center', pw - 56, 2);
+
+    // live fence status (only meaningful once the fence stands)
+    ctx.fillStyle = 'rgba(124,80,39,0.25)';
+    ctx.fillRect(px + 30, py + 92, pw - 60, 1);
+    let ry = py + 100;
+    if (inf.fenceBuilt) {
+      statRow(ctx, px, pw, ry, 'FENCE TIER', inf.level + ' / ' + inf.maxLevel);
+      ry += 14;
+      statRow(ctx, px, pw, ry, 'ANIMALS', inf.animals + ' / ' + inf.capacity);
+      ry += 14;
+      if (inf.nextCapacity) {
+        statRow(ctx, px, pw, ry, 'NEXT CAPACITY', inf.capacity + ' > ' + inf.nextCapacity, '#3f7d1e');
+        ry += 14;
+      }
+    } else {
+      statRow(ctx, px, pw, ry, 'FENCE', 'NOT BUILT');
+      ry += 14;
+      statRow(ctx, px, pw, ry, 'ANIMALS', inf.capacity > 0 ? 'ESCAPING!' : 'NONE YET', '#b0442f');
+      ry += 14;
+    }
+
+    // price
+    const afford = !inf.maxed && SaveManager.data.coins >= inf.cost;
+    if (!inf.maxed) {
+      const txt = U.fmt(inf.cost);
+      const tw = measure(txt, 13);
+      ctx.drawImage(SPRITES.coin(2), cx - tw / 2 - 20, py + 150, 16, 16);
+      drawText(ctx, txt, cx - tw / 2, py + 152, 13, afford ? '#58972a' : '#b0442f', 'left');
+    } else {
+      drawText(ctx, 'NOTHING LEFT TO BUILD', cx, py + 154, 6.5, '#58972a', 'center', false, false, pw - 52);
+    }
+
+    // action button (Figma upgrade-button component geometry: 96x28)
+    popup.fx = Math.max(0, (popup.fx || 0) - Game.dt * 2);
+    popup.okRect = { x: cx - 48, y: py + 200, w: 96, h: 28 };
+    const state = inf.maxed ? 'max-level'
+                : popup.fx > 0.85 ? 'pressed'
+                : afford ? 'default' : 'disabled';
+    drawStateButton(ctx, { ...popup.okRect, state, label: inf.stage === 'upgrade' ? 'UPGRADE' : 'BUILD' });
+    drawPanelFx(ctx);
+  }
+
+  /** One label/value row inside the build panel's parchment card. */
+  function statRow(ctx, px, pw, y, label, value, col = '#7d5027') {
+    drawText(ctx, label, px + 34, y, 6.5, '#8a6a3c', 'left');
+    drawText(ctx, value, px + pw - 34, y, 6.5, col, 'right');
+  }
+
   // ---------------- popups ----------------
   function drawPopup(ctx) {
     if (!popup) return;
@@ -599,10 +697,12 @@ const UI = (() => {
     ctx.fillStyle = popup.type === 'discovery' ? 'rgba(16,10,6,0.75)' : 'rgba(16,10,6,0.55)';
     ctx.fillRect(0, 0, W, H);
 
-    const pw = popup.type === 'upgrades' ? 324 : popup.type === 'discovery' ? 280 : 240;
+    const pw = popup.type === 'upgrades' ? 324 : popup.type === 'discovery' ? 280
+             : popup.type === 'build' ? 260 : 240;
     const ph = popup.type === 'upgrades' ? 528
              : popup.type === 'discovery' ? 344
              : popup.type === 'unlock' ? 210
+             : popup.type === 'build' ? 258
              : popup.type === 'pigeonAd' ? 254
              : popup.type === 'tornadoAd' ? 270.5
              : popup.type === 'welcomeBack' ? welcomeMetrics(popup.rep).ph : 190;
@@ -622,8 +722,11 @@ const UI = (() => {
 
     if (popup.type === 'unlock') {
       const f = CONFIG.FARMS[popup.farmId];
+      // construction farms buy bare land here and build the rest in-scene
+      const build = Construction.required(popup.farmId);
+      const unlockCost = Construction.landCost(popup.farmId);
       // values from Figma E12 (26:2..26:47), Figma px / 2
-      popupTitle(ctx, 'UNLOCK ' + f.name, px, py, pw, { size: 10, top: py - 2 });
+      popupTitle(ctx, (build ? 'BUY LAND: ' : 'UNLOCK ') + f.name, px, py, pw, { size: 10, top: py - 2 });
       // inner parchment card
       ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 28, pw - 36, 104);
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 30, pw - 40, 100);
@@ -632,15 +735,20 @@ const UI = (() => {
       const img = SPRITES.animal(f.species, 1, 'idle', false);
       PIXEL.blit(ctx, img, px + 56.75, py + 110.5, 3.0);
       drawText(ctx, f.label.replace(/S$/, '') + ' FARM', px + 120, py + 52.25, 8.5, '#5c3a1d', 'left', false, false, 96);
-      drawText(ctx, 'UNLOCK COST:', px + 138.5, py + 72.75, 4.5, '#7d5027', 'left');
-      const cost = U.fmt(CONFIG.UNLOCK_COSTS[popup.farmId]);
+      drawText(ctx, build ? 'LAND COST:' : 'UNLOCK COST:', px + 138.5, py + 72.75, 4.5, '#7d5027', 'left');
+      const cost = U.fmt(unlockCost);
       ctx.drawImage(SPRITES.coin(2), px + 121.5, py + 88.5, 16, 16);
       drawText(ctx, cost, px + 141.5, py + 92.25, 8.5, '#000000', 'left');
+      if (build) {
+        drawText(ctx, 'EMPTY PLOT - BUILD IT YOURSELF!', px + pw / 2, py + 138, 5.5, '#ffe98a', 'center', false, false, pw - 32);
+      }
       // unlock button
-      const can = SaveManager.data.coins >= CONFIG.UNLOCK_COSTS[popup.farmId];
+      const can = SaveManager.data.coins >= unlockCost;
       popup.okRect = { x: px + 40, y: py + ph - 60, w: pw - 80, h: 40 };
-      drawButton(ctx, { ...popup.okRect, color: 'green', label: 'UNLOCK', disabled: !can,
+      drawButton(ctx, { ...popup.okRect, color: 'green', label: build ? 'BUY LAND' : 'UNLOCK', disabled: !can,
         layout: { labelY: 19, labelPx: 10, center: true } });
+    } else if (popup.type === 'build') {
+      drawBuild(ctx, px, py, pw, ph);
     } else if (popup.type === 'upgrades') {
       const f = CONFIG.FARMS[popup.farmId];
       popupTitle(ctx, 'UPGRADES!', px, py, pw, { tall: true });
@@ -859,6 +967,21 @@ const UI = (() => {
         }
         return true;
       }
+      if (popup.type === 'build') {
+        if (inRect(x, y, popup.okRect)) {
+          const r = Construction.buyNext(popup.farmId);
+          if (r.ok) {
+            AudioManager.play('buy');
+            popup.fx = 1;
+            spawnPanelFx(popup.okRect.x + popup.okRect.w / 2, popup.okRect.y + popup.okRect.h / 2);
+            Game.onConstructionBuilt(popup.farmId);
+          } else {
+            AudioManager.play('error');
+            toast = { text: r.reason, t: 1.6 };
+          }
+        }
+        return true;
+      }
       if (popup.type === 'unlock' && inRect(x, y, popup.okRect)) {
         Game.tryUnlock(popup.farmId);
         return true;
@@ -904,7 +1027,7 @@ const UI = (() => {
 
   return {
     SIZE, drawText, measure, woodPanel, woodSign, drawButton, drawHUD, drawPopup, drawLoading,
-    drawHand, drawUpgradeTutorial,
+    drawHand, drawUpgradeTutorial, drawBadge, safeArea,
     tap, coinTarget,
     pulseCoin() { coinPulse = 1; },
     showToast(text) { toast = { text, t: 1.6 }; },

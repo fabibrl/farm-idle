@@ -40,7 +40,8 @@ const Pigeon = (() => {
    * the right and the farmhouse behind the fence center.
    */
   function perchSpot() {
-    const P = ENVIRONMENT.PLAY, cx = CONFIG.VIEW_W / 2;
+    // the current fence footprint — the pigeon perches on the real rail
+    const P = ENVIRONMENT.playRect(SaveManager.data.currentFarm), cx = CONFIG.VIEW_W / 2;
     const x = Math.random() < 0.5
       ? U.rand(P.x + 30, cx - 64)
       : U.rand(cx + 64, P.x + P.w - 90);
@@ -164,7 +165,7 @@ const Pigeon = (() => {
       const count = C().POOP_COUNT;
       const gap = C().RAIN_DURATION / count;
       while (rain.spawned < count && rain.t >= rain.spawned * gap) {
-        const P = ENVIRONMENT.PLAY;
+        const P = ENVIRONMENT.playRect(SaveManager.data.currentFarm);
         poops.push({
           x: U.rand(P.x + 14, P.x + P.w - 14),
           groundY: U.rand(P.y + 20, P.y + P.h - 8),

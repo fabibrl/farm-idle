@@ -1,118 +1,64 @@
 /**
- * PixelFont — the game's global 'pixel-art-font'.
+ * PixelFont — the game's global text engine, rendering the embedded
+ * "Press Start 2P" typeface (assets/fonts/PressStart2P-Regular.ttf), the
+ * exact font used by the Figma designs (single source of truth).
  *
- * Every piece of text in the game (HUD, buttons, dialogues, popups, overlays)
- * renders through this module. Glyphs are a hand-authored 5px bitmap grid
- * drawn with fillRect at integer scales, which guarantees zero anti-aliasing
- * and zero sub-pixel blur by construction — no TTF rasterizer involved.
+ * Font metrics (parsed from the TTF): unitsPerEm 1000, ascent 1000,
+ * descent 0 — the baseline sits exactly 1em below the glyph-box top, and
+ * the font is strictly monospaced with advance = 1em. This makes layout
+ * fully deterministic: measure(text, size) = text.length * size, and
+ * draw(x, y, size) places the glyph em-box top at y (baseline at y + size),
+ * mirroring how Figma positions text nodes.
  *
- * - Sizes snap to integer multiples of the 5px glyph grid (5/10/15/20/...),
- *   so arbitrary requests (8, 16, 24, 32) land on a crisp scale.
+ * - Sizes are in canvas px and may be fractional (Figma px / 2), snapped
+ *   to 0.5 so they land on whole device pixels at the 2x render scale.
  * - SIZE tiers define the visual hierarchy: TITLE > SUBTITLE > BUTTON/BODY > CAPTION.
  * - fit / truncate / wrap keep text inside fixed-width containers: fitting
  *   first steps the size down, then falls back to an '…' ellipsis.
  */
 const PixelFont = (() => {
-  const FAMILY = 'pixel-art-font';
-  const GLYPH_H = 5;                 // native glyph grid height in pixels
+  const FAMILY = 'Press Start 2P';
 
-  // Typography scale (px, all multiples of GLYPH_H so scales stay integer).
+  // Typography scale (canvas px = Figma px / 2, from the Figma file).
   const SIZE = {
-    TITLE: 20,      // screen titles (loading, discovery, reward ad)
+    TITLE: 17,      // screen titles (loading, discovery, reward ad) — Figma 34px
     SUBTITLE: 15,   // popup / panel titles
-    BUTTON: 10,     // interactive button labels
+    BUTTON: 10,     // interactive button labels — Figma 20px
     BODY: 10,       // primary inline text (names, values, counters)
-    CAPTION: 5,     // secondary text (stat lines, flavor, hints)
+    CAPTION: 7.5,   // secondary text (stat lines, flavor, hints) — Figma 15px
   };
 
-  // ---------------- glyph atlas (5 rows, variable width) ----------------
-  const GLYPHS = {
-    A: ['.##.', '#..#', '####', '#..#', '#..#'],
-    B: ['###.', '#..#', '###.', '#..#', '###.'],
-    C: ['.###', '#...', '#...', '#...', '.###'],
-    D: ['###.', '#..#', '#..#', '#..#', '###.'],
-    E: ['####', '#...', '###.', '#...', '####'],
-    F: ['####', '#...', '###.', '#...', '#...'],
-    G: ['.###', '#...', '#.##', '#..#', '.###'],
-    H: ['#..#', '#..#', '####', '#..#', '#..#'],
-    I: ['###', '.#.', '.#.', '.#.', '###'],
-    J: ['..##', '...#', '...#', '#..#', '.##.'],
-    K: ['#..#', '#.#.', '##..', '#.#.', '#..#'],
-    L: ['#...', '#...', '#...', '#...', '####'],
-    M: ['#...#', '##.##', '#.#.#', '#...#', '#...#'],
-    N: ['#..#', '##.#', '#.##', '#..#', '#..#'],
-    O: ['.##.', '#..#', '#..#', '#..#', '.##.'],
-    P: ['###.', '#..#', '###.', '#...', '#...'],
-    Q: ['.##.', '#..#', '#..#', '#.##', '.###'],
-    R: ['###.', '#..#', '###.', '#.#.', '#..#'],
-    S: ['.###', '#...', '.##.', '...#', '###.'],
-    T: ['###', '.#.', '.#.', '.#.', '.#.'],
-    U: ['#..#', '#..#', '#..#', '#..#', '.##.'],
-    V: ['#.#', '#.#', '#.#', '#.#', '.#.'],
-    W: ['#...#', '#...#', '#.#.#', '##.##', '#...#'],
-    X: ['#..#', '#..#', '.##.', '#..#', '#..#'],
-    Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
-    Z: ['####', '...#', '.##.', '#...', '####'],
-    0: ['.##.', '#..#', '#..#', '#..#', '.##.'],
-    1: ['.#.', '##.', '.#.', '.#.', '###'],
-    2: ['###.', '...#', '.##.', '#...', '####'],
-    3: ['###.', '...#', '.##.', '...#', '###.'],
-    4: ['#..#', '#..#', '####', '...#', '...#'],
-    5: ['####', '#...', '###.', '...#', '###.'],
-    6: ['.###', '#...', '###.', '#..#', '.##.'],
-    7: ['####', '...#', '..#.', '.#..', '.#..'],
-    8: ['.##.', '#..#', '.##.', '#..#', '.##.'],
-    9: ['.##.', '#..#', '.###', '...#', '##..'],
-    ',': ['.', '.', '.', '#', '#'],
-    '+': ['...', '.#.', '###', '.#.', '...'],
-    '-': ['...', '...', '###', '...', '...'],
-    ':': ['.', '#', '.', '#', '.'],
-    '.': ['.', '.', '.', '.', '#'],
-    '!': ['#', '#', '#', '.', '#'],
-    '?': ['###', '..#', '.#.', '...', '.#.'],
-    '/': ['..#', '..#', '.#.', '#..', '#..'],
-    '>': ['#..', '.#.', '..#', '.#.', '#..'],
-    '<': ['..#', '.#.', '#..', '.#.', '..#'],
-    "'": ['#', '#', '.', '.', '.'],
-    '"': ['#.#', '#.#', '...', '...', '...'],
-    '(': ['.#', '#.', '#.', '#.', '.#'],
-    ')': ['#.', '.#', '.#', '.#', '#.'],
-    '=': ['...', '###', '...', '###', '...'],
-    '%': ['#..#', '..#.', '.#..', '#..#', '....'],
-    '…': ['.....', '.....', '.....', '.....', '#.#.#'],
-    ' ': ['..', '..', '..', '..', '..'],
-  };
+  // ---------------- font loading ----------------
+  let loaded = false;
+  const ready = (typeof FontFace !== 'undefined' && typeof document !== 'undefined')
+    ? new FontFace(FAMILY, "url('assets/fonts/PressStart2P-Regular.ttf')")
+        .load()
+        .then(face => { document.fonts.add(face); loaded = true; })
+        .catch(() => { loaded = true; })
+    : Promise.resolve();
 
   // ---------------- sizing ----------------
-  /** Snap any requested size to the nearest integer glyph scale (min 5px). */
+  /** Snap any requested size to the 0.5px grid (whole device pixels at 2x). */
   function snap(size) {
-    return Math.max(1, Math.round(size / GLYPH_H)) * GLYPH_H;
+    return Math.max(2, Math.round(size * 2) / 2);
   }
 
-  function scaleFor(size) { return snap(size) / GLYPH_H; }
-
-  /** Pixel width of text at a snapped font size. */
+  /** Pixel width of text at this size (monospace: advance = 1em). */
   function measure(text, size) {
-    const s = scaleFor(size);
-    let w = 0;
-    for (const ch of String(text).toUpperCase()) {
-      const gl = GLYPHS[ch] || GLYPHS['?'];
-      w += (gl[0].length + 1) * s;
-    }
-    return Math.max(0, w - s);
+    return String(text).length * snap(size);
   }
 
   /** Line advance for stacked lines of this size. */
   function lineHeight(size) { return Math.round(snap(size) * 1.4); }
 
   /**
-   * Largest snapped size <= `size` whose text fits in maxWidth
-   * (never below CAPTION size — beyond that, truncate instead).
+   * Largest 0.5-snapped size <= `size` whose text fits in maxWidth
+   * (never below 5px — beyond that, truncate instead).
    */
   function fit(text, size, maxWidth) {
-    let px = snap(size);
-    while (px > SIZE.CAPTION && measure(text, px) > maxWidth) px -= GLYPH_H;
-    return px;
+    const n = String(text).length || 1;
+    const px = Math.min(snap(size), Math.floor((maxWidth / n) * 2) / 2);
+    return Math.max(5, px);
   }
 
   /** Truncate with an '…' ellipsis so text fits in maxWidth at this size. */
@@ -142,23 +88,15 @@ const PixelFont = (() => {
   }
 
   // ---------------- rendering ----------------
-  function drawGlyphs(ctx, text, x, y, s, col) {
-    ctx.fillStyle = col;
-    let cx = x;
-    for (const ch of String(text).toUpperCase()) {
-      const gl = GLYPHS[ch] || GLYPHS['?'];
-      for (let r = 0; r < GLYPH_H; r++) {
-        const row = gl[r];
-        for (let c = 0; c < row.length; c++) {
-          if (row[c] === '#') ctx.fillRect(cx + c * s, y + r * s, s, s);
-        }
-      }
-      cx += (gl[0].length + 1) * s;
-    }
+  function setFont(ctx, px) {
+    ctx.font = px + 'px "' + FAMILY + '"';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
   }
 
   /**
-   * Draw one line of pixel-art-font text.
+   * Draw one line of text. (x, y) is the glyph em-box top-left (baseline is
+   * at y + size, matching Figma's text node top + half-leading).
    * align: 'left' | 'center' | 'right'; outline adds a dark border,
    * shadow a soft drop. maxWidth (optional) is the container safety net:
    * the size steps down to fit, then the text is ellipsis-truncated.
@@ -166,29 +104,32 @@ const PixelFont = (() => {
    */
   function draw(ctx, text, x, y, size = SIZE.BODY, col = '#fff', align = 'left',
                 outline = false, shadow = false, maxWidth = 0) {
-    let t = String(text);
+    let t = String(text).toUpperCase();
     let px = snap(size);
     if (maxWidth > 0) {
       px = fit(t, px, maxWidth);
       if (measure(t, px) > maxWidth) t = truncate(t, px, maxWidth);
     }
-    const s = px / GLYPH_H;
     const w = measure(t, px);
     let dx = x;
     if (align === 'center') dx = x - w / 2;
     if (align === 'right') dx = x - w;
-    dx = Math.round(dx); y = Math.round(y);
-    const smoothing = ctx.imageSmoothingEnabled;
-    ctx.imageSmoothingEnabled = false;
+    dx = Math.round(dx * 2) / 2;
+    const by = Math.round((y + px) * 2) / 2;   // baseline
+    setFont(ctx, px);
     if (outline) {
-      for (const [ox, oy] of [[-s, 0], [s, 0], [0, -s], [0, s], [-s, -s], [s, -s], [-s, s], [s, s]]) {
-        drawGlyphs(ctx, t, dx + ox, y + oy, s, PIXEL.OUTLINE);
+      const o = Math.max(1, Math.round(px / 8));
+      ctx.fillStyle = PIXEL.OUTLINE;
+      for (const [ox, oy] of [[-o, 0], [o, 0], [0, -o], [0, o], [-o, -o], [o, -o], [-o, o], [o, o]]) {
+        ctx.fillText(t, dx + ox, by + oy);
       }
     } else if (shadow) {
-      drawGlyphs(ctx, t, dx + s, y + s, s, 'rgba(0,0,0,0.4)');
+      const o = Math.max(1, Math.round(px / 8));
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillText(t, dx + o, by + o);
     }
-    drawGlyphs(ctx, t, dx, y, s, col);
-    ctx.imageSmoothingEnabled = smoothing;
+    ctx.fillStyle = col;
+    ctx.fillText(t, dx, by);
     return w;
   }
 
@@ -212,5 +153,6 @@ const PixelFont = (() => {
     return y + lines.length * lh;
   }
 
-  return { FAMILY, GLYPH_H, SIZE, snap, scaleFor, measure, lineHeight, fit, truncate, wrap, draw, drawWrapped };
+  return { FAMILY, SIZE, ready, snap, measure, lineHeight, fit, truncate, wrap, draw, drawWrapped,
+           get loaded() { return loaded; } };
 })();

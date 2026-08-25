@@ -29,9 +29,11 @@ const Idle = (() => {
     r.last = now;
     if (live || elapsed <= 0) return;
     const d = SaveManager.data;
-    // locked farms produce nothing; spawning is paused until the farm's
-    // first-merge tutorial is done, exactly like the live scene
-    if (!d.unlocked[farmId] || !d.tutorialDone[farmId]) return;
+    // locked farms produce nothing; a construction farm is excluded entirely
+    // until land + fence exist (its clock is stamped fresh on completion, so
+    // unbuilt time never converts to earnings); spawning is paused until the
+    // farm's first-merge tutorial is done, exactly like the live scene
+    if (!d.unlocked[farmId] || !Construction.isComplete(farmId) || !d.tutorialDone[farmId]) return;
 
     // existing animals poop the whole time
     const animals = d.animals[farmId] || (d.animals[farmId] = []);
@@ -44,7 +46,10 @@ const Idle = (() => {
     // the timer remainder carries across ticks so short ticks don't slow it
     const int = Upgrades.spawnInterval(farmId);
     const t = elapsed + (r.carry || 0);
-    const fillCap = Math.floor(CONFIG.MAX_ANIMALS *
+    // the threshold is a percentage of the farm's CURRENT animal cap (the
+    // fence tier's capacity on construction farms), so it rescales with
+    // every fence upgrade instead of being a fixed absolute number
+    const fillCap = Math.floor(Construction.capacity(farmId) *
       (CONFIG.FARMS[farmId].offlinePenFill ?? CONFIG.IDLE.OFFLINE_PEN_FILL));
     const free = Math.max(0, fillCap - animals.length);
     const spawns = Math.min(free, Math.floor(t / int));

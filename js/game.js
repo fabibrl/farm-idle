@@ -257,6 +257,8 @@ const Game = (() => {
   function maybeStartUpgradeTutorial() {
     if (upgradeTutorial || SaveManager.data.upgradeTutorialDone) return;
     if (farmScene.tutorial || UI.popup) return;
+    // a farm still under construction points at its build CTA, not upgrades
+    if (!Construction.fenceBuilt(farmScene.farmId)) return;
     if (SaveManager.data.coins < cheapestUpgradeCost()) return;
     farmScene.pointerUp(); // settle any in-progress drag
     upgradeTutorial = { t: 0 };
@@ -279,6 +281,20 @@ const Game = (() => {
   }
 
   // ---------------- buttons ----------------
+  /** Open the build/upgrade panel of a construction farm. */
+  function openBuild(farmId) {
+    UI.openPopup({ type: 'build', farmId, fx: 0 });
+  }
+
+  /**
+   * A construction step was purchased: the scene re-bakes for the new stage
+   * (house, fence footprint + art) and the map redraws its plot.
+   */
+  function onConstructionBuilt(farmId) {
+    if (farmScene && farmScene.farmId === farmId) farmScene.refresh();
+    SaveManager.save();
+  }
+
   function onButton(id) {
     if (id === 'settings') {
       UI.openPopup({ type: 'settings' });
@@ -310,7 +326,9 @@ const Game = (() => {
 
   // ---------------- unlock flow ----------------
   function tryUnlock(farmId) {
-    const cost = CONFIG.UNLOCK_COSTS[farmId];
+    // construction farms buy the bare land here; everything else is built
+    // in-scene (see js/construction.js)
+    const cost = Construction.landCost(farmId);
     if (SaveManager.data.coins < cost) {
       UI.showToast('NOT ENOUGH COINS!');
       AudioManager.play('error');
@@ -327,6 +345,7 @@ const Game = (() => {
   function onUnlockAnimDone(farmId) {
     SaveManager.data.unlocked[farmId] = true;
     SaveManager.data.currentFarm = farmId;
+    Construction.grantLand(farmId);
     SaveManager.save();
     // brief pause then enter the new farm
     setTimeout(() => {
@@ -394,9 +413,12 @@ const Game = (() => {
         maybeStartUpgradeTutorial();
         if (upgradeTutorial) upgradeTutorial.t += dt;
         else {
+          // reward events wait for a working farm: no tutorial pending and
+          // (on construction farms) a fence for the pigeon to perch on
+          const paused = !!farmScene.tutorial || !Construction.fenceBuilt(farmScene.farmId);
           farmScene.update(dt); UFO.update(dt);
-          Pigeon.update(dt, !!farmScene.tutorial);
-          Tornado.update(dt, !!farmScene.tutorial);
+          Pigeon.update(dt, paused);
+          Tornado.update(dt, paused);
         }
       }
     }
@@ -472,6 +494,7 @@ const Game = (() => {
 
   return {
     addCoins, onButton, tryUnlock, onUnlockAnimDone, resetAll,
+    openBuild, onConstructionBuilt,
     startCelebration, endCelebration, onUpgradePurchased,
     claimWelcome, onWelcomeAdDone, onWelcomeAdFailed,
     get scene() { return scene; },

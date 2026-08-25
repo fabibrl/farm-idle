@@ -173,6 +173,48 @@ const CONFIG = {
   // progresses, but never wall).
   UNLOCK_COSTS: [0, 12000, 120000],
 
+  // ---------------- Farm construction (Farm 2 only) ----------------
+  // Step-by-step build progression, keyed by farm id (see js/construction.js).
+  // Farms without an entry keep the classic one-shot unlock, untouched.
+  //   1. LAND_COST buys the plot on the map (replaces UNLOCK_COSTS for this
+  //      farm) — the scene opens but the plot is bare and produces nothing.
+  //   2. HOUSE_COST builds the farmhouse: this is what starts animal
+  //      spawning. Without the house there are no animals at all.
+  //   3. FENCE_LEVELS[0] builds the pen. Until it exists, spawned animals
+  //      wander off the plot and are lost (see the ESCAPE_* values below),
+  //      and the farm is excluded from background/offline production —
+  //      the idle clock is stamped the moment the fence completes.
+  //   4. Later levels upgrade the fence: a higher hard animal cap, a
+  //      physically bigger pen footprint and an art tier per level
+  //      (0 rough wood, 1 planked, 2 painted/reinforced).
+  // Land + house + first fence together match the old 12000 lump-sum unlock,
+  // so reaching an operational Farm 2 costs the same as before; the two
+  // fence upgrades are new, optional capacity growth beyond that. The final
+  // tier's capacity matches MAX_ANIMALS so a finished Farm 2 plays exactly
+  // like every other farm. All values are balance-tunable.
+  CONSTRUCTION: {
+    1: {
+      LAND_COST: 4000,
+      HOUSE_COST: 3000,
+      FENCE_LEVELS: [
+        { cost: 5000,  capacity: 6,  size: 0.62, art: 0 },
+        { cost: 14000, capacity: 10, size: 0.82, art: 1 },
+        { cost: 40000, capacity: 14, size: 1.00, art: 2 },
+      ],
+      // House built, no fence: animals still spawn (up to this cap) but each
+      // one walks off the plot when its own escape timer runs out. The timer
+      // starts at spawn and is staggered by +/- ESCAPE_VARIANCE seconds so
+      // they never leave all at once; a successful match cancels it.
+      UNFENCED_CAPACITY: 5,
+      ESCAPE_TIME: 14,        // seconds on the board before an animal leaves
+      ESCAPE_VARIANCE: 5,     // +/- random seconds on that timer
+      ESCAPE_PAUSE_MIN: 0.4,  // idle beat before it starts wandering off
+      ESCAPE_PAUSE_MAX: 1.4,
+      ESCAPE_SPEED: 22,       // px/sec while walking out (normal walk anim)
+      ESCAPE_FADE: 0.8,       // seconds to fade out past the plot boundary
+    },
+  },
+
   // Animal behaviour
   WALK_SPEED_MIN: 14,
   WALK_SPEED_MAX: 26,

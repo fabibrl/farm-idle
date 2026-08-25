@@ -18,6 +18,39 @@ const ENVIRONMENT = (() => {
   // little so the themed farmhouse sits above it as the focal point.
   const PLAY = { x: 22, y: 160, w: W - 44, h: H - 300 };
 
+  /** The full PLAY rect scaled to a fence tier's footprint (top edge fixed,
+   *  centered horizontally so the farmhouse path still meets the pen gate). */
+  function rectForSize(size) {
+    if (!(size < 1)) return PLAY;
+    const w = Math.round(PLAY.w * size), h = Math.round(PLAY.h * size);
+    return { x: PLAY.x + Math.round((PLAY.w - w) / 2), y: PLAY.y, w, h };
+  }
+
+  /**
+   * The farm's CURRENT playable area: the full PLAY rect, shrunk to the
+   * fence tier's footprint on construction farms. This is the single source
+   * for spawn slots, walk bounds and fence rendering, so capacity gained
+   * from a fence upgrade is always physically usable. Before the fence
+   * exists the whole plot is walkable — that is the area animals escape from.
+   */
+  function playRect(farmId) {
+    const def = Construction.levelDef(farmId);
+    return def ? rectForSize(def.size) : PLAY;
+  }
+
+  /** Footprint the fence would have at a given tier (1-based) — ghost preview. */
+  function rectForLevel(farmId, lv) {
+    const def = Construction.levelDef(farmId, lv);
+    return def ? rectForSize(def.size) : PLAY;
+  }
+
+  /** Screen rect of the farmhouse — also the ghost placeholder's spot. */
+  function houseRect(id) {
+    const building = [SPRITES.coop, SPRITES.cottage, SPRITES.barn][id]();
+    const w = building.width * 3, h = building.height * 3;
+    return { x: (W - w) / 2 | 0, y: PLAY.y - 16 - h, w, h, img: building };
+  }
+
   /** Deterministic pseudo-random for stable decoration layouts. */
   function seededRand(seed) {
     let s = seed;
@@ -37,11 +70,37 @@ const ENVIRONMENT = (() => {
     }
   }
 
-  /** Wooden fence perimeter around the play area. */
-  function drawFence(g, farmId) {
-    const f = SPRITES.fenceH(24);
+  // Fence art tiers (construction farms): 0 rough wood, 1 planked (the base
+  // sprite art, used by every classic farm), 2 painted/reinforced. Each tier
+  // tints the horizontal fence sprite and recolors posts + side rails.
+  const FENCE_TIERS = [
+    { tint: 'rgba(52,34,16,0.38)', post: ['#7d5c33', '#8f6c3f', '#5a3d1e'], rail: ['#5a3d1e', '#7d5c33'] },
+    null, // planked = untinted base art with the standard wood palette
+    { tint: 'rgba(240,236,226,0.42)', post: ['#e9e9e4', '#ffffff', '#c2c2ba'], rail: ['#c2c2ba', '#e9e9e4'] },
+  ];
+  const fenceRowCache = {};
+  function fenceRow(art) {
+    const tier = FENCE_TIERS[art];
+    const base = SPRITES.fenceH(24);
+    if (!tier) return base;
+    if (fenceRowCache[art]) return fenceRowCache[art];
+    const c = document.createElement('canvas');
+    c.width = base.width; c.height = base.height;
+    const g = c.getContext('2d');
+    g.drawImage(base, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = tier.tint;
+    g.fillRect(0, 0, c.width, c.height);
+    fenceRowCache[art] = c;
+    return c;
+  }
+
+  /** Fence perimeter around a play rect, in the given art tier. */
+  function drawFence(g, rect, art = 1) {
+    const tier = FENCE_TIERS[art];
+    const f = fenceRow(art);
     const sc = 2;
-    const { x, y, w, h } = PLAY;
+    const { x, y, w, h } = rect;
     const top = y - 20, bot = y + h - 6;
     // back fence (behind animals visually)
     for (let fx = x - 14; fx < x + w + 14; fx += f.width * sc - 2) {
@@ -49,13 +108,15 @@ const ENVIRONMENT = (() => {
     }
     // side fences (vertical posts made from small segments)
     for (let fy = top + 16; fy < bot; fy += 22) {
-      drawPost(g, x - 12, fy); drawPost(g, x + w + 4, fy);
+      drawPost(g, x - 12, fy, tier); drawPost(g, x + w + 4, fy, tier);
     }
     // side rails
-    g.fillStyle = SPRITES.P.woodDk;
+    const railDk = tier ? tier.rail[0] : SPRITES.P.woodDk;
+    const railHi = tier ? tier.rail[1] : SPRITES.P.wood;
+    g.fillStyle = railDk;
     g.fillRect(x - 8, top + 10, 3, bot - top - 4);
     g.fillRect(x + w + 8, top + 10, 3, bot - top - 4);
-    g.fillStyle = SPRITES.P.wood;
+    g.fillStyle = railHi;
     g.fillRect(x - 9, top + 10, 1, bot - top - 4);
     g.fillRect(x + w + 7, top + 10, 1, bot - top - 4);
     // front fence
@@ -63,16 +124,40 @@ const ENVIRONMENT = (() => {
       g.drawImage(f, fx, bot, f.width * sc, f.height * sc);
     }
   }
-  function drawPost(g, x, y) {
+  function drawPost(g, x, y, tier) {
+    const face = tier ? tier.post[0] : SPRITES.P.wood;
+    const hi = tier ? tier.post[1] : SPRITES.P.woodHi;
+    const dk = tier ? tier.post[2] : SPRITES.P.woodDk;
     g.fillStyle = PIXEL.OUTLINE; g.fillRect(x - 1, y - 1, 10, 18);
-    g.fillStyle = SPRITES.P.wood; g.fillRect(x, y, 8, 16);
-    g.fillStyle = SPRITES.P.woodHi; g.fillRect(x, y, 2, 16);
-    g.fillStyle = SPRITES.P.woodDk; g.fillRect(x + 6, y, 2, 16);
+    g.fillStyle = face; g.fillRect(x, y, 8, 16);
+    g.fillStyle = hi; g.fillRect(x, y, 2, 16);
+    g.fillStyle = dk; g.fillRect(x + 6, y, 2, 16);
   }
 
-  /** Build one farm background. */
+  /** Small stack of planks — construction-site prop for the unbuilt farm. */
+  function drawPlankPile(g, x, y) {
+    g.fillStyle = PIXEL.OUTLINE;
+    g.fillRect(x - 2, y - 2, 48, 20);
+    for (let row = 0; row < 3; row++) {
+      const px2 = x + (row % 2) * 3, py = y + row * 5;
+      g.fillStyle = SPRITES.P.wood; g.fillRect(px2, py, 42, 4);
+      g.fillStyle = SPRITES.P.woodHi; g.fillRect(px2, py, 42, 1);
+      g.fillStyle = SPRITES.P.woodDk; g.fillRect(px2 + 39, py, 3, 4);
+    }
+  }
+
+  /**
+   * Build one farm background. Construction farms re-render (and re-cache)
+   * per build stage: a bare plot has neither house nor pen, a housed-but-
+   * unfenced plot is open pasture, and each fence tier bakes its own
+   * footprint + art (see playRect / FENCE_TIERS).
+   */
   function farm(id) {
-    const key = 'farm' + id;
+    const house = Construction.houseBuilt(id);
+    const built = Construction.fenceBuilt(id);
+    const fenceLv = Construction.fenceLevel(id);
+    const key = 'farm' + id + (!Construction.required(id) ? ''
+      : built ? '-f' + fenceLv : house ? '-h' : '-l');
     if (cache[key]) return cache[key];
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
@@ -80,48 +165,53 @@ const ENVIRONMENT = (() => {
     g.imageSmoothingEnabled = false;
     const pal = GROUNDS[id];
     const rnd = seededRand(1234 + id * 999);
+    const R = playRect(id);
 
     // outer ground (darker border grass/dirt)
     noiseGround(g, { ...pal, base: pal.edge, light: pal.dark, dark: pal.edge, speck: pal.speck }, rnd, 0, 0, W, H);
-    // inner pen ground
-    noiseGround(g, pal, rnd, PLAY.x - 16, PLAY.y - 30, PLAY.w + 32, PLAY.h + 30);
+    if (house) {
+      // inner pen ground
+      noiseGround(g, pal, rnd, R.x - 16, R.y - 30, R.w + 32, R.h + 30);
 
-    // dirt patches inside pen — just a couple, kept subtle for open grass
-    for (let i = 0; i < 2; i++) {
-      const px2 = PLAY.x + 40 + rnd() * (PLAY.w - 110), py = PLAY.y + 50 + rnd() * (PLAY.h - 120);
-      g.fillStyle = id === 2 ? '#8a6238' : '#8a7a4a';
-      g.globalAlpha = 0.4;
-      g.beginPath(); g.ellipse(px2, py, 16 + rnd() * 10, 7 + rnd() * 4, 0, 0, 7); g.fill();
-      g.globalAlpha = 1;
+      // dirt patches inside pen — just a couple, kept subtle for open grass
+      for (let i = 0; i < 2; i++) {
+        const px2 = R.x + 40 + rnd() * Math.max(20, R.w - 110), py = R.y + 50 + rnd() * Math.max(20, R.h - 120);
+        g.fillStyle = id === 2 ? '#8a6238' : '#8a7a4a';
+        g.globalAlpha = 0.4;
+        g.beginPath(); g.ellipse(px2, py, 16 + rnd() * 10, 7 + rnd() * 4, 0, 0, 7); g.fill();
+        g.globalAlpha = 1;
+      }
     }
 
-    // dirt path from the farmhouse door down to the pen gate
-    g.fillStyle = '#caa96a';
-    g.fillRect(W / 2 - 11, PLAY.y - 34, 22, 40);
-    g.beginPath(); g.ellipse(W / 2, PLAY.y + 8, 15, 7, 0, 0, 7); g.fill();
-    g.fillStyle = '#b8935a';
-    g.fillRect(W / 2 - 7, PLAY.y - 34, 14, 38);
-    g.beginPath(); g.ellipse(W / 2, PLAY.y + 6, 10, 5, 0, 0, 7); g.fill();
+    // dirt path from the farmhouse door down to the pen gate, then the
+    // themed farmhouse itself — the focal point, centered on the grass
+    // above the pen (both only once the house has been built)
+    if (house) {
+      g.fillStyle = '#caa96a';
+      g.fillRect(W / 2 - 11, R.y - 34, 22, 40);
+      g.beginPath(); g.ellipse(W / 2, R.y + 8, 15, 7, 0, 0, 7); g.fill();
+      g.fillStyle = '#b8935a';
+      g.fillRect(W / 2 - 7, R.y - 34, 14, 38);
+      g.beginPath(); g.ellipse(W / 2, R.y + 6, 10, 5, 0, 0, 7); g.fill();
 
-    // themed farmhouse — the focal point, centered on the grass above the pen
-    const building = [SPRITES.coop, SPRITES.cottage, SPRITES.barn][id]();
-    const bw = building.width * 3, bh = building.height * 3;
-    g.drawImage(building, (W - bw) / 2 | 0, PLAY.y - 16 - bh, bw, bh);
+      const hr = houseRect(id);
+      g.drawImage(hr.img, hr.x, hr.y, hr.w, hr.h);
+    }
 
     // trees: one flanking the farmhouse on the left, one on the
     // bottom-right grass — the upper-right corner is kept clear for the
     // UFO's permanent parking spot (see ufo.js spot())
     const treeV = id === 0 ? 0 : 1;
     const treeImg = SPRITES.tree(treeV);
-    g.drawImage(treeImg, 6, PLAY.y - 94, 60, 72);
+    g.drawImage(treeImg, 6, R.y - 94, 60, 72);
     g.drawImage(treeImg, W - 68, PLAY.y + PLAY.h + 40, 60, 72);
 
     // flowers beside the path entrance
-    g.drawImage(SPRITES.flower(id), W / 2 - 52, PLAY.y - 40, 16, 20);
-    g.drawImage(SPRITES.flower((id + 1) % 3), W / 2 + 38, PLAY.y - 38, 16, 20);
+    g.drawImage(SPRITES.flower(id), W / 2 - 52, R.y - 40, 16, 20);
+    g.drawImage(SPRITES.flower((id + 1) % 3), W / 2 + 38, R.y - 38, 16, 20);
 
     // tidy row of decorations on the grass below the front fence
-    const botY = PLAY.y + PLAY.h + 32;
+    const botY = R.y + R.h + 32;
     g.drawImage(SPRITES.bush(id === 0 ? 2 : 1), 28, botY, 36, 24);
     // (kept left of x~250: the relocated tree stands on the bottom-right grass)
     g.drawImage(SPRITES.bush(1), 206, botY + 4, 36, 24);
@@ -133,20 +223,32 @@ const ENVIRONMENT = (() => {
     g.drawImage(SPRITES.flower((id + 2) % 3), 78, botY + 10, 16, 20);
     g.drawImage(SPRITES.flower(id), W - 88, botY + 12, 16, 20);
 
-    drawFence(g, id);
+    if (!built) {
+      // no fence yet: a construction site waiting for the player — a plank
+      // pile and site rubble where the pen will go (the ghosted fence
+      // footprint is drawn live, see FarmScene.drawHouse)
+      drawPlankPile(g, W / 2 - 74, PLAY.y + PLAY.h - 24);
+      g.drawImage(SPRITES.rock(0), W / 2 + 30, PLAY.y + PLAY.h - 34, 28, 20);
+      g.drawImage(SPRITES.rock(1), W / 2 + 54, PLAY.y + PLAY.h - 20, 28, 20);
+      cache[key] = c;
+      return c;
+    }
+
+    const def = Construction.levelDef(id);
+    drawFence(g, R, def ? def.art : 1);
 
     // in-pen props tucked into the top corners, out of the walk area
-    g.drawImage(SPRITES.barrel(), PLAY.x + 6, PLAY.y - 2, 28, 32);
+    g.drawImage(SPRITES.barrel(), R.x + 6, R.y - 2, 28, 32);
     if (id === 2) {
-      g.drawImage(SPRITES.haystack(), PLAY.x + PLAY.w - 48, PLAY.y + 2, 40, 32);
+      g.drawImage(SPRITES.haystack(), R.x + R.w - 48, R.y + 2, 40, 32);
     } else {
-      g.drawImage(SPRITES.bush(id === 0 ? 2 : 1), PLAY.x + PLAY.w - 44, PLAY.y + 4, 36, 24);
+      g.drawImage(SPRITES.bush(id === 0 ? 2 : 1), R.x + R.w - 44, R.y + 4, 36, 24);
     }
     // a few accents pinned to the pen edges so the middle stays open
     const edge = [
-      { x: PLAY.x + 16, y: PLAY.y + PLAY.h - 42 },
-      { x: PLAY.x + PLAY.w - 34, y: PLAY.y + PLAY.h - 52 },
-      { x: PLAY.x + 18, y: PLAY.y + 64 },
+      { x: R.x + 16, y: R.y + R.h - 42 },
+      { x: R.x + R.w - 34, y: R.y + R.h - 52 },
+      { x: R.x + 18, y: R.y + 64 },
     ];
     for (let i = 0; i < edge.length; i++) {
       const img = id === 2 ? SPRITES.rock(i % 2) : SPRITES.flower((id + i) % 3);
@@ -194,6 +296,22 @@ const ENVIRONMENT = (() => {
     [{ x: 250, y: 330 }, { x: 230, y: 390 }, { x: 170, y: 440 }, { x: 110, y: 470 }],
   ];
 
+  // Decorative striped flag planted roadside on the Farm 1 → Farm 2 stretch —
+  // anchored to the road segment's middle control points so it tracks any
+  // road re-routing. Offset perpendicular to the upper-right side of the
+  // road, outside every node's tap radius and clear of the windmill blades.
+  // Purely visual.
+  const FLAG = (() => {
+    const a = ROADS[0][1], b = ROADS[0][2];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    // unit perpendicular pointing away from the road's upper-right edge
+    const px = (b.y - a.y) / len, py = -(b.x - a.x) / len;
+    return {
+      x: Math.round((a.x + b.x) / 2 + px * 14),
+      y: Math.round((a.y + b.y) / 2 + py * 14),
+    };
+  })();
+
   function roadPoints(seg, step = 6) {
     // Catmull-rom-ish smooth sampling through control points
     const pts = [];
@@ -212,8 +330,22 @@ const ENVIRONMENT = (() => {
     return pts;
   }
 
+  /**
+   * Construction stage of one farm for map rendering: 0 = empty, undeveloped
+   * plot (land not bought, or bought but nothing built on it yet), 1 = house
+   * standing but no fence, 2 = complete. Classic farms are always 2.
+   */
+  function mapStage(farmId) {
+    if (!Construction.required(farmId)) return 2;
+    if (!Construction.houseBuilt(farmId)) return 0;
+    return Construction.fenceBuilt(farmId) ? 2 : 1;
+  }
+
   function worldMap() {
-    if (cache.map) return cache.map;
+    // the map re-bakes (and re-caches) whenever a construction farm's
+    // build stage changes, so plots develop visibly as the player builds
+    const mapKey = 'map-' + CONFIG.FARMS.map(f => mapStage(f.id)).join('');
+    if (cache[mapKey]) return cache[mapKey];
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
     const g = c.getContext('2d');
@@ -255,9 +387,11 @@ const ENVIRONMENT = (() => {
       g.stroke();
     }
 
-    // farm plots: fenced circles with per-farm ground
+    // farm plots: fenced circles with per-farm ground (an unpurchased
+    // construction plot stays an open, unfenced patch of ground)
     for (let i = 0; i < 3; i++) {
       const n = MAP_NODES[i], pal = GROUNDS[i];
+      const stage = mapStage(i);
       g.fillStyle = PIXEL.OUTLINE;
       g.beginPath(); g.ellipse(n.x, n.y, 47, 35, 0, 0, 7); g.fill();
       g.fillStyle = pal.base;
@@ -266,6 +400,7 @@ const ENVIRONMENT = (() => {
       for (let k = 0; k < 14; k++) {
         g.fillRect(n.x - 40 + rnd() * 78, n.y - 26 + rnd() * 52, 3, 2);
       }
+      if (stage < 2) continue; // no fence built yet: no fence ring on the plot
       // fence ring: posts around ellipse
       for (let a = 0; a < 14; a++) {
         const t = a / 14 * Math.PI * 2;
@@ -276,20 +411,16 @@ const ENVIRONMENT = (() => {
       }
     }
 
-    // ---- themed farm plots ----
-    // Farm 0: CHICKEN — wooden coop, nest with eggs, hay bale, feed specks
+    // ---- ground details on the plots (kept procedural; part of the
+    // terrain layers in the Figma "World Map — Props" scene) ----
     {
       const n = MAP_NODES[0];
-      g.drawImage(SPRITES.haystack(), n.x - 46, n.y - 8, 40, 32);
-      g.drawImage(SPRITES.coop(), n.x - 32, n.y - 54, 64, 56);
-      g.drawImage(SPRITES.nest(), n.x + 14, n.y - 2, 32, 20);
       // scattered feed
       g.fillStyle = '#e0b656';
       for (let k = 0; k < 10; k++) {
         g.fillRect(n.x - 24 + rnd() * 48 | 0, n.y + 8 + rnd() * 18 | 0, 2, 2);
       }
     }
-    // Farm 1: SHEEP — cozy cottage, windmill tower, wool bales, pasture flowers
     {
       const n = MAP_NODES[1];
       // pasture tufts (lighter green)
@@ -297,14 +428,7 @@ const ENVIRONMENT = (() => {
       for (let k = 0; k < 12; k++) {
         g.fillRect(n.x - 36 + rnd() * 72 | 0, n.y - 20 + rnd() * 42 | 0, 3, 2);
       }
-      g.drawImage(SPRITES.windmillTower(), THEME[1].windmill.x - 18, THEME[1].windmill.y - 12, 36, 60);
-      g.drawImage(SPRITES.cottage(), n.x - 34, n.y - 56, 68, 64);
-      g.drawImage(SPRITES.woolBale(), n.x + 18, n.y + 12, 28, 22);
-      g.drawImage(SPRITES.woolBale(), n.x - 22, n.y + 18, 22, 18);
-      g.drawImage(SPRITES.flower(0), n.x - 38, n.y + 6, 16, 20);
-      g.drawImage(SPRITES.flower(2), n.x - 42, n.y + 2, 16, 20);
     }
-    // Farm 2: COW — big red barn, silo, milk cans, grazing patches
     {
       const n = MAP_NODES[2];
       // grazing patches on the dirt plot
@@ -312,33 +436,53 @@ const ENVIRONMENT = (() => {
       g.beginPath(); g.ellipse(n.x - 26, n.y + 16, 14, 7, 0, 0, 7); g.fill();
       g.beginPath(); g.ellipse(n.x + 30, n.y + 8, 11, 6, 0, 0, 7); g.fill();
       g.globalAlpha = 1;
-      g.drawImage(SPRITES.silo(), n.x + 30, n.y - 62, 32, 68);
-      g.drawImage(SPRITES.barn(), n.x - 36, n.y - 58, 72, 64);
-      g.drawImage(SPRITES.milkCan(), n.x - 48, n.y + 10, 20, 24);
-      g.drawImage(SPRITES.milkCan(), n.x - 34, n.y + 16, 16, 20);
     }
 
-    // trees scattered
-    for (let i = 0; i < 9; i++) {
-      const img = SPRITES.tree(rnd() < 0.5 ? 0 : 1);
-      let x, y, tries = 0;
-      do {
-        x = 8 + rnd() * (W - 90); y = 8 + rnd() * (H - 140);
-        tries++;
-      } while (tries < 20 && MAP_NODES.some(n => U.dist(x + 30, y + 36, n.x, n.y) < 90));
-      g.drawImage(img, x | 0, y | 0, 60, 72);
+    // ---- props: fixed layout from the Figma "World Map — Props" scene
+    // (50:3), Figma px / 2, trim offsets unfolded to full-sprite rects.
+    // Layer order here mirrors the design's z-order. ----
+    const SPR = {
+      haystack: () => SPRITES.haystack(), coop: () => SPRITES.coop(), nest: () => SPRITES.nest(),
+      windmillTower: () => SPRITES.windmillTower(), cottage: () => SPRITES.cottage(),
+      woolBale: () => SPRITES.woolBale(), flower0: () => SPRITES.flower(0), flower2: () => SPRITES.flower(2),
+      silo: () => SPRITES.silo(), barn: () => SPRITES.barn(), milkCan: () => SPRITES.milkCan(),
+      tree0: () => SPRITES.tree(0), tree1: () => SPRITES.tree(1),
+      bush1: () => SPRITES.bush(1), rock0: () => SPRITES.rock(0),
+    };
+    // Props tagged with a farm id + the build stage they appear at grow in
+    // with that farm's construction (Farm 2: the cottage arrives with the
+    // house, the pasture dressing with the fence).
+    const MID_PROPS = [
+      ['haystack', 47.5, 197, 24, 19], ['coop', 45, 121.84, 71, 62.16], ['nest', 85.5, 194, 32, 20],
+      ['windmillTower', 170, 282, 36, 60, 1, 2], ['cottage', 212.3, 248.09, 79.9, 75.26, 1, 1],
+      ['woolBale', 268, 342, 28, 22, 1, 2], ['woolBale', 256, 354.36, 22, 18, 1, 2],
+      ['flower0', 212, 336, 16, 20, 1, 2], ['flower2', 208, 332, 16, 20, 1, 2],
+      ['silo', 37, 397, 32, 68], ['barn', 67.15, 379.22, 88.2, 78.22],
+      ['milkCan', 62, 480, 20, 24], ['milkCan', 76, 486, 16, 20],
+    ];
+    const FG_PROPS = [
+      ['tree1', 206, 79.5, 60, 72], ['tree0', 258, 409, 60, 72], ['tree1', 244, 490, 60, 72],
+      ['tree1', 16, 511, 60, 72], ['tree0', 168, 490, 60, 72], ['tree1', 84.5, 297, 60, 72],
+      ['tree1', 124, 67, 60, 72], ['tree0', 167.5, 125, 60, 72], ['tree0', 72, 1, 60, 72],
+      ['tree0', 3, 250, 60, 72], ['tree0', 202, 200, 60, 72], ['tree0', 209, 561, 60, 72],
+      ['tree0', 75.5, 556, 60, 72],
+      ['bush1', 104, 252, 36, 24], ['bush1', 14, 354, 36, 24], ['bush1', 128, 147, 36, 24],
+      ['bush1', 197.5, 43, 36, 24],
+      ['rock0', 12, 151, 28, 20], ['rock0', 121, 502, 28, 20], ['bush1', 42, 65, 36, 24],
+      ['rock0', 48, 314, 28, 20], ['rock0', 271.5, 554, 28, 20],
+    ];
+    for (const [kind, x, y, w, h, farmId, needStage] of MID_PROPS) {
+      if (farmId !== undefined && mapStage(farmId) < needStage) continue;
+      g.drawImage(SPR[kind](), x, y, w, h);
     }
-    // bushes & rocks
-    for (let i = 0; i < 6; i++) {
-      const img = rnd() < 0.5 ? SPRITES.bush(1) : SPRITES.rock(0);
-      const x = 10 + rnd() * (W - 100), y = 20 + rnd() * (H - 120);
-      if (MAP_NODES.some(n => U.dist(x, y, n.x, n.y) < 70)) continue;
-      g.drawImage(img, x | 0, y | 0, img.width * 2, img.height * 2);
-    }
+    for (const [kind, x, y, w, h] of FG_PROPS) g.drawImage(SPR[kind](), x, y, w, h);
 
-    cache.map = c;
+    cache[mapKey] = c;
     return c;
   }
 
-  return { farm, worldMap, PLAY, MAP_NODES, THEME, roadPoints, GROUNDS };
+  return {
+    farm, worldMap, mapStage, playRect, rectForLevel, houseRect,
+    PLAY, MAP_NODES, THEME, FLAG, roadPoints, GROUNDS,
+  };
 })();

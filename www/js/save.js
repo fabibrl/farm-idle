@@ -34,6 +34,9 @@ const SaveManager = (() => {
       // per-farm background production: last reconcile timestamp (ms epoch),
       // uncollected coin balance, and the carried spawn-timer remainder
       idle: CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 })),
+      // per-farm step-by-step build state (only meaningful for farms with a
+      // CONFIG.CONSTRUCTION entry): land bought, house built, fence tier
+      construction: CONFIG.FARMS.map(() => ({ land: false, house: false, fence: 0 })),
       firstRun: true,
     };
   }
@@ -65,6 +68,22 @@ const SaveManager = (() => {
     while (d.tornado.length < CONFIG.FARMS.length) d.tornado.push({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 });
     if (!d.idle) d.idle = CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 }));
     while (d.idle.length < CONFIG.FARMS.length) d.idle.push({ last: 0, pending: 0, carry: 0 });
+    if (!d.construction) d.construction = CONFIG.FARMS.map(() => ({ land: false, house: false, fence: 0 }));
+    while (d.construction.length < CONFIG.FARMS.length) d.construction.push({ land: false, house: false, fence: 0 });
+    // saves from before the construction system: a construction farm that is
+    // already unlocked keeps working as a finished farm (land + house owned,
+    // fence at the top tier so its pen still fits every animal the player has)
+    for (const f of CONFIG.FARMS) {
+      const p = (CONFIG.CONSTRUCTION || {})[f.id];
+      const c = d.construction[f.id];
+      if (!p) continue;
+      if (c.house === undefined) c.house = c.fence >= 1;
+      if (d.unlocked[f.id] && !c.land) {
+        c.land = true;
+        c.house = true;
+        c.fence = p.FENCE_LEVELS.length;
+      }
+    }
     // players from before the tutorial existed (or with animals already) skip it
     if (!d.tutorialDone) d.tutorialDone = CONFIG.FARMS.map(f => (d.animals[f.id] || []).length > 0);
     // players who already bought an upgrade skip the first-upgrade tutorial

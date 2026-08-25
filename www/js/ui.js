@@ -18,11 +18,35 @@ const UI = (() => {
     return PixelFont.draw(ctx, text, x, y, size, col, align, outline, shadow, maxWidth);
   }
 
-  /** Popup title: auto-fitted to the bar width and vertically centered. */
-  function popupTitle(ctx, text, px, py, pw) {
+  /**
+   * Popup title bar + centered title, geometry from Figma E04 (19:72/19:78):
+   * outline at (px+8, py-15) w pw-16 h 33, dark wood face, 3.5px bevels,
+   * seam at py+0.5; title 13px #ffe98a with em-top at py-5.
+   */
+  function popupTitle(ctx, text, px, py, pw, opts = {}) {
+    const p = P();
+    // E04's bar (19:72) is 33 tall with 3.5px bevels; the others (20:70 etc.)
+    // use the 30-tall bar with 3px bevels
+    const tall = !!opts.tall;
+    const bt = tall ? py - 15 : py - 12;      // outline top
+    const bh = tall ? 33 : 30;
+    const ft = bt + 2, fh = bh - 4;           // face
+    const bev = tall ? 3.5 : 3;
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(px + 8, bt, pw - 16, bh);
+    ctx.fillStyle = p.woodDk;
+    ctx.fillRect(px + 10, ft, pw - 20, fh);
+    ctx.fillStyle = p.wood;
+    ctx.fillRect(px + 10, ft, pw - 20, bev);
+    ctx.fillStyle = p.woodDkr;
+    ctx.fillRect(px + 10, ft + fh - bev, pw - 20, bev);
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillRect(px + 10, ft + fh / 2 - 1, pw - 20, 1);
     const maxW = pw - 76;
-    const ts = PixelFont.fit(text, SIZE.SUBTITLE, maxW);
-    drawText(ctx, text, px + pw / 2, py - 10 + Math.round((26 - ts) / 2), ts, '#ffe98a', 'center', true, false, maxW);
+    const base = opts.size || 13;
+    const ts = PixelFont.fit(text, base, maxW);
+    const top = opts.top !== undefined ? opts.top : (tall ? py - 5 : py - 3);
+    drawText(ctx, text, px + pw / 2, top + (base - ts) / 2, ts, '#ffe98a', 'center', false, false, maxW);
   }
 
   // ---------------- wooden panels ----------------
@@ -40,12 +64,16 @@ const UI = (() => {
     ctx.fillStyle = p.woodDkr;
     ctx.fillRect(x, y + h - 3, w, 3);
     // plank seams
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    for (let py = y + 12; py < y + h - 6; py += 14) ctx.fillRect(x, py, w, 1);
-    // wood grain flecks
-    ctx.fillStyle = 'rgba(0,0,0,0.10)';
-    for (let i = 0; i < w * h / 260; i++) {
-      ctx.fillRect(x + ((i * 53) % (w - 8)) + 4, y + ((i * 37) % (h - 10)) + 5, 4, 1);
+    if (opts.seams !== false) {
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      for (let py = y + 12; py < y + h - 6; py += 14) ctx.fillRect(x, py, w, 1);
+    }
+    // wood grain flecks (Figma panels without them pass flecks: false)
+    if (opts.flecks !== false) {
+      ctx.fillStyle = 'rgba(0,0,0,0.10)';
+      for (let i = 0; i < w * h / 260; i++) {
+        ctx.fillRect(x + ((i * 53) % (w - 8)) + 4, y + ((i * 37) % (h - 10)) + 5, 4, 1);
+      }
     }
     if (opts.gold) {
       // gold corner studs
@@ -67,8 +95,76 @@ const UI = (() => {
     ctx.fillRect(x, y, w, 2);
   }
 
+  /**
+   * Figma upgrade-button component (46:67, "Upgrades — States" page):
+   * seven `state` variants sharing one geometry — only fills, opacity,
+   * icons and label change. All values are Figma px / 2, offsets relative
+   * to the outer rect (b.x-2, b.y-2).
+   */
+  const BTN_STATES = {
+    'default':   { face: '#5e9c31', bevel: '#7dbb4a', drop: '#41701f' },
+    'pressed':   { face: '#41701f', bevel: '#5e9c31', drop: '#41701f' },
+    'disabled':  { face: '#8c8678', bevel: '#aaa596', drop: '#635e52', dim: true },
+    'max-level': { face: '#f4c437', bevel: '#ffe98a', drop: '#c88f1e', label: 'MAX', labelCol: '#5c3a1d' },
+    'locked':    { face: '#7d5027', bevel: '#a9743f', drop: '#5c3a1d', labelCol: '#e0cfa8' },
+    'ad-unlock': { face: '#5e9c31', bevel: '#7dbb4a', drop: '#41701f', label: 'WATCH AD', labelCx: 55.5 },
+    'loading':   { face: '#8c8678', bevel: '#aaa596', drop: '#635e52', dim: true, label: 'LOADING', labelCol: '#e0cfa8', labelCx: 54.5 },
+  };
+
+  function drawStateButton(ctx, b) {
+    const st = BTN_STATES[b.state];
+    const ox = b.x - 2, oy = b.y - 2;
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(ox, oy, b.w + 4, b.h + 4);
+    ctx.fillStyle = st.drop;
+    ctx.fillRect(b.x, b.y + b.h - 4, b.w, 4);
+    ctx.fillStyle = st.face;
+    ctx.fillRect(b.x, b.y, b.w, b.h - 2);
+    ctx.fillStyle = st.bevel;
+    ctx.fillRect(b.x, b.y, b.w, 3);
+    ctx.fillRect(b.x, b.y, 3, b.h - 6);
+    if (b.state === 'locked') {
+      // pixel lock (cream/300) + face-colored keyhole
+      ctx.fillStyle = '#e0cfa8';
+      ctx.fillRect(ox + 13.5, oy + 9.5, 2, 4);
+      ctx.fillRect(ox + 19.5, oy + 9.5, 2, 4);
+      ctx.fillRect(ox + 13.5, oy + 7.5, 8, 2);
+      ctx.fillRect(ox + 11.5, oy + 13.5, 12, 9);
+      ctx.fillStyle = st.face;
+      ctx.fillRect(ox + 16.5, oy + 16.5, 2, 3);
+    } else if (b.state === 'ad-unlock') {
+      // play plate + stepped triangle
+      ctx.fillStyle = PIXEL.OUTLINE;
+      ctx.fillRect(ox + 6.5, oy + 11, 12, 10);
+      ctx.fillStyle = '#fff6e8';
+      ctx.fillRect(ox + 10, oy + 13, 2, 6);
+      ctx.fillRect(ox + 12, oy + 14, 2, 4);
+      ctx.fillRect(ox + 14, oy + 15, 2, 2);
+    }
+    if (st.dim) {
+      ctx.fillStyle = 'rgba(40,30,20,0.45)';
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+    }
+    if (b.state === 'loading') {
+      // 4-dot pixel spinner, stepped opacity, rotating with time
+      const step = Math.floor(performance.now() / 150) % 4;
+      const dots = [[13.5, 10.5], [17.5, 14.5], [13.5, 18.5], [9.5, 14.5]];
+      for (let i = 0; i < 4; i++) {
+        ctx.globalAlpha = [1, 0.7, 0.45, 0.2][(i - step + 4) % 4];
+        ctx.fillStyle = '#fff6e8';
+        ctx.fillRect(ox + dots[i][0], oy + dots[i][1], 3, 3);
+      }
+      ctx.globalAlpha = 1;
+    }
+    const label = st.label !== undefined ? st.label : b.label;
+    if (label) {
+      drawText(ctx, label, ox + (st.labelCx || 50), oy + 11.75, 8.5, st.labelCol || '#fff6e8', 'center', false, false, 92);
+    }
+  }
+
   /** Colored button (green/gray/red) with bevel + icon + label. */
   function drawButton(ctx, b) {
+    if (b.state) { drawStateButton(ctx, b); return; }
     const p = P();
     const cols = {
       green: ['#5e9c31', '#7dbb4a', '#41701f'],
@@ -94,14 +190,31 @@ const UI = (() => {
       ctx.fillRect(b.x, b.y, b.w, b.h);
     }
     // content
+    if (b.layout) {
+      // exact icon/label placement from Figma (offsets from the outer rect)
+      const ox = b.x - 2, oy = b.y - 2 + pr;
+      if (b.icon) {
+        const img = b.icon();
+        ctx.drawImage(img, ox + b.layout.iconX, oy + b.layout.iconY, b.layout.iconW, b.layout.iconH);
+      }
+      if (b.label) {
+        if (b.layout.center) {
+          drawText(ctx, b.label, b.x + b.w / 2, oy + b.layout.labelY, b.layout.labelPx, '#fff6e8', 'center');
+        } else {
+          drawText(ctx, b.label, ox + b.layout.labelX, oy + b.layout.labelY, b.layout.labelPx, '#fff6e8', 'left');
+        }
+      }
+      return;
+    }
     let tx = b.x + b.w / 2;
     const ty = y + (b.h - 4) / 2;
     if (b.icon) {
       const img = b.icon();
-      const iw = img.width * 2, ih = img.height * 2;
+      const isc = b.iconScale || 2;
+      const iw = img.width * isc, ih = img.height * isc;
       if (b.label) {
         const availW = b.w - iw - 8;
-        const fs = PixelFont.fit(b.label, SIZE.BUTTON, availW);
+        const fs = PixelFont.fit(b.label, b.labelSize || SIZE.BUTTON, availW);
         const lw = Math.min(measure(b.label, fs), availW);
         const total = iw + 6 + lw;
         ctx.drawImage(img, Math.round(tx - total / 2), Math.round(ty - ih / 2), iw, ih);
@@ -111,16 +224,18 @@ const UI = (() => {
       }
     } else if (b.label) {
       const availW = b.w - 8;
-      const fs = PixelFont.fit(b.label, SIZE.BUTTON, availW);
+      const fs = PixelFont.fit(b.label, b.labelSize || SIZE.BUTTON, availW);
       drawText(ctx, b.label, tx, ty - fs / 2, fs, '#fff6e8', 'center', true, false, availW);
     }
   }
 
-  /** Small wooden sign with 1-2 lines (used on world map). */
-  function woodSign(ctx, cx, cy, line1, line2, cost) {
+  /** Small wooden sign with 1-2 lines (used on world map). An optional
+   *  `note` replaces the cost line on owned-but-unfinished plots. */
+  function woodSign(ctx, cx, cy, line1, line2, cost, note) {
     const w = Math.max(measure(line1, SIZE.BUTTON), line2 ? measure(line2, SIZE.CAPTION) : 0,
-                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0) + 18;
-    const h = 18 + (line2 ? 9 : 0) + (cost ? 11 : 0);
+                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0,
+                       note ? measure(note, SIZE.CAPTION) : 0) + 18;
+    const h = 18 + (line2 ? 9 : 0) + (cost || note ? 11 : 0);
     woodPanel(ctx, cx - w / 2, cy, w, h, {});
     drawText(ctx, line1, cx, cy + 5, SIZE.BUTTON, '#f4e8cc', 'center', true);
     let yy = cy + 17;
@@ -130,6 +245,8 @@ const UI = (() => {
       const tw = measure(cost, SIZE.CAPTION);
       ctx.drawImage(img, cx - tw / 2 - 12, yy - 3, 10, 10);
       drawText(ctx, cost, cx - tw / 2, yy, SIZE.CAPTION, '#ffe98a', 'left');
+    } else if (note) {
+      drawText(ctx, note, cx, yy, SIZE.CAPTION, '#ffb0a0', 'center', false, false, w - 8);
     }
     // legs
     ctx.fillStyle = P().woodDk;
@@ -147,53 +264,48 @@ const UI = (() => {
    * Returns the card's bottom y.
    */
   function upgradeCard(ctx, popup, x, y, w, h, inf) {
-    // parchment card
+    // parchment card (x,y,w,h = inner face rect; all values Figma E04 / 2)
     ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
     ctx.fillStyle = '#e8d8b4'; ctx.fillRect(x, y, w, h);
     ctx.fillStyle = '#f2e6c8'; ctx.fillRect(x, y, w, 3);
 
     const afford = !inf.maxed && SaveManager.data.coins >= inf.cost;
+    const spawn = h === 76;   // the shorter spawn-speed card has its own offsets
 
-    // ---- right column: cost (most prominent), NEED hint, UPGRADE button ----
-    const colW = 104;
-    const colX = x + w - colW;
-    const ccx = colX + colW / 2;
+    // ---- right column: cost (coin 19:90, text 19:91), UPGRADE button (19:93) ----
     if (!inf.maxed) {
       const costTxt = U.fmt(inf.cost);
-      const costSize = PixelFont.fit(costTxt, SIZE.SUBTITLE, colW - 28);
-      const cw = measure(costTxt, costSize);
-      const coinS = 16;
-      const cx0 = Math.round(ccx - (coinS + 4 + cw) / 2);
-      ctx.drawImage(SPRITES.coin(2), cx0, y + 7, coinS, coinS);
-      drawText(ctx, costTxt, cx0 + coinS + 4, y + 8, costSize, afford ? '#b8860b' : '#b0442f', 'left');
-      if (!afford) {
-        drawText(ctx, 'NEED ' + U.fmt(inf.cost - SaveManager.data.coins), ccx, y + 28,
-                 SIZE.CAPTION, '#b0442f', 'center', false, false, colW - 6);
-      }
+      const costSize = PixelFont.fit(costTxt, 13, 51);
+      ctx.drawImage(SPRITES.coin(2), x + (spawn ? 196 : 195.5), y + (spawn ? 12.5 : 18.5), 16, 16);
+      drawText(ctx, costTxt, x + (spawn ? 216 : 215.5), y + (spawn ? 14.5 : 20.5) + (13 - costSize) / 2,
+               costSize, afford ? '#58972a' : '#b0442f', 'left');
     }
     const fx = popup.fx[inf.key] || 0;
-    const bh = 28;
-    const btn = { x: colX + 4, y: y + h - bh - 8, w: colW - 8, h: bh };
-    drawButton(ctx, {
-      ...btn, color: afford ? 'green' : 'gray',
-      label: inf.maxed ? 'MAX' : 'UPGRADE',
-      disabled: inf.maxed || !afford,
-      pressed: fx > 0.85,
-    });
+    const btn = { x: x + 200, y: y + (spawn ? 40 : 52), w: 96, h: 28 };
+    // state mapping per the Figma upgrade-button component (46:67)
+    const state = inf.maxed ? 'max-level'
+                : fx > 0.85 ? 'pressed'
+                : afford ? 'default' : 'disabled';
+    drawButton(ctx, { ...btn, state, label: 'UPGRADE' });
 
-    // ---- left column: name, then "cur > next" improvement rows ----
-    const textW = colX - x - 18;
-    drawText(ctx, inf.label + ' LV ' + inf.level, x + 10, y + 8, SIZE.BODY, '#5c3a1d', 'left', false, false, textW);
-    let ly = y + 26;
+    // ---- left column: name, then per-stat label line + "cur > next" line ----
+    const textW = 190;
+    drawText(ctx, inf.label + ' LV ' + inf.level, x + 10, y + (spawn ? 8.75 : 8), spawn ? 8.5 : 10, '#000000', 'left', false, false, textW);
+    let ly = y + (spawn ? 27.75 : 29.25);
+    const ox = x - 2;   // Figma offsets in the cards are relative to the outer rect
+    let row = 0;
     for (const st of inf.stats) {
-      drawText(ctx, st.name, x + 10, ly + 4, SIZE.CAPTION, '#8a6a3c');
-      let vx = x + 56;
-      vx += drawText(ctx, st.cur, vx, ly, SIZE.BODY, '#7d5027') + 6;
+      drawText(ctx, st.name, x + 10, ly, 6.5, '#8a6a3c');
+      const vy = ly + (!spawn && row === 0 ? 9.5 : 10);
+      drawText(ctx, st.cur, ox + 12, vy, 8.5, '#7d5027');
       if (st.next && st.next !== st.cur) {
-        vx += drawText(ctx, '>', vx, ly, SIZE.BODY, '#4a8f2c') + 6;
-        drawText(ctx, st.next, vx, ly, SIZE.BODY, '#3f7d1e');
+        let vx = Math.ceil((12 + measure(st.cur, 8.5) + 4) / 2) * 2;
+        drawText(ctx, '>', ox + vx, vy, 8.5, '#4a8f2c');
+        vx = Math.ceil((vx + measure('>', 8.5) + 2) / 2) * 2;
+        drawText(ctx, st.next, ox + vx, vy, 8.5, '#3f7d1e');
       }
-      ly += 17;
+      ly += 29.5;
+      row++;
     }
 
     // purchase highlight flash
@@ -245,14 +357,37 @@ const UI = (() => {
   const COIN_POS = { x: 30, y: 27 };
   function coinTarget() { return { x: COIN_POS.x, y: COIN_POS.y }; }
 
+  // Height of the HUD's top bar backdrop (Figma 30:3, 112/2).
+  const HUD_H = 56;
+
+  /**
+   * The band of the scene that in-scene UI may occupy: below the HUD bar,
+   * above the bottom button row, inset from the stage edges. Derived from
+   * the live HUD geometry rather than fixed coordinates, so anything
+   * anchored through it stays clear of both bars — the 360x640 stage itself
+   * is letterboxed to fit the device, which keeps it inside notches and
+   * rounded corners at every resolution and aspect ratio.
+   */
+  function safeArea() {
+    const M = 10;
+    let bottom = H - M;
+    // the bottom action row (top-anchored buttons live under the HUD bar)
+    for (const b of buttons) {
+      if (b.y > H / 2) bottom = Math.min(bottom, b.y - 8);
+    }
+    const top = HUD_H + 8;
+    return { x: M, y: top, w: W - M * 2, h: Math.max(0, bottom - top) };
+  }
+
   function makeButtons() {
-    const bw = 100, bh = 40, gap = 10, y = H - bh - 14;
-    const total = bw * 2 + gap;
-    const x0 = (W - total) / 2;
+    // rects and icon/label placement from Figma E03 (14:29), Figma px / 2
     buttons = [
-      { id: 'upgrade', color: 'green', x: x0, y, w: bw, h: bh, label: 'UPGRADE', icon: () => SPRITES.arrowUp(), scene: 'farm' },
-      { id: 'map', color: 'red', x: x0 + bw + gap, y, w: bw, h: bh, label: 'MAP', icon: () => SPRITES.mapPin(), scene: 'farm' },
-      { id: 'settings', color: 'wood', x: W - 46, y: 12, w: 34, h: 32, icon: () => SPRITES.gear(), scene: 'both' },
+      { id: 'upgrade', color: 'green', x: 75, y: 586, w: 100, h: 40, label: 'UPGRADE', icon: () => SPRITES.arrowUp(), scene: 'farm',
+        layout: { iconX: 5, iconY: 8, iconW: 24, iconH: 24, labelX: 30.5, labelY: 17, labelPx: 10 } },
+      { id: 'map', color: 'red', x: 185, y: 586, w: 100, h: 40, label: 'MAP', icon: () => SPRITES.mapPin(), scene: 'farm',
+        layout: { iconX: 11.5, iconY: 7, iconW: 24, iconH: 30, labelX: 48, labelY: 15, labelPx: 12 } },
+      { id: 'settings', color: 'wood', x: 314, y: 12, w: 34, h: 32, icon: () => SPRITES.gear(), scene: 'both',
+        layout: { iconX: 5.5, iconY: 3.5, iconW: 27, iconH: 27 } },
     ];
   }
   makeButtons();
@@ -275,9 +410,9 @@ const UI = (() => {
   // ---------------- HUD ----------------
   function drawHUD(ctx, scene) {
     const p = P();
-    // top bar backdrop
-    ctx.fillStyle = 'rgba(26,20,14,0.35)';
-    ctx.fillRect(0, 0, W, 56);
+    // top bar backdrop (Figma 30:3 — rgba(26,20,14,0.5), h 112/2)
+    ctx.fillStyle = 'rgba(26,20,14,0.5)';
+    ctx.fillRect(0, 0, W, HUD_H);
 
     // coin capsule
     displayedCoins = U.lerp(displayedCoins, SaveManager.data.coins, Math.min(1, CONFIG.COIN_COUNT_LERP * Game.dt));
@@ -287,15 +422,16 @@ const UI = (() => {
     coinPulse = Math.max(0, coinPulse - Game.dt * 4);
     const cs = 26 + coinPulse * 8;
     ctx.drawImage(coinImg, COIN_POS.x - cs / 2, COIN_POS.y - cs / 2, cs, cs);
-    drawText(ctx, U.fmt(displayedCoins), 48, 22, SIZE.BODY, '#fff6e8', 'left', false, true, 78);
+    drawText(ctx, U.fmt(displayedCoins), 48, 21, 12, '#fff6e8', 'left', false, false, 78);
 
-    // farm name plaque — auto-fits between the coin capsule and settings button
-    const name = scene === 'map' ? 'WORLD MAP' : CONFIG.FARMS[SaveManager.data.currentFarm].name;
-    const plaqueMax = 132;
-    const ts = PixelFont.fit(name, SIZE.SUBTITLE, plaqueMax - 28);
-    const nw = Math.min(measure(name, ts) + 28, plaqueMax);
-    woodPanel(ctx, Math.round(W / 2 - nw / 2) + 20, 12, nw, 30, { gold: true });
-    drawText(ctx, name, W / 2 + 20, 12 + Math.round((30 - ts) / 2), ts, '#f4e8cc', 'center', true, false, plaqueMax - 28);
+    // name plaque — fixed rects from Figma (farm 18:23, map 17:11)
+    if (scene === 'map') {
+      woodPanel(ctx, 142, 12, 116, 30, { gold: true, flecks: false });
+      drawText(ctx, 'WORLD MAP', 201, 22, 10, '#f4e8cc', 'center', false, false, 112);
+    } else {
+      woodPanel(ctx, 146, 12, 109, 30, { gold: true, flecks: false });
+      drawText(ctx, CONFIG.FARMS[SaveManager.data.currentFarm].name, 200, 21, 13, '#f4e8cc', 'center', false, false, 105);
+    }
 
     // buttons for this scene
     for (const b of buttons) {
@@ -337,10 +473,10 @@ const UI = (() => {
     const cx = px + pw / 2;
 
     popupTitle(ctx, 'NEW EVOLUTION', px, py, pw);
-    drawText(ctx, 'DISCOVERED!', cx, py + 22, SIZE.TITLE, '#ffe98a', 'center', true, false, pw - 24);
+    drawText(ctx, 'DISCOVERED!', cx, py + 48, 16, '#ffe98a', 'center', false, false, pw - 24);
 
-    // golden frame
-    const fs = 150, fx = cx - fs / 2, fy = py + 48;
+    // golden frame (22:33: outer 158px at 101, py+69.5)
+    const fs = 150, fx = cx - fs / 2, fy = py + 73.5;
     ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(fx - 4, fy - 4, fs + 8, fs + 8);
     ctx.fillStyle = p.gold;        ctx.fillRect(fx - 2, fy - 2, fs + 4, fs + 4);
     ctx.fillStyle = p.goldHi;      ctx.fillRect(fx - 2, fy - 2, fs + 4, 2);
@@ -377,7 +513,7 @@ const UI = (() => {
     // the star of the show, gently bobbing
     const img = SPRITES.animal(popup.species, popup.stage, 'idle', false);
     const bob = Math.sin(t * 3) * 2;
-    const sc = Math.min(3.4, (fs - 34) / img.height);
+    const sc = Math.min(3, (fs - 34) / img.height);
     PIXEL.blit(ctx, img, cx, fy + fs - 18 + bob, sc * Math.min(1, U.easeOutBack(Math.min(t * 2.5, 1))));
     // sparkles twinkling inside the frame
     ctx.fillStyle = '#fff6d0';
@@ -392,14 +528,13 @@ const UI = (() => {
     }
     ctx.restore();
 
-    // name, stage, flavor (flavor auto-wraps inside the panel)
-    drawText(ctx, Discovery.displayName(popup.species, popup.stage), cx, fy + fs + 14, SIZE.BODY, '#ffe98a', 'center', true, false, pw - 24);
-    drawText(ctx, 'STAGE ' + (popup.stage + 1) + ' - ' + CONFIG.STAGE_NAMES[popup.stage], cx, fy + fs + 32, SIZE.CAPTION, '#f4e8cc', 'center');
-    PixelFont.drawWrapped(ctx, Discovery.flavor(popup.species, popup.stage), cx, fy + fs + 46, SIZE.CAPTION, '#e0cfa8', 'center', pw - 28, 2);
+    // flavor first (white, 30:106), then the name below it (22:20)
+    PixelFont.drawWrapped(ctx, Discovery.flavor(popup.species, popup.stage), cx, py + 230.75, 5.5, '#ffffff', 'center', pw - 28, 2);
+    drawText(ctx, Discovery.displayName(popup.species, popup.stage), cx, py + 257.5, 12, '#ffe98a', 'center', false, false, pw - 24);
 
     // CONTINUE
     popup.okRect = { x: px + 50, y: py + ph - 56, w: pw - 100, h: 40 };
-    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'CONTINUE' });
+    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'CONTINUE', layout: { labelY: 19, labelPx: 10, center: true } });
 
     // confetti raining over the whole popup
     if (popup.confetti.length < 60 && Math.random() < 0.5) {
@@ -429,52 +564,106 @@ const UI = (() => {
    * appears when 2+ farms actually earned something; the panel height grows
    * with the rows and the cap note.
    */
-  function welcomeMetrics(rep) {
-    const rows = [];
-    for (const f of CONFIG.FARMS) {
-      const amt = Math.floor(rep.perFarm[f.id]);
-      if (amt >= 1) rows.push({ name: f.name, amt });
-    }
-    const list = rows.length > 1 ? rows : [];
-    const cardH = 76 + (rep.capped ? 12 : 0) + (list.length ? list.length * 14 + 4 : 0);
-    return { rows: list, cardH, ph: cardH + 134 };
+  function welcomeMetrics() {
+    // fixed geometry from Figma E08 (23:4/23:31)
+    return { cardH: 122, ph: 256 };
   }
 
   function drawWelcome(ctx, px, py, pw) {
     const rep = popup.rep;
-    const m = welcomeMetrics(rep);
     const total = Math.floor(rep.total);
-    popupTitle(ctx, 'WELCOME BACK!', px, py, pw);
-    // parchment card
-    const cy0 = py + 26;
-    ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, cy0 - 2, pw - 36, m.cardH + 4);
-    ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, cy0, pw - 40, m.cardH);
-    ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, cy0, pw - 40, 3);
+    popupTitle(ctx, 'WELCOME BACK!', px, py, pw, { size: 8.5, top: py - 1.25 });
+    // parchment card (23:31)
+    ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 24, pw - 36, 126);
+    ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 26, pw - 40, 122);
+    ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 26, pw - 40, 3);
     const cx = px + pw / 2;
-    let yy = cy0 + 12;
-    drawText(ctx, 'YOU WERE AWAY FOR', cx, yy, SIZE.CAPTION, '#7d5027', 'center'); yy += 12;
-    drawText(ctx, U.fmtDur(rep.awaySec), cx, yy, SIZE.BODY, '#b8860b', 'center'); yy += 20;
-    if (rep.capped) {
-      drawText(ctx, 'OFFLINE EARNINGS MAX OUT AT 2H', cx, yy, SIZE.CAPTION, '#b0442f', 'center', false, false, pw - 52);
-      yy += 12;
+    drawText(ctx, 'YOU WERE AWAY FOR', cx, py + 37.75, 6.5, '#7d5027', 'center');
+    drawText(ctx, U.fmtDur(rep.awaySec), cx, py + 51.25, 8.5, '#000000', 'center');
+    // total earned while away — big and black, coin at a fixed spot (23:43/23:44)
+    ctx.drawImage(SPRITES.coin(2), px + 48, py + 84, 21.5, 21.5);
+    drawText(ctx, '+' + U.fmt(total), px + 130.5, py + 86.5, 16, '#000000', 'center', false, false, 122);
+    PixelFont.drawWrapped(ctx, 'WHILE YOU WERE AWAY, THE FARMS WERE PRODUCTIVE.', cx, py + 131.5, 4, '#7d5027', 'center', 131.5, 2);
+    // primary collect + secondary rewarded-ad 2x (play icon + coin + amount)
+    popup.okRect = { x: px + 30, y: py + 158, w: pw - 60, h: 40 };
+    popup.adRect = { x: px + 30, y: py + 206, w: pw - 60, h: 34 };
+    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'COLLECT', layout: { labelY: 19, labelPx: 10, center: true } });
+    drawButton(ctx, { ...popup.adRect, color: 'wood' });
+    ctx.drawImage(SPRITES.adPlay(), px + 39.5, py + 212, 32, 24);
+    ctx.drawImage(SPRITES.coin(2), px + 85, py + 216.5, 14.5, 14.5);
+    drawText(ctx, U.fmt(total * 2), px + 104, py + 219, 10, '#fff6e8', 'left', false, false, 64);
+  }
+
+  // ---------------- build / fence-upgrade panel ----------------
+  /**
+   * Construction panel for a staged farm (see js/construction.js): where the
+   * player is in the build sequence, what the next purchase is, what it
+   * costs and what it unlocks — plus the live fence tier and animal count
+   * once the fence exists. The action button reuses the Figma upgrade-button
+   * component states (default / disabled / max-level / pressed).
+   */
+  function drawBuild(ctx, px, py, pw, ph) {
+    const id = popup.farmId;
+    const scene = Game.farm && Game.farm.farmId === id ? Game.farm : null;
+    const inf = Construction.info(id, scene ? scene.animals.length : 0);
+    const cx = px + pw / 2;
+    popupTitle(ctx, 'BUILD ' + CONFIG.FARMS[id].name, px, py, pw, { size: 10, top: py - 2 });
+
+    // parchment card
+    ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 154);
+    ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 150);
+    ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 28, pw - 40, 3);
+
+    // where we are in the sequence, and what comes next
+    drawText(ctx, 'STEP ' + inf.step + ' OF ' + inf.steps, cx, py + 38, 5.5, '#7d5027', 'center');
+    drawText(ctx, inf.title, cx, py + 50, 10, '#5c3a1d', 'center', false, false, pw - 52);
+    PixelFont.drawWrapped(ctx, inf.unlocks, cx, py + 68, 5.5, '#7d5027', 'center', pw - 56, 2);
+
+    // live fence status (only meaningful once the fence stands)
+    ctx.fillStyle = 'rgba(124,80,39,0.25)';
+    ctx.fillRect(px + 30, py + 92, pw - 60, 1);
+    let ry = py + 100;
+    if (inf.fenceBuilt) {
+      statRow(ctx, px, pw, ry, 'FENCE TIER', inf.level + ' / ' + inf.maxLevel);
+      ry += 14;
+      statRow(ctx, px, pw, ry, 'ANIMALS', inf.animals + ' / ' + inf.capacity);
+      ry += 14;
+      if (inf.nextCapacity) {
+        statRow(ctx, px, pw, ry, 'NEXT CAPACITY', inf.capacity + ' > ' + inf.nextCapacity, '#3f7d1e');
+        ry += 14;
+      }
+    } else {
+      statRow(ctx, px, pw, ry, 'FENCE', 'NOT BUILT');
+      ry += 14;
+      statRow(ctx, px, pw, ry, 'ANIMALS', inf.capacity > 0 ? 'ESCAPING!' : 'NONE YET', '#b0442f');
+      ry += 14;
     }
-    // per-farm breakdown (only when several farms earned)
-    for (const r of m.rows) {
-      drawText(ctx, r.name, px + 32, yy, SIZE.CAPTION, '#7d5027', 'left');
-      drawText(ctx, U.fmt(r.amt), px + pw - 32 - measure(U.fmt(r.amt), SIZE.CAPTION), yy, SIZE.CAPTION, '#b8860b', 'left');
-      yy += 14;
+
+    // price
+    const afford = !inf.maxed && SaveManager.data.coins >= inf.cost;
+    if (!inf.maxed) {
+      const txt = U.fmt(inf.cost);
+      const tw = measure(txt, 13);
+      ctx.drawImage(SPRITES.coin(2), cx - tw / 2 - 20, py + 150, 16, 16);
+      drawText(ctx, txt, cx - tw / 2, py + 152, 13, afford ? '#58972a' : '#b0442f', 'left');
+    } else {
+      drawText(ctx, 'NOTHING LEFT TO BUILD', cx, py + 154, 6.5, '#58972a', 'center', false, false, pw - 52);
     }
-    if (m.rows.length) yy += 4;
-    // total earned while away
-    const totTxt = '+' + U.fmt(total);
-    const tw = measure(totTxt, SIZE.SUBTITLE);
-    ctx.drawImage(SPRITES.coin(2), cx - tw / 2 - 20, yy - 1, 16, 16);
-    drawText(ctx, totTxt, cx - tw / 2, yy, SIZE.SUBTITLE, '#b8860b', 'left');
-    // primary collect + secondary rewarded-ad 2x
-    popup.okRect = { x: px + 30, y: cy0 + m.cardH + 10, w: pw - 60, h: 40 };
-    popup.adRect = { x: px + 30, y: popup.okRect.y + 48, w: pw - 60, h: 34 };
-    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'COLLECT' });
-    drawButton(ctx, { ...popup.adRect, color: 'wood', icon: () => SPRITES.adPlay(), label: '2X ' + U.fmt(total * 2) });
+
+    // action button (Figma upgrade-button component geometry: 96x28)
+    popup.fx = Math.max(0, (popup.fx || 0) - Game.dt * 2);
+    popup.okRect = { x: cx - 48, y: py + 200, w: 96, h: 28 };
+    const state = inf.maxed ? 'max-level'
+                : popup.fx > 0.85 ? 'pressed'
+                : afford ? 'default' : 'disabled';
+    drawStateButton(ctx, { ...popup.okRect, state, label: inf.stage === 'upgrade' ? 'UPGRADE' : 'BUILD' });
+    drawPanelFx(ctx);
+  }
+
+  /** One label/value row inside the build panel's parchment card. */
+  function statRow(ctx, px, pw, y, label, value, col = '#7d5027') {
+    drawText(ctx, label, px + 34, y, 6.5, '#8a6a3c', 'left');
+    drawText(ctx, value, px + pw - 34, y, 6.5, col, 'right');
   }
 
   // ---------------- popups ----------------
@@ -486,8 +675,9 @@ const UI = (() => {
       popup.t += Game.dt;
       ctx.fillStyle = 'rgba(8,8,12,0.94)';
       ctx.fillRect(0, 0, W, H);
-      drawText(ctx, 'REWARD AD', W / 2, H / 2 - 84, SIZE.TITLE, '#fff6e8', 'center', true);
-      drawText(ctx, 'SIMULATED AD PLACEHOLDER', W / 2, H / 2 - 52, SIZE.CAPTION, '#8c8678', 'center');
+      // values from Figma E11 (25:56..25:67), Figma px / 2
+      drawText(ctx, 'REWARD AD', W / 2, 237.5, SIZE.TITLE, '#fff6e8', 'center');
+      drawText(ctx, 'SIMULATED AD PLACEHOLDER', W / 2, 268.25, 4.5, '#8c8678', 'center');
       // silly ad: pigeon on a bombing run across the screen
       const t = Math.min(popup.t / popup.dur, 1);
       const bx = U.lerp(40, W - 40, t);
@@ -499,7 +689,7 @@ const UI = (() => {
       inset(ctx, W / 2 - 80, H / 2 + 60, 160, 14);
       ctx.fillStyle = '#7dbb4a';
       ctx.fillRect(W / 2 - 78, H / 2 + 62, Math.max(0, Math.round(156 * t)), 10);
-      drawText(ctx, 'REWARD IN ' + Math.ceil(popup.dur - popup.t) + 'S', W / 2, H / 2 + 88, SIZE.CAPTION, '#c8b088', 'center');
+      drawText(ctx, 'REWARD IN ' + Math.ceil(popup.dur - popup.t) + 'S', W / 2, 408.25, 4.5, '#c8b088', 'center');
       if (popup.t >= popup.dur) { const done = popup.onDone; popup = null; done(); }
       return;
     }
@@ -507,113 +697,126 @@ const UI = (() => {
     ctx.fillStyle = popup.type === 'discovery' ? 'rgba(16,10,6,0.75)' : 'rgba(16,10,6,0.55)';
     ctx.fillRect(0, 0, W, H);
 
-    const pw = popup.type === 'upgrades' ? 324 : popup.type === 'discovery' ? 280 : 240;
+    const pw = popup.type === 'upgrades' ? 324 : popup.type === 'discovery' ? 280
+             : popup.type === 'build' ? 260 : 240;
     const ph = popup.type === 'upgrades' ? 528
              : popup.type === 'discovery' ? 344
              : popup.type === 'unlock' ? 210
+             : popup.type === 'build' ? 258
              : popup.type === 'pigeonAd' ? 254
-             : popup.type === 'tornadoAd' ? 296
+             : popup.type === 'tornadoAd' ? 270.5
              : popup.type === 'welcomeBack' ? welcomeMetrics(popup.rep).ph : 190;
-    // upgrades panel sits lower so the HUD coin counter stays visible
-    const px = (W - pw) / 2, py = (H - ph) / 2 - (popup.type === 'upgrades' ? 0 : 20);
+    // upgrades panel sits lower so the HUD coin counter stays visible;
+    // the tornado panel sits higher than the centering formula (Figma 25:4)
+    const px = (W - pw) / 2;
+    const py = popup.type === 'tornadoAd' ? 152
+             : (H - ph) / 2 - (popup.type === 'upgrades' ? 0 : 20);
     popup.rect = { x: px, y: py, w: pw, h: ph };
-    woodPanel(ctx, px, py, pw, ph, { gold: true });
-    // title bar
-    woodPanel(ctx, px + 10, py - 10, pw - 20, 26, { dark: true });
+    // Figma: only the confirm-reset panel (21:4) shows plank seams
+    woodPanel(ctx, px, py, pw, ph, { gold: true, flecks: false, seams: popup.type === 'confirm-reset' });
 
-    // close X (discovery must be dismissed with CONTINUE)
-    if (popup.type === 'discovery') {
-      popup.closeRect = null;
-    } else {
-      popup.closeRect = { x: px + pw - 16, y: py - 16, w: 28, h: 26 };
-      drawButton(ctx, { ...popup.closeRect, color: 'red', icon: () => SPRITES.xIcon(), pressed: false });
-    }
+    // close X (discovery must be dismissed with CONTINUE); drawn after the
+    // branch so the title bar never paints over it
+    popup.closeRect = popup.type === 'discovery' ? null
+      : { x: px + pw - 16, y: py - 16, w: 28, h: 26 };
 
     if (popup.type === 'unlock') {
       const f = CONFIG.FARMS[popup.farmId];
-      popupTitle(ctx, 'UNLOCK ' + f.name, px, py, pw);
+      // construction farms buy bare land here and build the rest in-scene
+      const build = Construction.required(popup.farmId);
+      const unlockCost = Construction.landCost(popup.farmId);
+      // values from Figma E12 (26:2..26:47), Figma px / 2
+      popupTitle(ctx, (build ? 'BUY LAND: ' : 'UNLOCK ') + f.name, px, py, pw, { size: 10, top: py - 2 });
       // inner parchment card
       ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 28, pw - 36, 104);
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 30, pw - 40, 100);
       ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 30, pw - 40, 3);
-      // animal preview
+      // animal preview (26:35: bottom-center at 116.75, py+110.5)
       const img = SPRITES.animal(f.species, 1, 'idle', false);
-      PIXEL.blit(ctx, img, px + 58, py + 116, 2.6);
-      drawText(ctx, f.label.replace(/S$/, '') + ' FARM', px + 144, py + 48, SIZE.BODY, '#5c3a1d', 'center', false, false, 136);
-      drawText(ctx, 'UNLOCK COST:', px + 144, py + 72, SIZE.CAPTION, '#7d5027', 'center');
-      const cost = U.fmt(CONFIG.UNLOCK_COSTS[popup.farmId]);
-      const cw = measure(cost, SIZE.BODY);
-      ctx.drawImage(SPRITES.coin(2), px + 144 - cw / 2 - 20, py + 84, 16, 16);
-      drawText(ctx, cost, px + 144 - cw / 2, py + 88, SIZE.BODY, '#b8860b', 'left');
+      PIXEL.blit(ctx, img, px + 56.75, py + 110.5, 3.0);
+      drawText(ctx, f.label.replace(/S$/, '') + ' FARM', px + 120, py + 52.25, 8.5, '#5c3a1d', 'left', false, false, 96);
+      drawText(ctx, build ? 'LAND COST:' : 'UNLOCK COST:', px + 138.5, py + 72.75, 4.5, '#7d5027', 'left');
+      const cost = U.fmt(unlockCost);
+      ctx.drawImage(SPRITES.coin(2), px + 121.5, py + 88.5, 16, 16);
+      drawText(ctx, cost, px + 141.5, py + 92.25, 8.5, '#000000', 'left');
+      if (build) {
+        drawText(ctx, 'EMPTY PLOT - BUILD IT YOURSELF!', px + pw / 2, py + 138, 5.5, '#ffe98a', 'center', false, false, pw - 32);
+      }
       // unlock button
-      const can = SaveManager.data.coins >= CONFIG.UNLOCK_COSTS[popup.farmId];
+      const can = SaveManager.data.coins >= unlockCost;
       popup.okRect = { x: px + 40, y: py + ph - 60, w: pw - 80, h: 40 };
-      drawButton(ctx, { ...popup.okRect, color: 'green', label: 'UNLOCK', disabled: !can });
+      drawButton(ctx, { ...popup.okRect, color: 'green', label: build ? 'BUY LAND' : 'UNLOCK', disabled: !can,
+        layout: { labelY: 19, labelPx: 10, center: true } });
+    } else if (popup.type === 'build') {
+      drawBuild(ctx, px, py, pw, ph);
     } else if (popup.type === 'upgrades') {
       const f = CONFIG.FARMS[popup.farmId];
-      popupTitle(ctx, f.name + ' UPGRADES', px, py, pw);
+      popupTitle(ctx, 'UPGRADES!', px, py, pw, { tall: true });
       popup.cards = [];
-      let yy = py + 20;
-      drawText(ctx, 'FARM', px + 14, yy, SIZE.CAPTION, '#e0cfa8'); yy += 12;
-      yy = upgradeCard(ctx, popup, px + 12, yy, pw - 24, 76, Upgrades.info(popup.farmId, 'spawn')) + 10;
-      drawText(ctx, f.label, px + 14, yy, SIZE.CAPTION, '#e0cfa8'); yy += 12;
+      // section labels + card rows from Figma 19:70/19:86/19:71/19:106..30:84
+      drawText(ctx, 'FARM', px + 10, py + 21.75, SIZE.CAPTION, '#e0cfa8');
+      upgradeCard(ctx, popup, px + 12, py + 32, pw - 24, 76, Upgrades.info(popup.farmId, 'spawn'));
+      drawText(ctx, f.label, px + 10, py + 119.75, SIZE.CAPTION, '#e0cfa8');
       for (let s = 0; s < CONFIG.UPGRADES.STAGES.length; s++) {
-        yy = upgradeCard(ctx, popup, px + 12, yy, pw - 24, 88, Upgrades.info(popup.farmId, s)) + 8;
+        upgradeCard(ctx, popup, px + 12, py + 130 + s * 98, pw - 24, 88, Upgrades.info(popup.farmId, s));
       }
       drawPanelFx(ctx);
     } else if (popup.type === 'discovery') {
       drawDiscovery(ctx, px, py, pw, ph);
     } else if (popup.type === 'pigeonAd') {
       const inf = Pigeon.info();
-      popupTitle(ctx, 'SPECIAL DELIVERY!', px, py, pw);
+      // values from Figma E09 (24:2..24:51), Figma px / 2
+      popupTitle(ctx, 'POOP RAIN!', px, py, pw, { size: 10, top: py - 2 });
       // parchment card
       ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 132);
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 128);
       ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 28, pw - 40, 3);
-      // the messenger, gently bobbing
+      // the messenger, gently bobbing, with a COO! beside its head
       popup.fxT = (popup.fxT || 0) + Game.dt;
       const bob = Math.sin(popup.fxT * 3) * 2;
       PIXEL.blit(ctx, SPRITES.pigeon('idle', false), px + 58, py + 92 + bob, 3);
-      drawText(ctx, 'COO!', px + 58, py + 104, SIZE.CAPTION, '#7d5027', 'center');
-      // reward explanation
-      drawText(ctx, 'WATCH AN AD', px + 152, py + 44, SIZE.BODY, '#5c3a1d', 'center', false, false, 132);
-      drawText(ctx, 'TO GET A', px + 152, py + 64, SIZE.CAPTION, '#7d5027', 'center');
-      drawText(ctx, 'POOP RAIN!', px + 152, py + 78, SIZE.BODY, '#b8860b', 'center', false, false, 132);
-      // payout breakdown
-      PIXEL.blit(ctx, SPRITES.poop(0), px + 104, py + 138, 2);
-      drawText(ctx, 'X' + inf.count, px + 124, py + 118, SIZE.BODY, '#5c3a1d', 'left');
-      ctx.drawImage(SPRITES.coin(1), px + 150, py + 118, 12, 12);
-      drawText(ctx, '+' + U.fmt(inf.value) + ' EACH', px + 166, py + 120, SIZE.CAPTION, '#b8860b', 'left');
-      drawText(ctx, 'COINS COLLECT AUTOMATICALLY!', px + pw / 2, py + 144, SIZE.CAPTION, '#7d5027', 'center', false, false, pw - 44);
-      // watch button
-      popup.okRect = { x: px + 40, y: py + ph - 62, w: pw - 80, h: 40 };
-      drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
+      drawText(ctx, 'COO!', px + 87.5, py + 36.75, 4.5, '#7d5027', 'left');
+      // reward explanation (24:37 / 30:38)
+      drawText(ctx, 'WATCH AN AD', px + 97, py + 72.5, 10, '#5c3a1d', 'left', false, false, 110);
+      drawText(ctx, 'POOP MEANS MONEY', px + 97, py + 88.5, 7, '#7d5027', 'left', false, false, 115);
+      // scattered poop cluster (30:33..30:36, 24:40 — bottom-center anchors)
+      for (const [bx2, by2] of [[73.5, 116.5], [39.25, 109], [56.5, 125], [67, 146], [39.5, 140]]) {
+        PIXEL.blit(ctx, SPRITES.poop(0), px + bx2, py + by2, 1.25);
+      }
+      // payout: coin + big value (30:39 / 24:43)
+      ctx.drawImage(SPRITES.coin(2), px + 115, py + 111, 22.5, 22.5);
+      drawText(ctx, '+' + U.fmt(inf.value), px + 140.5, py + 116.5, 15, '#000000', 'left', false, false, 56);
+      // watch button + note below it
+      popup.okRect = { x: px + 40, y: py + 175, w: pw - 80, h: 40 };
+      drawButton(ctx, { ...popup.okRect, color: 'green', icon: () => SPRITES.adPlay(), label: 'REWARD AD',
+        layout: { iconX: 11, iconY: 9, iconW: 32, iconH: 24, labelX: 52.5, labelY: 17, labelPx: 10 } });
+      drawText(ctx, 'COINS COLLECT AUTOMATICALLY!', px + pw / 2, py + 223.75, 4.5, '#ffffff', 'center', false, false, pw - 44);
     } else if (popup.type === 'tornadoAd') {
-      popupTitle(ctx, 'TORNADO ALERT!', px, py, pw);
+      // values from Figma E10 (25:2..25:48), Figma px / 2
+      popupTitle(ctx, 'TORNADO ALERT!', px, py, pw, { size: 10, top: py - 2 });
       // parchment card
       ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 132);
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 128);
       ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 28, pw - 40, 3);
-      // the storm itself, spinning and swaying
+      // the storm itself, spinning and swaying (25:35: 72x84, bottom-center 116, py+127)
       popup.fxT = (popup.fxT || 0) + Game.dt;
       const frame = Math.floor(popup.fxT * 10) % 3;
       const sway = Math.sin(popup.fxT * 4) * 2;
-      PIXEL.blit(ctx, SPRITES.tornado(frame), px + 58 + sway, py + 122, 2);
+      const timg = SPRITES.tornado(frame);
+      PIXEL.blit(ctx, timg, px + 56 + sway, py + 127, 72 / timg.width);
       // reward explanation
-      drawText(ctx, 'WATCH AN AD', px + 152, py + 44, SIZE.BODY, '#5c3a1d', 'center', false, false, 132);
-      drawText(ctx, 'TO UNLEASH A', px + 152, py + 64, SIZE.CAPTION, '#7d5027', 'center');
-      drawText(ctx, 'MERGE STORM!', px + 152, py + 78, SIZE.BODY, '#b8860b', 'center', false, false, 132);
-      drawText(ctx, 'AUTO-MERGES EVERY', px + 152, py + 100, SIZE.CAPTION, '#7d5027', 'center');
-      drawText(ctx, 'POSSIBLE ANIMAL!', px + 152, py + 112, SIZE.CAPTION, '#7d5027', 'center');
+      drawText(ctx, 'WATCH AN AD', px + 112.5, py + 60.75, 8.5, '#5c3a1d', 'left', false, false, 100);
+      drawText(ctx, 'TO UNLEASH A', px + 132, py + 80.25, 4.5, '#7d5027', 'left');
+      drawText(ctx, 'MERGE STORM!', px + 96.5, py + 106.5, 10, '#b8860b', 'left', false, false, 120);
       // mutants feed the UFO only where it has been unlocked
       const ufoReady = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
       drawText(ctx, ufoReady ? 'MUTANTS BECOME MUTANT 2!' : 'MERGES ALL THE WAY TO MUTANTS!',
-        px + pw / 2, py + 144, SIZE.CAPTION, '#7d5027', 'center', false, false, pw - 44);
-      // watch + cancel buttons
-      popup.okRect = { x: px + 40, y: py + ph - 104, w: pw - 80, h: 40 };
-      popup.cancelRect = { x: px + 60, y: py + ph - 54, w: pw - 120, h: 32 };
-      drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
-      drawButton(ctx, { ...popup.cancelRect, color: 'gray', label: 'CANCEL' });
+        px + pw / 2, py + 144.25, 4.5, '#7d5027', 'center', false, false, pw - 44);
+      // single watch button (dismiss via the close X)
+      popup.okRect = { x: px + 40, y: py + 192, w: pw - 80, h: 40 };
+      popup.cancelRect = null;
+      drawButton(ctx, { ...popup.okRect, color: 'green', icon: () => SPRITES.adPlay(), label: 'REWARD AD',
+        layout: { iconX: 13, iconY: 10, iconW: 32, iconH: 24, labelX: 53, labelY: 17, labelPx: 10 } });
     } else if (popup.type === 'welcomeBack') {
       drawWelcome(ctx, px, py, pw);
     } else if (popup.type === 'settings') {
@@ -621,16 +824,22 @@ const UI = (() => {
       popup.musicRect = { x: px + 30, y: py + 34, w: pw - 60, h: 34 };
       popup.sfxRect = { x: px + 30, y: py + 78, w: pw - 60, h: 34 };
       popup.resetRect = { x: px + 30, y: py + 128, w: pw - 60, h: 34 };
-      drawButton(ctx, { ...popup.musicRect, color: 'wood', label: 'MUSIC: ' + (AudioManager.musicOn ? 'ON' : 'OFF') });
-      drawButton(ctx, { ...popup.sfxRect, color: 'wood', label: 'SOUND: ' + (AudioManager.sfxOn ? 'ON' : 'OFF') });
-      drawButton(ctx, { ...popup.resetRect, color: 'red', label: 'RESET SAVE' });
+      const lay = { labelY: 14, labelPx: 10, center: true };
+      drawButton(ctx, { ...popup.musicRect, color: 'wood', label: 'MUSIC: ' + (AudioManager.musicOn ? 'ON' : 'OFF'), layout: lay });
+      drawButton(ctx, { ...popup.sfxRect, color: 'wood', label: 'SOUND: ' + (AudioManager.sfxOn ? 'ON' : 'OFF'), layout: lay });
+      drawButton(ctx, { ...popup.resetRect, color: 'red', label: 'RESET SAVE', layout: lay });
     } else if (popup.type === 'confirm-reset') {
       popupTitle(ctx, 'RESET GAME?', px, py, pw);
-      PixelFont.drawWrapped(ctx, 'ALL PROGRESS WILL BE LOST!', px + pw / 2, py + 44, SIZE.CAPTION, '#f4e8cc', 'center', pw - 60, 2);
+      drawText(ctx, 'ALL PROGRESS WILL BE LOST!', px + pw / 2, py + 42.5, 7.5, '#f4e8cc', 'center', false, false, pw - 40);
       popup.okRect = { x: px + 30, y: py + 84, w: pw - 60, h: 36 };
       popup.cancelRect = { x: px + 30, y: py + 130, w: pw - 60, h: 36 };
-      drawButton(ctx, { ...popup.okRect, color: 'red', label: 'YES, RESET' });
-      drawButton(ctx, { ...popup.cancelRect, color: 'gray', label: 'CANCEL' });
+      drawButton(ctx, { ...popup.okRect, color: 'red', label: 'YES, RESET', layout: { labelY: 17, labelPx: 10, center: true } });
+      drawButton(ctx, { ...popup.cancelRect, color: 'gray', label: 'CANCEL', layout: { labelY: 15, labelPx: 10, center: true } });
+    }
+
+    if (popup.closeRect) {
+      drawButton(ctx, { ...popup.closeRect, color: 'red', icon: () => SPRITES.xIcon(), pressed: false,
+        layout: { iconX: 6, iconY: 5, iconW: 20, iconH: 20 } });
     }
   }
 
@@ -758,6 +967,21 @@ const UI = (() => {
         }
         return true;
       }
+      if (popup.type === 'build') {
+        if (inRect(x, y, popup.okRect)) {
+          const r = Construction.buyNext(popup.farmId);
+          if (r.ok) {
+            AudioManager.play('buy');
+            popup.fx = 1;
+            spawnPanelFx(popup.okRect.x + popup.okRect.w / 2, popup.okRect.y + popup.okRect.h / 2);
+            Game.onConstructionBuilt(popup.farmId);
+          } else {
+            AudioManager.play('error');
+            toast = { text: r.reason, t: 1.6 };
+          }
+        }
+        return true;
+      }
       if (popup.type === 'unlock' && inRect(x, y, popup.okRect)) {
         Game.tryUnlock(popup.farmId);
         return true;
@@ -787,22 +1011,23 @@ const UI = (() => {
 
   // ---------------- loading screen ----------------
   function drawLoading(ctx, t) {
+    // values from Figma E01 (14:27), all Figma px / 2
     ctx.fillStyle = '#2e2416';
     ctx.fillRect(0, 0, W, H);
     // decorative fence strip
     const f = SPRITES.fenceH(24);
-    for (let x = 0; x < W; x += 44) ctx.drawImage(f, x, H / 2 + 60, 44, 26);
-    drawText(ctx, 'FARM EVOLUTION', W / 2, H / 2 - 66, SIZE.TITLE, '#ffe98a', 'center', true, false, W - 24);
+    for (let x = 0; x < W; x += 44) ctx.drawImage(f, x, 380, 44, 26);
+    drawText(ctx, 'FARM EVOLUTION', W / 2, 255.5, SIZE.TITLE, '#ffe98a', 'center', false, false, W - 24);
     const img = SPRITES.animal('chicken', 1, (t * 3 | 0) % 2 ? 'walk' : 'idle');
-    PIXEL.blit(ctx, img, W / 2, H / 2 + 30, 3);
+    PIXEL.blit(ctx, img, W / 2, 350, 3);
     const dots = '.'.repeat(1 + ((t * 2) | 0) % 3);
-    drawText(ctx, 'TAP TO START' , W / 2, H / 2 + 100, SIZE.BUTTON, '#f4e8cc', 'center', true);
-    drawText(ctx, 'LOADING' + dots, W / 2, H / 2 + 124, SIZE.CAPTION, '#c8b088', 'center');
+    drawText(ctx, 'TAP TO START', W / 2, 590.5, 12, '#f4e8cc', 'center');
+    drawText(ctx, 'LOADING' + dots, W / 2, 420.75, 7.5, '#c8b088', 'center');
   }
 
   return {
     SIZE, drawText, measure, woodPanel, woodSign, drawButton, drawHUD, drawPopup, drawLoading,
-    drawHand, drawUpgradeTutorial,
+    drawHand, drawUpgradeTutorial, drawBadge, safeArea,
     tap, coinTarget,
     pulseCoin() { coinPulse = 1; },
     showToast(text) { toast = { text, t: 1.6 }; },

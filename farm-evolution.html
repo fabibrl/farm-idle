@@ -226,6 +226,48 @@ const CONFIG = {
   // progresses, but never wall).
   UNLOCK_COSTS: [0, 12000, 120000],
 
+  // ---------------- Farm construction (Farm 2 only) ----------------
+  // Step-by-step build progression, keyed by farm id (see js/construction.js).
+  // Farms without an entry keep the classic one-shot unlock, untouched.
+  //   1. LAND_COST buys the plot on the map (replaces UNLOCK_COSTS for this
+  //      farm) — the scene opens but the plot is bare and produces nothing.
+  //   2. HOUSE_COST builds the farmhouse: this is what starts animal
+  //      spawning. Without the house there are no animals at all.
+  //   3. FENCE_LEVELS[0] builds the pen. Until it exists, spawned animals
+  //      wander off the plot and are lost (see the ESCAPE_* values below),
+  //      and the farm is excluded from background/offline production —
+  //      the idle clock is stamped the moment the fence completes.
+  //   4. Later levels upgrade the fence: a higher hard animal cap, a
+  //      physically bigger pen footprint and an art tier per level
+  //      (0 rough wood, 1 planked, 2 painted/reinforced).
+  // Land + house + first fence together match the old 12000 lump-sum unlock,
+  // so reaching an operational Farm 2 costs the same as before; the two
+  // fence upgrades are new, optional capacity growth beyond that. The final
+  // tier's capacity matches MAX_ANIMALS so a finished Farm 2 plays exactly
+  // like every other farm. All values are balance-tunable.
+  CONSTRUCTION: {
+    1: {
+      LAND_COST: 4000,
+      HOUSE_COST: 3000,
+      FENCE_LEVELS: [
+        { cost: 5000,  capacity: 6,  size: 0.62, art: 0 },
+        { cost: 14000, capacity: 10, size: 0.82, art: 1 },
+        { cost: 40000, capacity: 14, size: 1.00, art: 2 },
+      ],
+      // House built, no fence: animals still spawn (up to this cap) but each
+      // one walks off the plot when its own escape timer runs out. The timer
+      // starts at spawn and is staggered by +/- ESCAPE_VARIANCE seconds so
+      // they never leave all at once; a successful match cancels it.
+      UNFENCED_CAPACITY: 5,
+      ESCAPE_TIME: 14,        // seconds on the board before an animal leaves
+      ESCAPE_VARIANCE: 5,     // +/- random seconds on that timer
+      ESCAPE_PAUSE_MIN: 0.4,  // idle beat before it starts wandering off
+      ESCAPE_PAUSE_MAX: 1.4,
+      ESCAPE_SPEED: 22,       // px/sec while walking out (normal walk anim)
+      ESCAPE_FADE: 0.8,       // seconds to fade out past the plot boundary
+    },
+  },
+
   // Animal behaviour
   WALK_SPEED_MIN: 14,
   WALK_SPEED_MAX: 26,
@@ -408,120 +450,66 @@ const PIXEL = (() => {
 </script>
 <script>
 /**
- * PixelFont — the game's global 'pixel-art-font'.
+ * PixelFont — the game's global text engine, rendering the embedded
+ * "Press Start 2P" typeface (assets/fonts/PressStart2P-Regular.ttf), the
+ * exact font used by the Figma designs (single source of truth).
  *
- * Every piece of text in the game (HUD, buttons, dialogues, popups, overlays)
- * renders through this module. Glyphs are a hand-authored 5px bitmap grid
- * drawn with fillRect at integer scales, which guarantees zero anti-aliasing
- * and zero sub-pixel blur by construction — no TTF rasterizer involved.
+ * Font metrics (parsed from the TTF): unitsPerEm 1000, ascent 1000,
+ * descent 0 — the baseline sits exactly 1em below the glyph-box top, and
+ * the font is strictly monospaced with advance = 1em. This makes layout
+ * fully deterministic: measure(text, size) = text.length * size, and
+ * draw(x, y, size) places the glyph em-box top at y (baseline at y + size),
+ * mirroring how Figma positions text nodes.
  *
- * - Sizes snap to integer multiples of the 5px glyph grid (5/10/15/20/...),
- *   so arbitrary requests (8, 16, 24, 32) land on a crisp scale.
+ * - Sizes are in canvas px and may be fractional (Figma px / 2), snapped
+ *   to 0.5 so they land on whole device pixels at the 2x render scale.
  * - SIZE tiers define the visual hierarchy: TITLE > SUBTITLE > BUTTON/BODY > CAPTION.
  * - fit / truncate / wrap keep text inside fixed-width containers: fitting
  *   first steps the size down, then falls back to an '…' ellipsis.
  */
 const PixelFont = (() => {
-  const FAMILY = 'pixel-art-font';
-  const GLYPH_H = 5;                 // native glyph grid height in pixels
+  const FAMILY = 'Press Start 2P';
 
-  // Typography scale (px, all multiples of GLYPH_H so scales stay integer).
+  // Typography scale (canvas px = Figma px / 2, from the Figma file).
   const SIZE = {
-    TITLE: 20,      // screen titles (loading, discovery, reward ad)
+    TITLE: 17,      // screen titles (loading, discovery, reward ad) — Figma 34px
     SUBTITLE: 15,   // popup / panel titles
-    BUTTON: 10,     // interactive button labels
+    BUTTON: 10,     // interactive button labels — Figma 20px
     BODY: 10,       // primary inline text (names, values, counters)
-    CAPTION: 5,     // secondary text (stat lines, flavor, hints)
+    CAPTION: 7.5,   // secondary text (stat lines, flavor, hints) — Figma 15px
   };
 
-  // ---------------- glyph atlas (5 rows, variable width) ----------------
-  const GLYPHS = {
-    A: ['.##.', '#..#', '####', '#..#', '#..#'],
-    B: ['###.', '#..#', '###.', '#..#', '###.'],
-    C: ['.###', '#...', '#...', '#...', '.###'],
-    D: ['###.', '#..#', '#..#', '#..#', '###.'],
-    E: ['####', '#...', '###.', '#...', '####'],
-    F: ['####', '#...', '###.', '#...', '#...'],
-    G: ['.###', '#...', '#.##', '#..#', '.###'],
-    H: ['#..#', '#..#', '####', '#..#', '#..#'],
-    I: ['###', '.#.', '.#.', '.#.', '###'],
-    J: ['..##', '...#', '...#', '#..#', '.##.'],
-    K: ['#..#', '#.#.', '##..', '#.#.', '#..#'],
-    L: ['#...', '#...', '#...', '#...', '####'],
-    M: ['#...#', '##.##', '#.#.#', '#...#', '#...#'],
-    N: ['#..#', '##.#', '#.##', '#..#', '#..#'],
-    O: ['.##.', '#..#', '#..#', '#..#', '.##.'],
-    P: ['###.', '#..#', '###.', '#...', '#...'],
-    Q: ['.##.', '#..#', '#..#', '#.##', '.###'],
-    R: ['###.', '#..#', '###.', '#.#.', '#..#'],
-    S: ['.###', '#...', '.##.', '...#', '###.'],
-    T: ['###', '.#.', '.#.', '.#.', '.#.'],
-    U: ['#..#', '#..#', '#..#', '#..#', '.##.'],
-    V: ['#.#', '#.#', '#.#', '#.#', '.#.'],
-    W: ['#...#', '#...#', '#.#.#', '##.##', '#...#'],
-    X: ['#..#', '#..#', '.##.', '#..#', '#..#'],
-    Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
-    Z: ['####', '...#', '.##.', '#...', '####'],
-    0: ['.##.', '#..#', '#..#', '#..#', '.##.'],
-    1: ['.#.', '##.', '.#.', '.#.', '###'],
-    2: ['###.', '...#', '.##.', '#...', '####'],
-    3: ['###.', '...#', '.##.', '...#', '###.'],
-    4: ['#..#', '#..#', '####', '...#', '...#'],
-    5: ['####', '#...', '###.', '...#', '###.'],
-    6: ['.###', '#...', '###.', '#..#', '.##.'],
-    7: ['####', '...#', '..#.', '.#..', '.#..'],
-    8: ['.##.', '#..#', '.##.', '#..#', '.##.'],
-    9: ['.##.', '#..#', '.###', '...#', '##..'],
-    ',': ['.', '.', '.', '#', '#'],
-    '+': ['...', '.#.', '###', '.#.', '...'],
-    '-': ['...', '...', '###', '...', '...'],
-    ':': ['.', '#', '.', '#', '.'],
-    '.': ['.', '.', '.', '.', '#'],
-    '!': ['#', '#', '#', '.', '#'],
-    '?': ['###', '..#', '.#.', '...', '.#.'],
-    '/': ['..#', '..#', '.#.', '#..', '#..'],
-    '>': ['#..', '.#.', '..#', '.#.', '#..'],
-    '<': ['..#', '.#.', '#..', '.#.', '..#'],
-    "'": ['#', '#', '.', '.', '.'],
-    '"': ['#.#', '#.#', '...', '...', '...'],
-    '(': ['.#', '#.', '#.', '#.', '.#'],
-    ')': ['#.', '.#', '.#', '.#', '#.'],
-    '=': ['...', '###', '...', '###', '...'],
-    '%': ['#..#', '..#.', '.#..', '#..#', '....'],
-    '…': ['.....', '.....', '.....', '.....', '#.#.#'],
-    ' ': ['..', '..', '..', '..', '..'],
-  };
+  // ---------------- font loading ----------------
+  let loaded = false;
+  const ready = (typeof FontFace !== 'undefined' && typeof document !== 'undefined')
+    ? new FontFace(FAMILY, "url('assets/fonts/PressStart2P-Regular.ttf')")
+        .load()
+        .then(face => { document.fonts.add(face); loaded = true; })
+        .catch(() => { loaded = true; })
+    : Promise.resolve();
 
   // ---------------- sizing ----------------
-  /** Snap any requested size to the nearest integer glyph scale (min 5px). */
+  /** Snap any requested size to the 0.5px grid (whole device pixels at 2x). */
   function snap(size) {
-    return Math.max(1, Math.round(size / GLYPH_H)) * GLYPH_H;
+    return Math.max(2, Math.round(size * 2) / 2);
   }
 
-  function scaleFor(size) { return snap(size) / GLYPH_H; }
-
-  /** Pixel width of text at a snapped font size. */
+  /** Pixel width of text at this size (monospace: advance = 1em). */
   function measure(text, size) {
-    const s = scaleFor(size);
-    let w = 0;
-    for (const ch of String(text).toUpperCase()) {
-      const gl = GLYPHS[ch] || GLYPHS['?'];
-      w += (gl[0].length + 1) * s;
-    }
-    return Math.max(0, w - s);
+    return String(text).length * snap(size);
   }
 
   /** Line advance for stacked lines of this size. */
   function lineHeight(size) { return Math.round(snap(size) * 1.4); }
 
   /**
-   * Largest snapped size <= `size` whose text fits in maxWidth
-   * (never below CAPTION size — beyond that, truncate instead).
+   * Largest 0.5-snapped size <= `size` whose text fits in maxWidth
+   * (never below 5px — beyond that, truncate instead).
    */
   function fit(text, size, maxWidth) {
-    let px = snap(size);
-    while (px > SIZE.CAPTION && measure(text, px) > maxWidth) px -= GLYPH_H;
-    return px;
+    const n = String(text).length || 1;
+    const px = Math.min(snap(size), Math.floor((maxWidth / n) * 2) / 2);
+    return Math.max(5, px);
   }
 
   /** Truncate with an '…' ellipsis so text fits in maxWidth at this size. */
@@ -551,23 +539,15 @@ const PixelFont = (() => {
   }
 
   // ---------------- rendering ----------------
-  function drawGlyphs(ctx, text, x, y, s, col) {
-    ctx.fillStyle = col;
-    let cx = x;
-    for (const ch of String(text).toUpperCase()) {
-      const gl = GLYPHS[ch] || GLYPHS['?'];
-      for (let r = 0; r < GLYPH_H; r++) {
-        const row = gl[r];
-        for (let c = 0; c < row.length; c++) {
-          if (row[c] === '#') ctx.fillRect(cx + c * s, y + r * s, s, s);
-        }
-      }
-      cx += (gl[0].length + 1) * s;
-    }
+  function setFont(ctx, px) {
+    ctx.font = px + 'px "' + FAMILY + '"';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
   }
 
   /**
-   * Draw one line of pixel-art-font text.
+   * Draw one line of text. (x, y) is the glyph em-box top-left (baseline is
+   * at y + size, matching Figma's text node top + half-leading).
    * align: 'left' | 'center' | 'right'; outline adds a dark border,
    * shadow a soft drop. maxWidth (optional) is the container safety net:
    * the size steps down to fit, then the text is ellipsis-truncated.
@@ -575,29 +555,32 @@ const PixelFont = (() => {
    */
   function draw(ctx, text, x, y, size = SIZE.BODY, col = '#fff', align = 'left',
                 outline = false, shadow = false, maxWidth = 0) {
-    let t = String(text);
+    let t = String(text).toUpperCase();
     let px = snap(size);
     if (maxWidth > 0) {
       px = fit(t, px, maxWidth);
       if (measure(t, px) > maxWidth) t = truncate(t, px, maxWidth);
     }
-    const s = px / GLYPH_H;
     const w = measure(t, px);
     let dx = x;
     if (align === 'center') dx = x - w / 2;
     if (align === 'right') dx = x - w;
-    dx = Math.round(dx); y = Math.round(y);
-    const smoothing = ctx.imageSmoothingEnabled;
-    ctx.imageSmoothingEnabled = false;
+    dx = Math.round(dx * 2) / 2;
+    const by = Math.round((y + px) * 2) / 2;   // baseline
+    setFont(ctx, px);
     if (outline) {
-      for (const [ox, oy] of [[-s, 0], [s, 0], [0, -s], [0, s], [-s, -s], [s, -s], [-s, s], [s, s]]) {
-        drawGlyphs(ctx, t, dx + ox, y + oy, s, PIXEL.OUTLINE);
+      const o = Math.max(1, Math.round(px / 8));
+      ctx.fillStyle = PIXEL.OUTLINE;
+      for (const [ox, oy] of [[-o, 0], [o, 0], [0, -o], [0, o], [-o, -o], [o, -o], [-o, o], [o, o]]) {
+        ctx.fillText(t, dx + ox, by + oy);
       }
     } else if (shadow) {
-      drawGlyphs(ctx, t, dx + s, y + s, s, 'rgba(0,0,0,0.4)');
+      const o = Math.max(1, Math.round(px / 8));
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillText(t, dx + o, by + o);
     }
-    drawGlyphs(ctx, t, dx, y, s, col);
-    ctx.imageSmoothingEnabled = smoothing;
+    ctx.fillStyle = col;
+    ctx.fillText(t, dx, by);
     return w;
   }
 
@@ -621,7 +604,8 @@ const PixelFont = (() => {
     return y + lines.length * lh;
   }
 
-  return { FAMILY, GLYPH_H, SIZE, snap, scaleFor, measure, lineHeight, fit, truncate, wrap, draw, drawWrapped };
+  return { FAMILY, SIZE, ready, snap, measure, lineHeight, fit, truncate, wrap, draw, drawWrapped,
+           get loaded() { return loaded; } };
 })();
 </script>
 <script>
@@ -1874,6 +1858,39 @@ const ENVIRONMENT = (() => {
   // little so the themed farmhouse sits above it as the focal point.
   const PLAY = { x: 22, y: 160, w: W - 44, h: H - 300 };
 
+  /** The full PLAY rect scaled to a fence tier's footprint (top edge fixed,
+   *  centered horizontally so the farmhouse path still meets the pen gate). */
+  function rectForSize(size) {
+    if (!(size < 1)) return PLAY;
+    const w = Math.round(PLAY.w * size), h = Math.round(PLAY.h * size);
+    return { x: PLAY.x + Math.round((PLAY.w - w) / 2), y: PLAY.y, w, h };
+  }
+
+  /**
+   * The farm's CURRENT playable area: the full PLAY rect, shrunk to the
+   * fence tier's footprint on construction farms. This is the single source
+   * for spawn slots, walk bounds and fence rendering, so capacity gained
+   * from a fence upgrade is always physically usable. Before the fence
+   * exists the whole plot is walkable — that is the area animals escape from.
+   */
+  function playRect(farmId) {
+    const def = Construction.levelDef(farmId);
+    return def ? rectForSize(def.size) : PLAY;
+  }
+
+  /** Footprint the fence would have at a given tier (1-based) — ghost preview. */
+  function rectForLevel(farmId, lv) {
+    const def = Construction.levelDef(farmId, lv);
+    return def ? rectForSize(def.size) : PLAY;
+  }
+
+  /** Screen rect of the farmhouse — also the ghost placeholder's spot. */
+  function houseRect(id) {
+    const building = [SPRITES.coop, SPRITES.cottage, SPRITES.barn][id]();
+    const w = building.width * 3, h = building.height * 3;
+    return { x: (W - w) / 2 | 0, y: PLAY.y - 16 - h, w, h, img: building };
+  }
+
   /** Deterministic pseudo-random for stable decoration layouts. */
   function seededRand(seed) {
     let s = seed;
@@ -1893,11 +1910,37 @@ const ENVIRONMENT = (() => {
     }
   }
 
-  /** Wooden fence perimeter around the play area. */
-  function drawFence(g, farmId) {
-    const f = SPRITES.fenceH(24);
+  // Fence art tiers (construction farms): 0 rough wood, 1 planked (the base
+  // sprite art, used by every classic farm), 2 painted/reinforced. Each tier
+  // tints the horizontal fence sprite and recolors posts + side rails.
+  const FENCE_TIERS = [
+    { tint: 'rgba(52,34,16,0.38)', post: ['#7d5c33', '#8f6c3f', '#5a3d1e'], rail: ['#5a3d1e', '#7d5c33'] },
+    null, // planked = untinted base art with the standard wood palette
+    { tint: 'rgba(240,236,226,0.42)', post: ['#e9e9e4', '#ffffff', '#c2c2ba'], rail: ['#c2c2ba', '#e9e9e4'] },
+  ];
+  const fenceRowCache = {};
+  function fenceRow(art) {
+    const tier = FENCE_TIERS[art];
+    const base = SPRITES.fenceH(24);
+    if (!tier) return base;
+    if (fenceRowCache[art]) return fenceRowCache[art];
+    const c = document.createElement('canvas');
+    c.width = base.width; c.height = base.height;
+    const g = c.getContext('2d');
+    g.drawImage(base, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = tier.tint;
+    g.fillRect(0, 0, c.width, c.height);
+    fenceRowCache[art] = c;
+    return c;
+  }
+
+  /** Fence perimeter around a play rect, in the given art tier. */
+  function drawFence(g, rect, art = 1) {
+    const tier = FENCE_TIERS[art];
+    const f = fenceRow(art);
     const sc = 2;
-    const { x, y, w, h } = PLAY;
+    const { x, y, w, h } = rect;
     const top = y - 20, bot = y + h - 6;
     // back fence (behind animals visually)
     for (let fx = x - 14; fx < x + w + 14; fx += f.width * sc - 2) {
@@ -1905,13 +1948,15 @@ const ENVIRONMENT = (() => {
     }
     // side fences (vertical posts made from small segments)
     for (let fy = top + 16; fy < bot; fy += 22) {
-      drawPost(g, x - 12, fy); drawPost(g, x + w + 4, fy);
+      drawPost(g, x - 12, fy, tier); drawPost(g, x + w + 4, fy, tier);
     }
     // side rails
-    g.fillStyle = SPRITES.P.woodDk;
+    const railDk = tier ? tier.rail[0] : SPRITES.P.woodDk;
+    const railHi = tier ? tier.rail[1] : SPRITES.P.wood;
+    g.fillStyle = railDk;
     g.fillRect(x - 8, top + 10, 3, bot - top - 4);
     g.fillRect(x + w + 8, top + 10, 3, bot - top - 4);
-    g.fillStyle = SPRITES.P.wood;
+    g.fillStyle = railHi;
     g.fillRect(x - 9, top + 10, 1, bot - top - 4);
     g.fillRect(x + w + 7, top + 10, 1, bot - top - 4);
     // front fence
@@ -1919,16 +1964,40 @@ const ENVIRONMENT = (() => {
       g.drawImage(f, fx, bot, f.width * sc, f.height * sc);
     }
   }
-  function drawPost(g, x, y) {
+  function drawPost(g, x, y, tier) {
+    const face = tier ? tier.post[0] : SPRITES.P.wood;
+    const hi = tier ? tier.post[1] : SPRITES.P.woodHi;
+    const dk = tier ? tier.post[2] : SPRITES.P.woodDk;
     g.fillStyle = PIXEL.OUTLINE; g.fillRect(x - 1, y - 1, 10, 18);
-    g.fillStyle = SPRITES.P.wood; g.fillRect(x, y, 8, 16);
-    g.fillStyle = SPRITES.P.woodHi; g.fillRect(x, y, 2, 16);
-    g.fillStyle = SPRITES.P.woodDk; g.fillRect(x + 6, y, 2, 16);
+    g.fillStyle = face; g.fillRect(x, y, 8, 16);
+    g.fillStyle = hi; g.fillRect(x, y, 2, 16);
+    g.fillStyle = dk; g.fillRect(x + 6, y, 2, 16);
   }
 
-  /** Build one farm background. */
+  /** Small stack of planks — construction-site prop for the unbuilt farm. */
+  function drawPlankPile(g, x, y) {
+    g.fillStyle = PIXEL.OUTLINE;
+    g.fillRect(x - 2, y - 2, 48, 20);
+    for (let row = 0; row < 3; row++) {
+      const px2 = x + (row % 2) * 3, py = y + row * 5;
+      g.fillStyle = SPRITES.P.wood; g.fillRect(px2, py, 42, 4);
+      g.fillStyle = SPRITES.P.woodHi; g.fillRect(px2, py, 42, 1);
+      g.fillStyle = SPRITES.P.woodDk; g.fillRect(px2 + 39, py, 3, 4);
+    }
+  }
+
+  /**
+   * Build one farm background. Construction farms re-render (and re-cache)
+   * per build stage: a bare plot has neither house nor pen, a housed-but-
+   * unfenced plot is open pasture, and each fence tier bakes its own
+   * footprint + art (see playRect / FENCE_TIERS).
+   */
   function farm(id) {
-    const key = 'farm' + id;
+    const house = Construction.houseBuilt(id);
+    const built = Construction.fenceBuilt(id);
+    const fenceLv = Construction.fenceLevel(id);
+    const key = 'farm' + id + (!Construction.required(id) ? ''
+      : built ? '-f' + fenceLv : house ? '-h' : '-l');
     if (cache[key]) return cache[key];
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
@@ -1936,48 +2005,53 @@ const ENVIRONMENT = (() => {
     g.imageSmoothingEnabled = false;
     const pal = GROUNDS[id];
     const rnd = seededRand(1234 + id * 999);
+    const R = playRect(id);
 
     // outer ground (darker border grass/dirt)
     noiseGround(g, { ...pal, base: pal.edge, light: pal.dark, dark: pal.edge, speck: pal.speck }, rnd, 0, 0, W, H);
-    // inner pen ground
-    noiseGround(g, pal, rnd, PLAY.x - 16, PLAY.y - 30, PLAY.w + 32, PLAY.h + 30);
+    if (house) {
+      // inner pen ground
+      noiseGround(g, pal, rnd, R.x - 16, R.y - 30, R.w + 32, R.h + 30);
 
-    // dirt patches inside pen — just a couple, kept subtle for open grass
-    for (let i = 0; i < 2; i++) {
-      const px2 = PLAY.x + 40 + rnd() * (PLAY.w - 110), py = PLAY.y + 50 + rnd() * (PLAY.h - 120);
-      g.fillStyle = id === 2 ? '#8a6238' : '#8a7a4a';
-      g.globalAlpha = 0.4;
-      g.beginPath(); g.ellipse(px2, py, 16 + rnd() * 10, 7 + rnd() * 4, 0, 0, 7); g.fill();
-      g.globalAlpha = 1;
+      // dirt patches inside pen — just a couple, kept subtle for open grass
+      for (let i = 0; i < 2; i++) {
+        const px2 = R.x + 40 + rnd() * Math.max(20, R.w - 110), py = R.y + 50 + rnd() * Math.max(20, R.h - 120);
+        g.fillStyle = id === 2 ? '#8a6238' : '#8a7a4a';
+        g.globalAlpha = 0.4;
+        g.beginPath(); g.ellipse(px2, py, 16 + rnd() * 10, 7 + rnd() * 4, 0, 0, 7); g.fill();
+        g.globalAlpha = 1;
+      }
     }
 
-    // dirt path from the farmhouse door down to the pen gate
-    g.fillStyle = '#caa96a';
-    g.fillRect(W / 2 - 11, PLAY.y - 34, 22, 40);
-    g.beginPath(); g.ellipse(W / 2, PLAY.y + 8, 15, 7, 0, 0, 7); g.fill();
-    g.fillStyle = '#b8935a';
-    g.fillRect(W / 2 - 7, PLAY.y - 34, 14, 38);
-    g.beginPath(); g.ellipse(W / 2, PLAY.y + 6, 10, 5, 0, 0, 7); g.fill();
+    // dirt path from the farmhouse door down to the pen gate, then the
+    // themed farmhouse itself — the focal point, centered on the grass
+    // above the pen (both only once the house has been built)
+    if (house) {
+      g.fillStyle = '#caa96a';
+      g.fillRect(W / 2 - 11, R.y - 34, 22, 40);
+      g.beginPath(); g.ellipse(W / 2, R.y + 8, 15, 7, 0, 0, 7); g.fill();
+      g.fillStyle = '#b8935a';
+      g.fillRect(W / 2 - 7, R.y - 34, 14, 38);
+      g.beginPath(); g.ellipse(W / 2, R.y + 6, 10, 5, 0, 0, 7); g.fill();
 
-    // themed farmhouse — the focal point, centered on the grass above the pen
-    const building = [SPRITES.coop, SPRITES.cottage, SPRITES.barn][id]();
-    const bw = building.width * 3, bh = building.height * 3;
-    g.drawImage(building, (W - bw) / 2 | 0, PLAY.y - 16 - bh, bw, bh);
+      const hr = houseRect(id);
+      g.drawImage(hr.img, hr.x, hr.y, hr.w, hr.h);
+    }
 
     // trees: one flanking the farmhouse on the left, one on the
     // bottom-right grass — the upper-right corner is kept clear for the
     // UFO's permanent parking spot (see ufo.js spot())
     const treeV = id === 0 ? 0 : 1;
     const treeImg = SPRITES.tree(treeV);
-    g.drawImage(treeImg, 6, PLAY.y - 94, 60, 72);
+    g.drawImage(treeImg, 6, R.y - 94, 60, 72);
     g.drawImage(treeImg, W - 68, PLAY.y + PLAY.h + 40, 60, 72);
 
     // flowers beside the path entrance
-    g.drawImage(SPRITES.flower(id), W / 2 - 52, PLAY.y - 40, 16, 20);
-    g.drawImage(SPRITES.flower((id + 1) % 3), W / 2 + 38, PLAY.y - 38, 16, 20);
+    g.drawImage(SPRITES.flower(id), W / 2 - 52, R.y - 40, 16, 20);
+    g.drawImage(SPRITES.flower((id + 1) % 3), W / 2 + 38, R.y - 38, 16, 20);
 
     // tidy row of decorations on the grass below the front fence
-    const botY = PLAY.y + PLAY.h + 32;
+    const botY = R.y + R.h + 32;
     g.drawImage(SPRITES.bush(id === 0 ? 2 : 1), 28, botY, 36, 24);
     // (kept left of x~250: the relocated tree stands on the bottom-right grass)
     g.drawImage(SPRITES.bush(1), 206, botY + 4, 36, 24);
@@ -1989,20 +2063,32 @@ const ENVIRONMENT = (() => {
     g.drawImage(SPRITES.flower((id + 2) % 3), 78, botY + 10, 16, 20);
     g.drawImage(SPRITES.flower(id), W - 88, botY + 12, 16, 20);
 
-    drawFence(g, id);
+    if (!built) {
+      // no fence yet: a construction site waiting for the player — a plank
+      // pile and site rubble where the pen will go (the ghosted fence
+      // footprint is drawn live, see FarmScene.drawHouse)
+      drawPlankPile(g, W / 2 - 74, PLAY.y + PLAY.h - 24);
+      g.drawImage(SPRITES.rock(0), W / 2 + 30, PLAY.y + PLAY.h - 34, 28, 20);
+      g.drawImage(SPRITES.rock(1), W / 2 + 54, PLAY.y + PLAY.h - 20, 28, 20);
+      cache[key] = c;
+      return c;
+    }
+
+    const def = Construction.levelDef(id);
+    drawFence(g, R, def ? def.art : 1);
 
     // in-pen props tucked into the top corners, out of the walk area
-    g.drawImage(SPRITES.barrel(), PLAY.x + 6, PLAY.y - 2, 28, 32);
+    g.drawImage(SPRITES.barrel(), R.x + 6, R.y - 2, 28, 32);
     if (id === 2) {
-      g.drawImage(SPRITES.haystack(), PLAY.x + PLAY.w - 48, PLAY.y + 2, 40, 32);
+      g.drawImage(SPRITES.haystack(), R.x + R.w - 48, R.y + 2, 40, 32);
     } else {
-      g.drawImage(SPRITES.bush(id === 0 ? 2 : 1), PLAY.x + PLAY.w - 44, PLAY.y + 4, 36, 24);
+      g.drawImage(SPRITES.bush(id === 0 ? 2 : 1), R.x + R.w - 44, R.y + 4, 36, 24);
     }
     // a few accents pinned to the pen edges so the middle stays open
     const edge = [
-      { x: PLAY.x + 16, y: PLAY.y + PLAY.h - 42 },
-      { x: PLAY.x + PLAY.w - 34, y: PLAY.y + PLAY.h - 52 },
-      { x: PLAY.x + 18, y: PLAY.y + 64 },
+      { x: R.x + 16, y: R.y + R.h - 42 },
+      { x: R.x + R.w - 34, y: R.y + R.h - 52 },
+      { x: R.x + 18, y: R.y + 64 },
     ];
     for (let i = 0; i < edge.length; i++) {
       const img = id === 2 ? SPRITES.rock(i % 2) : SPRITES.flower((id + i) % 3);
@@ -2050,6 +2136,22 @@ const ENVIRONMENT = (() => {
     [{ x: 250, y: 330 }, { x: 230, y: 390 }, { x: 170, y: 440 }, { x: 110, y: 470 }],
   ];
 
+  // Decorative striped flag planted roadside on the Farm 1 → Farm 2 stretch —
+  // anchored to the road segment's middle control points so it tracks any
+  // road re-routing. Offset perpendicular to the upper-right side of the
+  // road, outside every node's tap radius and clear of the windmill blades.
+  // Purely visual.
+  const FLAG = (() => {
+    const a = ROADS[0][1], b = ROADS[0][2];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    // unit perpendicular pointing away from the road's upper-right edge
+    const px = (b.y - a.y) / len, py = -(b.x - a.x) / len;
+    return {
+      x: Math.round((a.x + b.x) / 2 + px * 14),
+      y: Math.round((a.y + b.y) / 2 + py * 14),
+    };
+  })();
+
   function roadPoints(seg, step = 6) {
     // Catmull-rom-ish smooth sampling through control points
     const pts = [];
@@ -2068,8 +2170,22 @@ const ENVIRONMENT = (() => {
     return pts;
   }
 
+  /**
+   * Construction stage of one farm for map rendering: 0 = empty, undeveloped
+   * plot (land not bought, or bought but nothing built on it yet), 1 = house
+   * standing but no fence, 2 = complete. Classic farms are always 2.
+   */
+  function mapStage(farmId) {
+    if (!Construction.required(farmId)) return 2;
+    if (!Construction.houseBuilt(farmId)) return 0;
+    return Construction.fenceBuilt(farmId) ? 2 : 1;
+  }
+
   function worldMap() {
-    if (cache.map) return cache.map;
+    // the map re-bakes (and re-caches) whenever a construction farm's
+    // build stage changes, so plots develop visibly as the player builds
+    const mapKey = 'map-' + CONFIG.FARMS.map(f => mapStage(f.id)).join('');
+    if (cache[mapKey]) return cache[mapKey];
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
     const g = c.getContext('2d');
@@ -2111,9 +2227,11 @@ const ENVIRONMENT = (() => {
       g.stroke();
     }
 
-    // farm plots: fenced circles with per-farm ground
+    // farm plots: fenced circles with per-farm ground (an unpurchased
+    // construction plot stays an open, unfenced patch of ground)
     for (let i = 0; i < 3; i++) {
       const n = MAP_NODES[i], pal = GROUNDS[i];
+      const stage = mapStage(i);
       g.fillStyle = PIXEL.OUTLINE;
       g.beginPath(); g.ellipse(n.x, n.y, 47, 35, 0, 0, 7); g.fill();
       g.fillStyle = pal.base;
@@ -2122,6 +2240,7 @@ const ENVIRONMENT = (() => {
       for (let k = 0; k < 14; k++) {
         g.fillRect(n.x - 40 + rnd() * 78, n.y - 26 + rnd() * 52, 3, 2);
       }
+      if (stage < 2) continue; // no fence built yet: no fence ring on the plot
       // fence ring: posts around ellipse
       for (let a = 0; a < 14; a++) {
         const t = a / 14 * Math.PI * 2;
@@ -2132,20 +2251,16 @@ const ENVIRONMENT = (() => {
       }
     }
 
-    // ---- themed farm plots ----
-    // Farm 0: CHICKEN — wooden coop, nest with eggs, hay bale, feed specks
+    // ---- ground details on the plots (kept procedural; part of the
+    // terrain layers in the Figma "World Map — Props" scene) ----
     {
       const n = MAP_NODES[0];
-      g.drawImage(SPRITES.haystack(), n.x - 46, n.y - 8, 40, 32);
-      g.drawImage(SPRITES.coop(), n.x - 32, n.y - 54, 64, 56);
-      g.drawImage(SPRITES.nest(), n.x + 14, n.y - 2, 32, 20);
       // scattered feed
       g.fillStyle = '#e0b656';
       for (let k = 0; k < 10; k++) {
         g.fillRect(n.x - 24 + rnd() * 48 | 0, n.y + 8 + rnd() * 18 | 0, 2, 2);
       }
     }
-    // Farm 1: SHEEP — cozy cottage, windmill tower, wool bales, pasture flowers
     {
       const n = MAP_NODES[1];
       // pasture tufts (lighter green)
@@ -2153,14 +2268,7 @@ const ENVIRONMENT = (() => {
       for (let k = 0; k < 12; k++) {
         g.fillRect(n.x - 36 + rnd() * 72 | 0, n.y - 20 + rnd() * 42 | 0, 3, 2);
       }
-      g.drawImage(SPRITES.windmillTower(), THEME[1].windmill.x - 18, THEME[1].windmill.y - 12, 36, 60);
-      g.drawImage(SPRITES.cottage(), n.x - 34, n.y - 56, 68, 64);
-      g.drawImage(SPRITES.woolBale(), n.x + 18, n.y + 12, 28, 22);
-      g.drawImage(SPRITES.woolBale(), n.x - 22, n.y + 18, 22, 18);
-      g.drawImage(SPRITES.flower(0), n.x - 38, n.y + 6, 16, 20);
-      g.drawImage(SPRITES.flower(2), n.x - 42, n.y + 2, 16, 20);
     }
-    // Farm 2: COW — big red barn, silo, milk cans, grazing patches
     {
       const n = MAP_NODES[2];
       // grazing patches on the dirt plot
@@ -2168,35 +2276,55 @@ const ENVIRONMENT = (() => {
       g.beginPath(); g.ellipse(n.x - 26, n.y + 16, 14, 7, 0, 0, 7); g.fill();
       g.beginPath(); g.ellipse(n.x + 30, n.y + 8, 11, 6, 0, 0, 7); g.fill();
       g.globalAlpha = 1;
-      g.drawImage(SPRITES.silo(), n.x + 30, n.y - 62, 32, 68);
-      g.drawImage(SPRITES.barn(), n.x - 36, n.y - 58, 72, 64);
-      g.drawImage(SPRITES.milkCan(), n.x - 48, n.y + 10, 20, 24);
-      g.drawImage(SPRITES.milkCan(), n.x - 34, n.y + 16, 16, 20);
     }
 
-    // trees scattered
-    for (let i = 0; i < 9; i++) {
-      const img = SPRITES.tree(rnd() < 0.5 ? 0 : 1);
-      let x, y, tries = 0;
-      do {
-        x = 8 + rnd() * (W - 90); y = 8 + rnd() * (H - 140);
-        tries++;
-      } while (tries < 20 && MAP_NODES.some(n => U.dist(x + 30, y + 36, n.x, n.y) < 90));
-      g.drawImage(img, x | 0, y | 0, 60, 72);
+    // ---- props: fixed layout from the Figma "World Map — Props" scene
+    // (50:3), Figma px / 2, trim offsets unfolded to full-sprite rects.
+    // Layer order here mirrors the design's z-order. ----
+    const SPR = {
+      haystack: () => SPRITES.haystack(), coop: () => SPRITES.coop(), nest: () => SPRITES.nest(),
+      windmillTower: () => SPRITES.windmillTower(), cottage: () => SPRITES.cottage(),
+      woolBale: () => SPRITES.woolBale(), flower0: () => SPRITES.flower(0), flower2: () => SPRITES.flower(2),
+      silo: () => SPRITES.silo(), barn: () => SPRITES.barn(), milkCan: () => SPRITES.milkCan(),
+      tree0: () => SPRITES.tree(0), tree1: () => SPRITES.tree(1),
+      bush1: () => SPRITES.bush(1), rock0: () => SPRITES.rock(0),
+    };
+    // Props tagged with a farm id + the build stage they appear at grow in
+    // with that farm's construction (Farm 2: the cottage arrives with the
+    // house, the pasture dressing with the fence).
+    const MID_PROPS = [
+      ['haystack', 47.5, 197, 24, 19], ['coop', 45, 121.84, 71, 62.16], ['nest', 85.5, 194, 32, 20],
+      ['windmillTower', 170, 282, 36, 60, 1, 2], ['cottage', 212.3, 248.09, 79.9, 75.26, 1, 1],
+      ['woolBale', 268, 342, 28, 22, 1, 2], ['woolBale', 256, 354.36, 22, 18, 1, 2],
+      ['flower0', 212, 336, 16, 20, 1, 2], ['flower2', 208, 332, 16, 20, 1, 2],
+      ['silo', 37, 397, 32, 68], ['barn', 67.15, 379.22, 88.2, 78.22],
+      ['milkCan', 62, 480, 20, 24], ['milkCan', 76, 486, 16, 20],
+    ];
+    const FG_PROPS = [
+      ['tree1', 206, 79.5, 60, 72], ['tree0', 258, 409, 60, 72], ['tree1', 244, 490, 60, 72],
+      ['tree1', 16, 511, 60, 72], ['tree0', 168, 490, 60, 72], ['tree1', 84.5, 297, 60, 72],
+      ['tree1', 124, 67, 60, 72], ['tree0', 167.5, 125, 60, 72], ['tree0', 72, 1, 60, 72],
+      ['tree0', 3, 250, 60, 72], ['tree0', 202, 200, 60, 72], ['tree0', 209, 561, 60, 72],
+      ['tree0', 75.5, 556, 60, 72],
+      ['bush1', 104, 252, 36, 24], ['bush1', 14, 354, 36, 24], ['bush1', 128, 147, 36, 24],
+      ['bush1', 197.5, 43, 36, 24],
+      ['rock0', 12, 151, 28, 20], ['rock0', 121, 502, 28, 20], ['bush1', 42, 65, 36, 24],
+      ['rock0', 48, 314, 28, 20], ['rock0', 271.5, 554, 28, 20],
+    ];
+    for (const [kind, x, y, w, h, farmId, needStage] of MID_PROPS) {
+      if (farmId !== undefined && mapStage(farmId) < needStage) continue;
+      g.drawImage(SPR[kind](), x, y, w, h);
     }
-    // bushes & rocks
-    for (let i = 0; i < 6; i++) {
-      const img = rnd() < 0.5 ? SPRITES.bush(1) : SPRITES.rock(0);
-      const x = 10 + rnd() * (W - 100), y = 20 + rnd() * (H - 120);
-      if (MAP_NODES.some(n => U.dist(x, y, n.x, n.y) < 70)) continue;
-      g.drawImage(img, x | 0, y | 0, img.width * 2, img.height * 2);
-    }
+    for (const [kind, x, y, w, h] of FG_PROPS) g.drawImage(SPR[kind](), x, y, w, h);
 
-    cache.map = c;
+    cache[mapKey] = c;
     return c;
   }
 
-  return { farm, worldMap, PLAY, MAP_NODES, THEME, roadPoints, GROUNDS };
+  return {
+    farm, worldMap, mapStage, playRect, rectForLevel, houseRect,
+    PLAY, MAP_NODES, THEME, FLAG, roadPoints, GROUNDS,
+  };
 })();
 </script>
 <script>
@@ -2385,6 +2513,9 @@ const SaveManager = (() => {
       // per-farm background production: last reconcile timestamp (ms epoch),
       // uncollected coin balance, and the carried spawn-timer remainder
       idle: CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 })),
+      // per-farm step-by-step build state (only meaningful for farms with a
+      // CONFIG.CONSTRUCTION entry): land bought, house built, fence tier
+      construction: CONFIG.FARMS.map(() => ({ land: false, house: false, fence: 0 })),
       firstRun: true,
     };
   }
@@ -2416,6 +2547,22 @@ const SaveManager = (() => {
     while (d.tornado.length < CONFIG.FARMS.length) d.tornado.push({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 });
     if (!d.idle) d.idle = CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 }));
     while (d.idle.length < CONFIG.FARMS.length) d.idle.push({ last: 0, pending: 0, carry: 0 });
+    if (!d.construction) d.construction = CONFIG.FARMS.map(() => ({ land: false, house: false, fence: 0 }));
+    while (d.construction.length < CONFIG.FARMS.length) d.construction.push({ land: false, house: false, fence: 0 });
+    // saves from before the construction system: a construction farm that is
+    // already unlocked keeps working as a finished farm (land + house owned,
+    // fence at the top tier so its pen still fits every animal the player has)
+    for (const f of CONFIG.FARMS) {
+      const p = (CONFIG.CONSTRUCTION || {})[f.id];
+      const c = d.construction[f.id];
+      if (!p) continue;
+      if (c.house === undefined) c.house = c.fence >= 1;
+      if (d.unlocked[f.id] && !c.land) {
+        c.land = true;
+        c.house = true;
+        c.fence = p.FENCE_LEVELS.length;
+      }
+    }
     // players from before the tutorial existed (or with animals already) skip it
     if (!d.tutorialDone) d.tutorialDone = CONFIG.FARMS.map(f => (d.animals[f.id] || []).length > 0);
     // players who already bought an upgrade skip the first-upgrade tutorial
@@ -2507,6 +2654,221 @@ const Discovery = (() => {
   }
 
   return { isDiscovered, mark, collection, displayName, flavor };
+})();
+</script>
+<script>
+/**
+ * Construction — step-by-step farm build progression (see CONFIG.CONSTRUCTION).
+ * A construction farm goes: buy the land (map) -> build the house (starts
+ * animal spawning) -> build the fence (animals stop escaping, production
+ * starts) -> fence upgrades (capacity + pen footprint + art tier).
+ *
+ * The farm produces NOTHING — no money, no background/offline accrual — until
+ * land + house + fence all exist; with the house but no fence, animals spawn
+ * and then wander off the plot (see js/animal.js 'escape').
+ * State lives in SaveManager.data.construction[farmId] = { land, house, fence }.
+ * Farms without a CONFIG entry are always "complete" and keep the classic
+ * one-shot unlock behavior.
+ */
+const Construction = (() => {
+  function plan(farmId) { return (CONFIG.CONSTRUCTION || {})[farmId] || null; }
+  function state(farmId) { return SaveManager.data.construction[farmId]; }
+
+  /** Does this farm use the step-by-step build flow at all? */
+  function required(farmId) { return !!plan(farmId); }
+
+  function landOwned(farmId) { return !required(farmId) || !!state(farmId).land; }
+
+  /** The house is what starts animal spawning. Classic farms always have one. */
+  function houseBuilt(farmId) { return !required(farmId) || !!state(farmId).house; }
+
+  /** Current fence tier (0 = not built yet). Non-construction farms: 0. */
+  function fenceLevel(farmId) { return required(farmId) ? state(farmId).fence : 0; }
+
+  function maxFenceLevel(farmId) { return required(farmId) ? plan(farmId).FENCE_LEVELS.length : 0; }
+
+  function fenceBuilt(farmId) { return !required(farmId) || state(farmId).fence >= 1; }
+
+  /** Definition of the current fence tier, or null while unbuilt. */
+  function levelDef(farmId, lv = fenceLevel(farmId)) {
+    const p = plan(farmId);
+    if (!p || lv < 1) return null;
+    return p.FENCE_LEVELS[Math.min(lv, p.FENCE_LEVELS.length) - 1];
+  }
+
+  /** Definition of the next buildable/upgradable tier, or null at max. */
+  function nextDef(farmId) {
+    const p = plan(farmId);
+    if (!p) return null;
+    const lv = fenceLevel(farmId);
+    return lv < p.FENCE_LEVELS.length ? p.FENCE_LEVELS[lv] : null;
+  }
+
+  /** Land + house + fence: the farm is operational. */
+  function isComplete(farmId) {
+    return !required(farmId) ||
+      (!!state(farmId).land && !!state(farmId).house && state(farmId).fence >= 1);
+  }
+
+  /**
+   * Hard animal cap. No house: nothing spawns at all. House but no fence:
+   * the unfenced cap (they escape anyway). Fenced: the tier's capacity.
+   */
+  function capacity(farmId) {
+    if (!required(farmId)) return CONFIG.MAX_ANIMALS;
+    if (!houseBuilt(farmId)) return 0;
+    const def = levelDef(farmId);
+    return def ? def.capacity : plan(farmId).UNFENCED_CAPACITY;
+  }
+
+  /** House standing, no fence yet: spawned animals wander off and are lost. */
+  function escapesActive(farmId) {
+    return required(farmId) && houseBuilt(farmId) && !fenceBuilt(farmId);
+  }
+
+  /** Escape tuning for this farm (only meaningful while escapesActive). */
+  function escapeCfg(farmId) { return plan(farmId); }
+
+  /** Seconds this animal stays on the board before walking off. */
+  function escapeDelay(farmId) {
+    const p = plan(farmId);
+    if (!p) return Infinity;
+    return Math.max(1, p.ESCAPE_TIME + U.rand(-p.ESCAPE_VARIANCE, p.ESCAPE_VARIANCE));
+  }
+
+  /** Map purchase price (falls back to the classic unlock cost). */
+  function landCost(farmId) {
+    return required(farmId) ? plan(farmId).LAND_COST : CONFIG.UNLOCK_COSTS[farmId];
+  }
+
+  function houseCost(farmId) { return required(farmId) ? plan(farmId).HOUSE_COST : 0; }
+
+  /** Called by the unlock flow once the map purchase animation lands. */
+  function grantLand(farmId) {
+    if (!required(farmId)) return;
+    state(farmId).land = true;
+    SaveManager.save();
+  }
+
+  /**
+   * The build step waiting for the player:
+   *   'land'    — plot not bought yet (handled by the map unlock flow)
+   *   'house'   — bare plot, nothing spawns
+   *   'fence'   — animals spawn but escape
+   *   'upgrade' — operational, fence can still grow
+   *   'max'     — fully built
+   */
+  function stage(farmId) {
+    if (!required(farmId)) return 'max';
+    if (!landOwned(farmId)) return 'land';
+    if (!houseBuilt(farmId)) return 'house';
+    if (!fenceBuilt(farmId)) return 'fence';
+    return nextDef(farmId) ? 'upgrade' : 'max';
+  }
+
+  /** Cost of the next build step, or 0 when there is nothing left to buy. */
+  function nextCost(farmId) {
+    const s = stage(farmId);
+    if (s === 'house') return houseCost(farmId);
+    if (s === 'fence' || s === 'upgrade') return nextDef(farmId).cost;
+    return 0;
+  }
+
+  /** Is there a purchase waiting on this farm (drives the map/HUD badges)? */
+  function pending(farmId) {
+    const s = stage(farmId);
+    return s === 'house' || s === 'fence';
+  }
+
+  /**
+   * Stamp the farm's idle clock to NOW so background/offline production
+   * starts from this moment — never retroactively for the time the farm sat
+   * unbuilt (see js/idle.js, which skips incomplete farms entirely).
+   */
+  function startIdleClock(farmId) {
+    const r = SaveManager.data.idle[farmId];
+    r.last = Date.now();
+    r.carry = 0;
+    r.pending = 0;
+  }
+
+  /** Build the farmhouse: from here babies start spawning. */
+  function buyHouse(farmId) {
+    if (!required(farmId) || houseBuilt(farmId)) return { ok: false, reason: 'ALREADY BUILT!' };
+    const c = houseCost(farmId);
+    if (SaveManager.data.coins < c) return { ok: false, reason: 'NOT ENOUGH COINS!' };
+    SaveManager.data.coins -= c;
+    state(farmId).house = true;
+    SaveManager.save();
+    return { ok: true };
+  }
+
+  /**
+   * Build (level 0 -> 1) or upgrade the fence. The build that completes
+   * construction also starts the farm's idle clock.
+   */
+  function buyFence(farmId) {
+    const nxt = nextDef(farmId);
+    if (!nxt) return { ok: false, reason: 'MAX LEVEL!' };
+    if (!houseBuilt(farmId)) return { ok: false, reason: 'BUILD THE HOUSE FIRST!' };
+    if (SaveManager.data.coins < nxt.cost) return { ok: false, reason: 'NOT ENOUGH COINS!' };
+    SaveManager.data.coins -= nxt.cost;
+    state(farmId).fence++;
+    if (state(farmId).fence === 1) startIdleClock(farmId);
+    SaveManager.save();
+    return { ok: true };
+  }
+
+  /** Buy whatever the current stage offers. */
+  function buyNext(farmId) {
+    const s = stage(farmId);
+    if (s === 'house') return buyHouse(farmId);
+    if (s === 'fence' || s === 'upgrade') return buyFence(farmId);
+    return { ok: false, reason: 'MAX LEVEL!' };
+  }
+
+  /**
+   * Everything the build panel needs to render its current state:
+   * where the player is, what the next purchase is, what it costs and what
+   * it unlocks, plus the live fence tier / animal count once fenced.
+   */
+  function info(farmId, animalCount = 0) {
+    const s = stage(farmId);
+    const lv = fenceLevel(farmId);
+    const maxLv = maxFenceLevel(farmId);
+    const nxt = nextDef(farmId);
+    const COPY = {
+      house: { title: 'BUILD THE HOUSE', unlocks: 'ANIMALS START SPAWNING' },
+      fence: { title: 'BUILD THE FENCE', unlocks: 'ANIMALS STOP ESCAPING' },
+      upgrade: { title: 'UPGRADE THE FENCE', unlocks: 'BIGGER PEN, MORE ANIMALS' },
+      max: { title: 'FARM COMPLETE!', unlocks: 'EVERYTHING IS BUILT' },
+    };
+    const copy = COPY[s] || COPY.max;
+    // step 1 land / 2 house / 3 fence / 4.. upgrades
+    const step = s === 'land' ? 1 : s === 'house' ? 2 : 2 + Math.min(lv + 1, maxLv);
+    return {
+      stage: s,
+      step,
+      steps: 2 + maxLv,
+      title: copy.title,
+      unlocks: copy.unlocks,
+      cost: nextCost(farmId),
+      maxed: s === 'max',
+      fenceBuilt: fenceBuilt(farmId),
+      level: lv,
+      maxLevel: maxLv,
+      capacity: capacity(farmId),
+      nextCapacity: nxt ? nxt.capacity : null,
+      animals: animalCount,
+    };
+  }
+
+  return {
+    required, landOwned, houseBuilt, fenceLevel, maxFenceLevel, fenceBuilt,
+    levelDef, nextDef, isComplete, capacity, escapesActive, escapeCfg,
+    escapeDelay, landCost, houseCost, nextCost, stage, pending, grantLand,
+    buyHouse, buyFence, buyNext, info,
+  };
 })();
 </script>
 <script>
@@ -2666,9 +3028,11 @@ const Idle = (() => {
     r.last = now;
     if (live || elapsed <= 0) return;
     const d = SaveManager.data;
-    // locked farms produce nothing; spawning is paused until the farm's
-    // first-merge tutorial is done, exactly like the live scene
-    if (!d.unlocked[farmId] || !d.tutorialDone[farmId]) return;
+    // locked farms produce nothing; a construction farm is excluded entirely
+    // until land + fence exist (its clock is stamped fresh on completion, so
+    // unbuilt time never converts to earnings); spawning is paused until the
+    // farm's first-merge tutorial is done, exactly like the live scene
+    if (!d.unlocked[farmId] || !Construction.isComplete(farmId) || !d.tutorialDone[farmId]) return;
 
     // existing animals poop the whole time
     const animals = d.animals[farmId] || (d.animals[farmId] = []);
@@ -2681,7 +3045,10 @@ const Idle = (() => {
     // the timer remainder carries across ticks so short ticks don't slow it
     const int = Upgrades.spawnInterval(farmId);
     const t = elapsed + (r.carry || 0);
-    const fillCap = Math.floor(CONFIG.MAX_ANIMALS *
+    // the threshold is a percentage of the farm's CURRENT animal cap (the
+    // fence tier's capacity on construction farms), so it rescales with
+    // every fence upgrade instead of being a fixed absolute number
+    const fillCap = Math.floor(Construction.capacity(farmId) *
       (CONFIG.FARMS[farmId].offlinePenFill ?? CONFIG.IDLE.OFFLINE_PEN_FILL));
     const free = Math.max(0, fillCap - animals.length);
     const spawns = Math.min(free, Math.floor(t / int));
@@ -3202,7 +3569,8 @@ const Pigeon = (() => {
    * the right and the farmhouse behind the fence center.
    */
   function perchSpot() {
-    const P = ENVIRONMENT.PLAY, cx = CONFIG.VIEW_W / 2;
+    // the current fence footprint — the pigeon perches on the real rail
+    const P = ENVIRONMENT.playRect(SaveManager.data.currentFarm), cx = CONFIG.VIEW_W / 2;
     const x = Math.random() < 0.5
       ? U.rand(P.x + 30, cx - 64)
       : U.rand(cx + 64, P.x + P.w - 90);
@@ -3326,7 +3694,7 @@ const Pigeon = (() => {
       const count = C().POOP_COUNT;
       const gap = C().RAIN_DURATION / count;
       while (rain.spawned < count && rain.t >= rain.spawned * gap) {
-        const P = ENVIRONMENT.PLAY;
+        const P = ENVIRONMENT.playRect(SaveManager.data.currentFarm);
         poops.push({
           x: U.rand(P.x + 14, P.x + P.w - 14),
           groundY: U.rand(P.y + 20, P.y + P.h - 8),
@@ -3945,7 +4313,8 @@ const Tornado = (() => {
 <script>
 /**
  * AnimalController — one instance per animal on the farm.
- * State machine: idle / walk / peck(graze) / drag / merging / spawning.
+ * State machine: idle / walk / peck(graze) / drag / merging / spawning /
+ * escape (unfenced construction farms only, see startEscape).
  * Handles blinking, breathing squash, walk bounce, poop production.
  */
 class Animal {
@@ -3971,6 +4340,12 @@ class Animal {
     this.dragging = false;
     this.dead = false;
     this.scaleX = 1; this.scaleY = 1;
+    this.alpha = 1;
+    // escape (house built, no fence): own countdown per animal so they
+    // leave staggered — set by FarmScene, see Construction.escapeDelay()
+    this.escapeT = Infinity;
+    this.escaping = false;
+    this.escapeCfg = null;
     this.shadowW = SPRITES.ANIMAL_SIZES[species][stage][0] * CONFIG.ANIMAL_VISUAL_SCALE * 0.6;
     return this;
   }
@@ -3981,7 +4356,8 @@ class Animal {
       const t = this.stateT / this.stateDur;
       return (t % 0.5) > 0.22 ? 'peck' : 'idle';
     }
-    if (this.state === 'walk' && !this.dragging) return (this.bob % (Math.PI * 2)) < Math.PI ? 'walk' : 'idle';
+    const walking = this.state === 'walk' || (this.state === 'escape' && this.escPhase === 'go');
+    if (walking && !this.dragging) return (this.bob % (Math.PI * 2)) < Math.PI ? 'walk' : 'idle';
     return 'idle';
   }
 
@@ -3991,7 +4367,34 @@ class Animal {
     this.stateDur = dur;
   }
 
+  /**
+   * Start wandering off the plot: the animal idles a beat, then drifts
+   * toward the nearest open edge with the normal walk animation and fades
+   * out past the boundary. Called by FarmScene once this animal's own
+   * escape timer runs out (house built, no fence). A successful match
+   * cancels it simply by removing the animal from the board.
+   */
+  startEscape(bounds, cfg) {
+    if (this.escaping) return;
+    this.escaping = true;
+    this.escapeCfg = cfg;
+    // nearest open edge — left, right or bottom (the house sits at the top)
+    const dl = this.x - bounds.x;
+    const dr = bounds.x + bounds.w - this.x;
+    const db = bounds.y + bounds.h - this.y;
+    const m = Math.min(dl, dr, db);
+    if (m === dl)      { this.exitX = bounds.x - 60; this.exitY = this.y + U.rand(-20, 30); }
+    else if (m === dr) { this.exitX = bounds.x + bounds.w + 60; this.exitY = this.y + U.rand(-20, 30); }
+    else               { this.exitX = this.x + U.rand(-40, 40); this.exitY = bounds.y + bounds.h + 70; }
+    this.escPhase = 'pause';
+    this.legT = 0;
+    this.wobble = 0;
+    this.setState('escape', U.rand(cfg.ESCAPE_PAUSE_MIN, cfg.ESCAPE_PAUSE_MAX));
+  }
+
   chooseNext(bounds) {
+    // an animal already on its way out never returns to normal wandering
+    if (this.escaping) { this.escPhase = 'go'; this.setState('escape', 1e9); return; }
     if (Math.random() < CONFIG.PECK_CHANCE) {
       this.setState('peck', U.rand(1.0, 2.0));
     } else if (Math.random() < 0.55) {
@@ -4061,6 +4464,32 @@ class Animal {
         if (this.stateT >= this.stateDur) this.chooseNext(bounds);
         break;
       }
+      case 'escape': {
+        const cfg = this.escapeCfg;
+        if (this.escPhase === 'pause') {
+          if (this.stateT >= this.stateDur) { this.escPhase = 'go'; this.setState('escape', 1e9); }
+          break;
+        }
+        // drift toward the exit, re-aiming every leg with a random angle
+        // offset so the walk reads as wandering, not a scripted straight line
+        this.legT -= dt;
+        if (this.legT <= 0) {
+          this.legT = U.rand(0.5, 1.2);
+          this.wobble = U.rand(-0.55, 0.55);
+        }
+        const ang = Math.atan2(this.exitY - this.y, this.exitX - this.x) + this.wobble;
+        this.x += Math.cos(ang) * cfg.ESCAPE_SPEED * dt;
+        this.y += Math.sin(ang) * cfg.ESCAPE_SPEED * 0.7 * dt;
+        this.facing = Math.cos(ang) > 0 ? 1 : -1;
+        // fade out once past the plot boundary, then leave the board for good
+        const out = this.x < bounds.x - 10 || this.x > bounds.x + bounds.w + 10 ||
+                    this.y > bounds.y + bounds.h + 12;
+        if (out) {
+          this.alpha -= dt / cfg.ESCAPE_FADE;
+          if (this.alpha <= 0) { this.alpha = 0; this.dead = true; this.escaped = true; }
+        }
+        break;
+      }
       case 'peck':
       case 'idle': {
         if (this.stateT >= this.stateDur) this.chooseNext(bounds);
@@ -4072,12 +4501,13 @@ class Animal {
     if (this.state === 'idle' || this.state === 'peck') {
       this.scaleY = 1 + Math.sin(this.bob) * 0.02;
       this.scaleX = 1 - Math.sin(this.bob) * 0.015;
-    } else if (this.state === 'walk') {
+    } else if (this.state === 'walk' || (this.state === 'escape' && this.escPhase === 'go')) {
       this.scaleY = 1 + Math.abs(Math.sin(this.bob)) * 0.05;
     }
 
-    // poop production (not while spawning/merging)
-    if (this.state !== 'spawning' && this.state !== 'merging') {
+    // poop production (not while spawning/merging, and never once an animal
+    // has started walking off the farm — an escapee produces nothing)
+    if (this.state !== 'spawning' && this.state !== 'merging' && !this.escaping) {
       this.poopT -= dt;
       if (this.poopT <= 0) {
         this.poopT = Upgrades.poopInterval(farm.farmId, this.stage) + U.rand(0, CONFIG.POOP_INTERVAL_JITTER);
@@ -4088,7 +4518,8 @@ class Animal {
 
   /** Visual bounce offset while walking. */
   get hopY() {
-    return this.state === 'walk' && !this.dragging ? -Math.abs(Math.sin(this.bob)) * 3 : 0;
+    const walking = this.state === 'walk' || (this.state === 'escape' && this.escPhase === 'go');
+    return walking && !this.dragging ? -Math.abs(Math.sin(this.bob)) * 3 : 0;
   }
 
   get img() {
@@ -4105,13 +4536,31 @@ class Animal {
     const sc = CONFIG.ANIMAL_VISUAL_SCALE;
     const lift = this.dragging ? -10 : 0;
     // soft shadow
-    ctx.globalAlpha = this.dragging ? 0.18 : 0.28;
+    ctx.globalAlpha = (this.dragging ? 0.18 : 0.28) * this.alpha;
     ctx.fillStyle = '#1c2b12';
     ctx.beginPath();
     ctx.ellipse(this.x, this.y + 2, this.shadowW / 2 * this.scaleX, 4, 0, 0, 7);
     ctx.fill();
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = this.alpha;
     PIXEL.blit(ctx, img, this.x, this.y + this.hopY + lift, sc, this.facing < 0, this.scaleY, this.scaleX);
+    ctx.globalAlpha = 1;
+    // fleeing cue: a bobbing "!" so the stage reads as "you need a fence"
+    if (this.escaping && this.alpha > 0.15) this.drawFleeCue(ctx);
+  }
+
+  /** Small alarm bubble over an animal that has started walking off. */
+  drawFleeCue(ctx) {
+    const t = performance.now() / 1000;
+    const y = this.y - this.radius * 1.7 - 16 + Math.sin(t * 6) * 2;
+    ctx.globalAlpha = this.alpha;
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(this.x - 6, y - 8, 12, 16);
+    ctx.fillStyle = '#c0453a';
+    ctx.fillRect(this.x - 4, y - 6, 8, 12);
+    ctx.fillStyle = '#fff6e8';
+    ctx.fillRect(this.x - 1, y - 4, 2, 6);
+    ctx.fillRect(this.x - 1, y + 3, 2, 2);
+    ctx.globalAlpha = 1;
   }
 }
 </script>
@@ -4132,27 +4581,69 @@ class FarmScene {
     this.dragOffX = 0; this.dragOffY = 0;
     this.mergeTarget = null;
     this.bg = ENVIRONMENT.farm(farmId);
-    this.bounds = {
-      x: ENVIRONMENT.PLAY.x + 18,
-      y: ENVIRONMENT.PLAY.y + 26,
-      w: ENVIRONMENT.PLAY.w - 36,
-      h: ENVIRONMENT.PLAY.h - 46,
-    };
+    this.ghosts = [];      // in-scene hit rects (the farmhouse), see drawHouse()
+    this.setBounds();
     this.tutorial = null;
-    if (!SaveManager.data.tutorialDone[farmId]) {
+    if (Construction.capacity(farmId) <= 0) {
+      // nothing has been built here yet: no animals, no tutorial — the scene
+      // is just the plot plus its build call-to-action
+    } else if (!SaveManager.data.tutorialDone[farmId]) {
       // first visit: exactly two babies pre-placed, spawning paused until they merge
       this.startTutorial();
     } else {
       // restore saved animals (incl. offline-spawned ones) on free spots
       const saved = SaveManager.data.animals[farmId] || [];
-      for (const a of saved) {
+      const cap = Construction.capacity(farmId);
+      for (const a of saved.slice(0, cap)) {
         const p = this.freeSpot();
         const an = new Animal(this.def.species, a.stage, p.x, p.y);
         an.setState('idle', U.rand(0.5, 2));
         an.scaleX = an.scaleY = 1;
+        this.armEscape(an);
         this.animals.push(an);
       }
     }
+  }
+
+  /** Walk/spawn area: the current fence footprint (or the whole plot). */
+  setBounds() {
+    const R = ENVIRONMENT.playRect(this.farmId);
+    this.bounds = { x: R.x + 18, y: R.y + 26, w: R.w - 36, h: R.h - 46 };
+  }
+
+  /**
+   * A build step completed: re-bake the background, recalculate the playable
+   * area for the new fence footprint (so added capacity is physically
+   * usable), pull existing animals back inside it and start the first-merge
+   * tutorial if the house has only just made spawning possible.
+   */
+  refresh() {
+    this.bg = ENVIRONMENT.farm(this.farmId);
+    this.setBounds();
+    const b = this.bounds;
+    for (const a of this.animals) {
+      a.x = U.clamp(a.x, b.x, b.x + b.w);
+      a.y = U.clamp(a.y, b.y, b.y + b.h);
+      a.homeX = a.x; a.homeY = a.y;
+      if (!Construction.escapesActive(this.farmId)) {
+        // the fence is up: escape logic is off for good
+        a.escaping = false;
+        a.escapeT = Infinity;
+        a.alpha = 1;
+        if (a.state === 'escape') a.setState('idle', U.rand(0.5, 2));
+      }
+    }
+    if (!this.tutorial && Construction.capacity(this.farmId) > 0 &&
+        !SaveManager.data.tutorialDone[this.farmId]) {
+      this.startTutorial();
+    }
+    this.spawnT = Math.min(this.spawnT, Upgrades.spawnInterval(this.farmId));
+  }
+
+  /** Give one animal its own escape countdown (no fence = animals wander off). */
+  armEscape(animal) {
+    animal.escapeT = Construction.escapesActive(this.farmId)
+      ? Construction.escapeDelay(this.farmId) : Infinity;
   }
 
   /** TutorialManager: seed the guaranteed first merge and show the drag hint. */
@@ -4189,9 +4680,11 @@ class FarmScene {
 
   /** SpawnManager: place a new animal at a free spot. */
   spawnAnimal(stage = 0, sfx = true) {
-    if (this.animals.length >= CONFIG.MAX_ANIMALS) return null;
+    // hard cap: the fence tier's capacity on construction farms
+    if (this.animals.length >= Construction.capacity(this.farmId)) return null;
     const p = this.freeSpot();
     const a = new Animal(this.def.species, stage, p.x, p.y);
+    this.armEscape(a);
     this.animals.push(a);
     Discovery.mark(this.def.species, stage); // babies count for the collection, no celebration
     VFXManager.dust(p.x, p.y, 6);
@@ -4236,6 +4729,14 @@ class FarmScene {
 
   // ---------------- MergeManager: input ----------------
   pointerDown(x, y) {
+    // the farmhouse is the entry point for the build/upgrade menu
+    for (const gh of this.ghosts) {
+      if (x >= gh.x && x <= gh.x + gh.w && y >= gh.y && y <= gh.y + gh.h) {
+        AudioManager.play('click');
+        Game.openBuild(this.farmId);
+        return true;
+      }
+    }
     // topmost animal under pointer
     for (let i = this.animals.length - 1; i >= 0; i--) {
       const a = this.animals[i];
@@ -4311,6 +4812,9 @@ class FarmScene {
     const evolved = new Animal(species, newStage, mx, my);
     evolved.setState('idle', U.rand(1, 2));
     evolved.scaleX = evolved.scaleY = 1;
+    // a successful match cancels both escapes; the evolved animal starts a
+    // fresh countdown of its own
+    this.armEscape(evolved);
     this.animals.push(evolved);
     const cols = ['#ffe98a', '#f4c437', '#fff6d0', '#ffffff'];
     VFXManager.burst(mx, my - 14, cols, 18, 110);
@@ -4338,7 +4842,12 @@ class FarmScene {
   }
 
   update(dt) {
-    // SpawnManager tick (paused until the tutorial merge is done)
+    // SpawnManager tick (paused until the tutorial merge is done, and
+    // silent while nothing has been built that could hold animals)
+    if (Construction.capacity(this.farmId) <= 0) {
+      this.updatePoops(dt);
+      return;
+    }
     if (!this.tutorial) {
       this.spawnT -= dt;
       if (this.spawnT <= 0) {
@@ -4349,18 +4858,44 @@ class FarmScene {
       this.tutorial.t += dt;
     }
 
+    // no fence: every animal counts down its own escape timer and then
+    // wanders off the plot (staggered, never all at once)
+    const escapes = Construction.escapesActive(this.farmId) && !this.tutorial;
+    const cfg = Construction.escapeCfg(this.farmId);
+
+    let lost = false;
     for (let i = this.animals.length - 1; i >= 0; i--) {
       const a = this.animals[i];
+      if (escapes && !a.escaping && !a.dragging && a.state !== 'merging') {
+        a.escapeT -= dt;
+        if (a.escapeT <= 0) a.startEscape(this.bounds, cfg);
+      }
       a.update(dt, this.bounds, this);
       // keep the tutorial pair in place so the merge stays obvious
       if (this.tutorial && a.state === 'walk') a.setState('idle', 1e9);
-      if (a.dead) this.animals.splice(i, 1);
+      if (a.dead) {
+        if (a.escaped) lost = true;
+        this.animals.splice(i, 1);
+      }
+    }
+    // an animal that walked off is gone for good — keep the save in step
+    if (lost) {
+      if (this.dragged && this.dragged.dead) { this.dragged = null; this.mergeTarget = null; }
+      this.persist();
     }
     this.updatePoops(dt);
   }
 
+  /**
+   * Render order (back to front): background, the farmhouse layer (ghost
+   * placeholder + call-to-action indicator), poops, animals, UFO/pigeon/
+   * tornado, then the tutorial overlay. Tutorial content always draws last,
+   * so nothing in the scene can cover it — and the house indicator is
+   * suppressed entirely while the tutorial runs.
+   */
   draw(ctx) {
     ctx.drawImage(this.bg, 0, 0);
+    this.drawHouse(ctx);
 
     // poops (under animals)
     for (const p of this.poops) {
@@ -4407,6 +4942,82 @@ class FarmScene {
     if (this.tutorial) this.drawTutorial(ctx);
   }
 
+  // ---------------- construction: in-scene call to action ----------------
+  /**
+   * The farmhouse is the farm's single entry point: tapping it opens the
+   * build/upgrade menu (Game.openBuild). There are no loose in-scene build
+   * buttons — this draws the house layer only:
+   *   - the ghosted placeholder while the house itself is unbuilt (the built
+   *     house is baked into the background, see ENVIRONMENT.farm)
+   *   - the ghosted fence footprint, so "you need a fence" still reads in
+   *     the scene (a hint, not a button — it is not tappable)
+   *   - the call-to-action indicator when a purchase is actually affordable
+   * Registers the house's hit rect on this.ghosts.
+   */
+  drawHouse(ctx) {
+    this.ghosts = [];
+    if (!Construction.required(this.farmId)) return;
+    const stage = Construction.stage(this.farmId);
+    const hr = ENVIRONMENT.houseRect(this.farmId);
+    const pulse = 0.55 + Math.sin(performance.now() / 380) * 0.2;
+
+    if (stage === 'house') {
+      // not built yet: a plain translucent ghost right where it will stand —
+      // no outline or highlight around it, the badge is the only indicator
+      ctx.globalAlpha = 0.45;
+      ctx.drawImage(hr.img, hr.x, hr.y, hr.w, hr.h);
+      ctx.globalAlpha = 1;
+    } else if (stage === 'fence') {
+      // outline the footprint the first fence tier will enclose
+      const R = ENVIRONMENT.rectForLevel(this.farmId, 1);
+      const gx = R.x - 12, gy = R.y - 20, gw = R.w + 24, gh = R.h + 14;
+      this.dashedRect(ctx, gx, gy, gw, gh, pulse);
+      // ghost posts at the corners so it reads as a fence, not a UI box
+      ctx.globalAlpha = pulse * 0.55;
+      for (const [px, py] of [[gx, gy], [gx + gw - 8, gy], [gx, gy + gh - 16], [gx + gw - 8, gy + gh - 16]]) {
+        ctx.fillStyle = SPRITES.P.wood; ctx.fillRect(px, py, 8, 16);
+        ctx.fillStyle = SPRITES.P.woodHi; ctx.fillRect(px, py, 2, 16);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    this.ghosts.push({ id: 'house', x: hr.x - 8, y: hr.y - 8, w: hr.w + 16, h: hr.h + 16 });
+    this.drawHouseCTA(ctx, hr);
+  }
+
+  /** Is there a purchase the player can actually afford right now? */
+  buildActionReady() {
+    if (!Construction.required(this.farmId)) return false;
+    const inf = Construction.info(this.farmId);
+    return !inf.maxed && SaveManager.data.coins >= inf.cost;
+  }
+
+  /**
+   * Call-to-action on the house: the game's standard red "!" notification
+   * badge (UI.drawBadge — the same component the UPGRADE button uses), and
+   * nothing else. Pinned to the house sprite's top-right corner so it holds
+   * at any resolution, clamped into UI.safeArea() to stay clear of the HUD.
+   * Shown only when a real purchase is affordable, and suppressed while the
+   * first-merge tutorial is running.
+   */
+  drawHouseCTA(ctx, hr) {
+    if (this.tutorial || !this.buildActionReady()) return;
+    const safe = UI.safeArea();
+    const bx = U.clamp(hr.x + hr.w - 2, safe.x + 10, safe.x + safe.w - 10);
+    const by = U.clamp(hr.y + 2, safe.y + 10, safe.y + safe.h - 10);
+    UI.drawBadge(ctx, bx, by);
+  }
+
+  dashedRect(ctx, x, y, w, h, pulse) {
+    ctx.save();
+    ctx.globalAlpha = 0.45 + pulse * 0.4;
+    ctx.strokeStyle = '#fff6e8';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 5]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+
   /** Drag hint: dashed guide + hand sweeping from one baby onto the other. */
   drawTutorial(ctx) {
     const { a, b, t } = this.tutorial;
@@ -4439,7 +5050,7 @@ class FarmScene {
     ctx.save();
     ctx.globalAlpha = 0.85 + Math.sin(t * 4) * 0.15;
     const lx = (a.x + b.x) / 2, ly = Math.min(a.y, b.y) - 48;
-    UI.drawText(ctx, 'DRAG TO MERGE!', lx, ly, UI.SIZE.BUTTON, '#fff6e8', 'center', true);
+    UI.drawText(ctx, 'DRAG TO MERGE!', lx, ly, 8.5, '#fff6e8', 'center');
     ctx.restore();
   }
 }
@@ -4502,7 +5113,8 @@ class MapScene {
       this.smokeT = 0.9 + Math.random() * 0.5;
       for (let i = 0; i < 3; i++) {
         const ch = ENVIRONMENT.THEME[i].chimney;
-        if (ch && SaveManager.data.unlocked[i]) {
+        // no house on the plot yet: no chimney, no smoke
+        if (ch && SaveManager.data.unlocked[i] && Construction.houseBuilt(i)) {
           this.smoke.push({ x: ch.x, y: ch.y, age: 0, life: 2.2 + Math.random(), drift: 4 + Math.random() * 6 });
         }
       }
@@ -4548,9 +5160,48 @@ class MapScene {
     }
   }
 
+  /**
+   * Decorative striped flag (blue/black/white) on a wooden pole planted
+   * roadside between Farm 1 and Farm 2. Purely cosmetic: not tappable, no
+   * gameplay effect. The cloth flies left of the pole (over open grass,
+   * above the road) and waves in vertical slices with a slow, low-amplitude
+   * ripple; the slice at the pole stays fixed.
+   */
+  drawFlag(ctx) {
+    // anchor + scale from the Figma "World Map — Props" scene (flag_gremio,
+    // top-left 316,367 at 53x87 Figma px): art's local top-left is
+    // (f.x-18, f.y-34), so the transform maps that corner to the design spot
+    ctx.save();
+    ctx.translate(158, 183.5);
+    ctx.scale(53 / 44, 87 / 72);
+    const f = { x: 18, y: 34 };
+    // pole with tiny knob
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(f.x - 1, f.y - 33, 4, 34);
+    ctx.fillStyle = SPRITES.P.wood;
+    ctx.fillRect(f.x, f.y - 32, 2, 32);
+    ctx.fillStyle = SPRITES.P.woodHi;
+    ctx.fillRect(f.x, f.y - 32, 1, 32);
+    ctx.fillRect(f.x - 1, f.y - 34, 4, 2);
+    // cloth: three horizontal stripes in 3px vertical slices, rippling
+    // toward the free end (leftmost slices)
+    const stripes = ['#2a6db4', '#23232b', '#e9e9e4'];
+    for (let sx = 0; sx < 18; sx += 3) {
+      const wave = sx === 0 ? 0 : Math.round(Math.sin(this.time * 1.4 + sx * 0.5));
+      for (let s = 0; s < 3; s++) {
+        ctx.fillStyle = stripes[s];
+        ctx.fillRect(f.x - 3 - sx, f.y - 31 + s * 4 + wave, 3, 4);
+      }
+    }
+    ctx.restore();
+  }
+
   draw(ctx) {
+    // the background re-bakes itself whenever a plot's build stage changes
+    this.bg = ENVIRONMENT.worldMap();
     ctx.drawImage(this.bg, 0, 0);
     const save = SaveManager.data;
+    this.drawFlag(ctx);
     const a = this.unlockAnim;
 
     // glowing unlock path
@@ -4580,6 +5231,9 @@ class MapScene {
       const theme = ENVIRONMENT.THEME[i];
       const unlocked = save.unlocked[i];
       const hideLock = a && a.farmId === i && (a.phase === 'burst');
+      // 'owned-unbuilt': bought, but a build step is still waiting there
+      const unbuilt = unlocked && !Construction.isComplete(i);
+      const stage = ENVIRONMENT.mapStage(i);
 
       // waving grass tufts (static when locked)
       for (let t = 0; t < theme.grass.length; t++) {
@@ -4592,8 +5246,9 @@ class MapScene {
         ctx.fillRect(gp.x + 9 + sway, gp.y - 7, 2, 3); ctx.fillRect(gp.x + 9, gp.y - 4, 2, 4);
       }
 
-      // spinning windmill blades (frozen when locked)
-      if (theme.windmill) {
+      // spinning windmill blades (frozen when locked, absent until the plot
+      // is finished — the tower itself only appears with the fence)
+      if (theme.windmill && stage >= 2) {
         const frame = unlocked ? Math.floor(this.time * 7) % 4 : 0;
         const bl = SPRITES.windmillBlades(frame);
         ctx.drawImage(bl, theme.windmill.x - 28, theme.windmill.y - 28, 56, 56);
@@ -4604,7 +5259,10 @@ class MapScene {
       const species = CONFIG.FARMS[i].species;
       const frame = unlocked && Math.sin(this.time * 1.6 + i * 2.1) > 0.55 ? 'peck' : 'idle';
       const blink = unlocked && Math.sin(this.time * 3 + i) > 0.96;
-      PIXEL.blit(ctx, SPRITES.animal(species, 1, frame, blink), theme.animal.x, theme.animal.y, 2, i === 1);
+      // an undeveloped plot has no animals on it at all
+      if (stage >= 1) {
+        PIXEL.blit(ctx, SPRITES.animal(species, 1, frame, blink), theme.animal.x, theme.animal.y, 2, i === 1);
+      }
 
       if (unlocked) {
         const pin = SPRITES.mapPin();
@@ -4623,9 +5281,15 @@ class MapScene {
         PIXEL.blit(ctx, SPRITES.lock(), n.x, n.y + 16, 2);
       }
 
-      // wooden sign with farm name
+      // construction-pending indicator: a bought plot with a build step
+      // still waiting on it gets the standard red "!" badge over its pin
+      if (unbuilt) UI.drawBadge(ctx, n.x + 20, n.y - 16);
+
+      // wooden sign with farm name (price while locked, build call while
+      // the plot is owned but unfinished)
       UI.woodSign(ctx, n.x, n.y + 40, CONFIG.FARMS[i].name, CONFIG.FARMS[i].label,
-        unlocked ? null : U.fmtCost(CONFIG.UNLOCK_COSTS[i]));
+        unlocked ? null : U.fmtCost(Construction.landCost(i)),
+        unbuilt ? 'UNDER CONSTRUCTION' : null);
     }
 
     // chimney smoke puffs (spawned only for unlocked farms)
@@ -4673,11 +5337,35 @@ const UI = (() => {
     return PixelFont.draw(ctx, text, x, y, size, col, align, outline, shadow, maxWidth);
   }
 
-  /** Popup title: auto-fitted to the bar width and vertically centered. */
-  function popupTitle(ctx, text, px, py, pw) {
+  /**
+   * Popup title bar + centered title, geometry from Figma E04 (19:72/19:78):
+   * outline at (px+8, py-15) w pw-16 h 33, dark wood face, 3.5px bevels,
+   * seam at py+0.5; title 13px #ffe98a with em-top at py-5.
+   */
+  function popupTitle(ctx, text, px, py, pw, opts = {}) {
+    const p = P();
+    // E04's bar (19:72) is 33 tall with 3.5px bevels; the others (20:70 etc.)
+    // use the 30-tall bar with 3px bevels
+    const tall = !!opts.tall;
+    const bt = tall ? py - 15 : py - 12;      // outline top
+    const bh = tall ? 33 : 30;
+    const ft = bt + 2, fh = bh - 4;           // face
+    const bev = tall ? 3.5 : 3;
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(px + 8, bt, pw - 16, bh);
+    ctx.fillStyle = p.woodDk;
+    ctx.fillRect(px + 10, ft, pw - 20, fh);
+    ctx.fillStyle = p.wood;
+    ctx.fillRect(px + 10, ft, pw - 20, bev);
+    ctx.fillStyle = p.woodDkr;
+    ctx.fillRect(px + 10, ft + fh - bev, pw - 20, bev);
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillRect(px + 10, ft + fh / 2 - 1, pw - 20, 1);
     const maxW = pw - 76;
-    const ts = PixelFont.fit(text, SIZE.SUBTITLE, maxW);
-    drawText(ctx, text, px + pw / 2, py - 10 + Math.round((26 - ts) / 2), ts, '#ffe98a', 'center', true, false, maxW);
+    const base = opts.size || 13;
+    const ts = PixelFont.fit(text, base, maxW);
+    const top = opts.top !== undefined ? opts.top : (tall ? py - 5 : py - 3);
+    drawText(ctx, text, px + pw / 2, top + (base - ts) / 2, ts, '#ffe98a', 'center', false, false, maxW);
   }
 
   // ---------------- wooden panels ----------------
@@ -4695,12 +5383,16 @@ const UI = (() => {
     ctx.fillStyle = p.woodDkr;
     ctx.fillRect(x, y + h - 3, w, 3);
     // plank seams
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    for (let py = y + 12; py < y + h - 6; py += 14) ctx.fillRect(x, py, w, 1);
-    // wood grain flecks
-    ctx.fillStyle = 'rgba(0,0,0,0.10)';
-    for (let i = 0; i < w * h / 260; i++) {
-      ctx.fillRect(x + ((i * 53) % (w - 8)) + 4, y + ((i * 37) % (h - 10)) + 5, 4, 1);
+    if (opts.seams !== false) {
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      for (let py = y + 12; py < y + h - 6; py += 14) ctx.fillRect(x, py, w, 1);
+    }
+    // wood grain flecks (Figma panels without them pass flecks: false)
+    if (opts.flecks !== false) {
+      ctx.fillStyle = 'rgba(0,0,0,0.10)';
+      for (let i = 0; i < w * h / 260; i++) {
+        ctx.fillRect(x + ((i * 53) % (w - 8)) + 4, y + ((i * 37) % (h - 10)) + 5, 4, 1);
+      }
     }
     if (opts.gold) {
       // gold corner studs
@@ -4722,8 +5414,76 @@ const UI = (() => {
     ctx.fillRect(x, y, w, 2);
   }
 
+  /**
+   * Figma upgrade-button component (46:67, "Upgrades — States" page):
+   * seven `state` variants sharing one geometry — only fills, opacity,
+   * icons and label change. All values are Figma px / 2, offsets relative
+   * to the outer rect (b.x-2, b.y-2).
+   */
+  const BTN_STATES = {
+    'default':   { face: '#5e9c31', bevel: '#7dbb4a', drop: '#41701f' },
+    'pressed':   { face: '#41701f', bevel: '#5e9c31', drop: '#41701f' },
+    'disabled':  { face: '#8c8678', bevel: '#aaa596', drop: '#635e52', dim: true },
+    'max-level': { face: '#f4c437', bevel: '#ffe98a', drop: '#c88f1e', label: 'MAX', labelCol: '#5c3a1d' },
+    'locked':    { face: '#7d5027', bevel: '#a9743f', drop: '#5c3a1d', labelCol: '#e0cfa8' },
+    'ad-unlock': { face: '#5e9c31', bevel: '#7dbb4a', drop: '#41701f', label: 'WATCH AD', labelCx: 55.5 },
+    'loading':   { face: '#8c8678', bevel: '#aaa596', drop: '#635e52', dim: true, label: 'LOADING', labelCol: '#e0cfa8', labelCx: 54.5 },
+  };
+
+  function drawStateButton(ctx, b) {
+    const st = BTN_STATES[b.state];
+    const ox = b.x - 2, oy = b.y - 2;
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(ox, oy, b.w + 4, b.h + 4);
+    ctx.fillStyle = st.drop;
+    ctx.fillRect(b.x, b.y + b.h - 4, b.w, 4);
+    ctx.fillStyle = st.face;
+    ctx.fillRect(b.x, b.y, b.w, b.h - 2);
+    ctx.fillStyle = st.bevel;
+    ctx.fillRect(b.x, b.y, b.w, 3);
+    ctx.fillRect(b.x, b.y, 3, b.h - 6);
+    if (b.state === 'locked') {
+      // pixel lock (cream/300) + face-colored keyhole
+      ctx.fillStyle = '#e0cfa8';
+      ctx.fillRect(ox + 13.5, oy + 9.5, 2, 4);
+      ctx.fillRect(ox + 19.5, oy + 9.5, 2, 4);
+      ctx.fillRect(ox + 13.5, oy + 7.5, 8, 2);
+      ctx.fillRect(ox + 11.5, oy + 13.5, 12, 9);
+      ctx.fillStyle = st.face;
+      ctx.fillRect(ox + 16.5, oy + 16.5, 2, 3);
+    } else if (b.state === 'ad-unlock') {
+      // play plate + stepped triangle
+      ctx.fillStyle = PIXEL.OUTLINE;
+      ctx.fillRect(ox + 6.5, oy + 11, 12, 10);
+      ctx.fillStyle = '#fff6e8';
+      ctx.fillRect(ox + 10, oy + 13, 2, 6);
+      ctx.fillRect(ox + 12, oy + 14, 2, 4);
+      ctx.fillRect(ox + 14, oy + 15, 2, 2);
+    }
+    if (st.dim) {
+      ctx.fillStyle = 'rgba(40,30,20,0.45)';
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+    }
+    if (b.state === 'loading') {
+      // 4-dot pixel spinner, stepped opacity, rotating with time
+      const step = Math.floor(performance.now() / 150) % 4;
+      const dots = [[13.5, 10.5], [17.5, 14.5], [13.5, 18.5], [9.5, 14.5]];
+      for (let i = 0; i < 4; i++) {
+        ctx.globalAlpha = [1, 0.7, 0.45, 0.2][(i - step + 4) % 4];
+        ctx.fillStyle = '#fff6e8';
+        ctx.fillRect(ox + dots[i][0], oy + dots[i][1], 3, 3);
+      }
+      ctx.globalAlpha = 1;
+    }
+    const label = st.label !== undefined ? st.label : b.label;
+    if (label) {
+      drawText(ctx, label, ox + (st.labelCx || 50), oy + 11.75, 8.5, st.labelCol || '#fff6e8', 'center', false, false, 92);
+    }
+  }
+
   /** Colored button (green/gray/red) with bevel + icon + label. */
   function drawButton(ctx, b) {
+    if (b.state) { drawStateButton(ctx, b); return; }
     const p = P();
     const cols = {
       green: ['#5e9c31', '#7dbb4a', '#41701f'],
@@ -4749,14 +5509,31 @@ const UI = (() => {
       ctx.fillRect(b.x, b.y, b.w, b.h);
     }
     // content
+    if (b.layout) {
+      // exact icon/label placement from Figma (offsets from the outer rect)
+      const ox = b.x - 2, oy = b.y - 2 + pr;
+      if (b.icon) {
+        const img = b.icon();
+        ctx.drawImage(img, ox + b.layout.iconX, oy + b.layout.iconY, b.layout.iconW, b.layout.iconH);
+      }
+      if (b.label) {
+        if (b.layout.center) {
+          drawText(ctx, b.label, b.x + b.w / 2, oy + b.layout.labelY, b.layout.labelPx, '#fff6e8', 'center');
+        } else {
+          drawText(ctx, b.label, ox + b.layout.labelX, oy + b.layout.labelY, b.layout.labelPx, '#fff6e8', 'left');
+        }
+      }
+      return;
+    }
     let tx = b.x + b.w / 2;
     const ty = y + (b.h - 4) / 2;
     if (b.icon) {
       const img = b.icon();
-      const iw = img.width * 2, ih = img.height * 2;
+      const isc = b.iconScale || 2;
+      const iw = img.width * isc, ih = img.height * isc;
       if (b.label) {
         const availW = b.w - iw - 8;
-        const fs = PixelFont.fit(b.label, SIZE.BUTTON, availW);
+        const fs = PixelFont.fit(b.label, b.labelSize || SIZE.BUTTON, availW);
         const lw = Math.min(measure(b.label, fs), availW);
         const total = iw + 6 + lw;
         ctx.drawImage(img, Math.round(tx - total / 2), Math.round(ty - ih / 2), iw, ih);
@@ -4766,16 +5543,18 @@ const UI = (() => {
       }
     } else if (b.label) {
       const availW = b.w - 8;
-      const fs = PixelFont.fit(b.label, SIZE.BUTTON, availW);
+      const fs = PixelFont.fit(b.label, b.labelSize || SIZE.BUTTON, availW);
       drawText(ctx, b.label, tx, ty - fs / 2, fs, '#fff6e8', 'center', true, false, availW);
     }
   }
 
-  /** Small wooden sign with 1-2 lines (used on world map). */
-  function woodSign(ctx, cx, cy, line1, line2, cost) {
+  /** Small wooden sign with 1-2 lines (used on world map). An optional
+   *  `note` replaces the cost line on owned-but-unfinished plots. */
+  function woodSign(ctx, cx, cy, line1, line2, cost, note) {
     const w = Math.max(measure(line1, SIZE.BUTTON), line2 ? measure(line2, SIZE.CAPTION) : 0,
-                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0) + 18;
-    const h = 18 + (line2 ? 9 : 0) + (cost ? 11 : 0);
+                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0,
+                       note ? measure(note, SIZE.CAPTION) : 0) + 18;
+    const h = 18 + (line2 ? 9 : 0) + (cost || note ? 11 : 0);
     woodPanel(ctx, cx - w / 2, cy, w, h, {});
     drawText(ctx, line1, cx, cy + 5, SIZE.BUTTON, '#f4e8cc', 'center', true);
     let yy = cy + 17;
@@ -4785,6 +5564,8 @@ const UI = (() => {
       const tw = measure(cost, SIZE.CAPTION);
       ctx.drawImage(img, cx - tw / 2 - 12, yy - 3, 10, 10);
       drawText(ctx, cost, cx - tw / 2, yy, SIZE.CAPTION, '#ffe98a', 'left');
+    } else if (note) {
+      drawText(ctx, note, cx, yy, SIZE.CAPTION, '#ffb0a0', 'center', false, false, w - 8);
     }
     // legs
     ctx.fillStyle = P().woodDk;
@@ -4802,53 +5583,48 @@ const UI = (() => {
    * Returns the card's bottom y.
    */
   function upgradeCard(ctx, popup, x, y, w, h, inf) {
-    // parchment card
+    // parchment card (x,y,w,h = inner face rect; all values Figma E04 / 2)
     ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
     ctx.fillStyle = '#e8d8b4'; ctx.fillRect(x, y, w, h);
     ctx.fillStyle = '#f2e6c8'; ctx.fillRect(x, y, w, 3);
 
     const afford = !inf.maxed && SaveManager.data.coins >= inf.cost;
+    const spawn = h === 76;   // the shorter spawn-speed card has its own offsets
 
-    // ---- right column: cost (most prominent), NEED hint, UPGRADE button ----
-    const colW = 104;
-    const colX = x + w - colW;
-    const ccx = colX + colW / 2;
+    // ---- right column: cost (coin 19:90, text 19:91), UPGRADE button (19:93) ----
     if (!inf.maxed) {
       const costTxt = U.fmt(inf.cost);
-      const costSize = PixelFont.fit(costTxt, SIZE.SUBTITLE, colW - 28);
-      const cw = measure(costTxt, costSize);
-      const coinS = 16;
-      const cx0 = Math.round(ccx - (coinS + 4 + cw) / 2);
-      ctx.drawImage(SPRITES.coin(2), cx0, y + 7, coinS, coinS);
-      drawText(ctx, costTxt, cx0 + coinS + 4, y + 8, costSize, afford ? '#b8860b' : '#b0442f', 'left');
-      if (!afford) {
-        drawText(ctx, 'NEED ' + U.fmt(inf.cost - SaveManager.data.coins), ccx, y + 28,
-                 SIZE.CAPTION, '#b0442f', 'center', false, false, colW - 6);
-      }
+      const costSize = PixelFont.fit(costTxt, 13, 51);
+      ctx.drawImage(SPRITES.coin(2), x + (spawn ? 196 : 195.5), y + (spawn ? 12.5 : 18.5), 16, 16);
+      drawText(ctx, costTxt, x + (spawn ? 216 : 215.5), y + (spawn ? 14.5 : 20.5) + (13 - costSize) / 2,
+               costSize, afford ? '#58972a' : '#b0442f', 'left');
     }
     const fx = popup.fx[inf.key] || 0;
-    const bh = 28;
-    const btn = { x: colX + 4, y: y + h - bh - 8, w: colW - 8, h: bh };
-    drawButton(ctx, {
-      ...btn, color: afford ? 'green' : 'gray',
-      label: inf.maxed ? 'MAX' : 'UPGRADE',
-      disabled: inf.maxed || !afford,
-      pressed: fx > 0.85,
-    });
+    const btn = { x: x + 200, y: y + (spawn ? 40 : 52), w: 96, h: 28 };
+    // state mapping per the Figma upgrade-button component (46:67)
+    const state = inf.maxed ? 'max-level'
+                : fx > 0.85 ? 'pressed'
+                : afford ? 'default' : 'disabled';
+    drawButton(ctx, { ...btn, state, label: 'UPGRADE' });
 
-    // ---- left column: name, then "cur > next" improvement rows ----
-    const textW = colX - x - 18;
-    drawText(ctx, inf.label + ' LV ' + inf.level, x + 10, y + 8, SIZE.BODY, '#5c3a1d', 'left', false, false, textW);
-    let ly = y + 26;
+    // ---- left column: name, then per-stat label line + "cur > next" line ----
+    const textW = 190;
+    drawText(ctx, inf.label + ' LV ' + inf.level, x + 10, y + (spawn ? 8.75 : 8), spawn ? 8.5 : 10, '#000000', 'left', false, false, textW);
+    let ly = y + (spawn ? 27.75 : 29.25);
+    const ox = x - 2;   // Figma offsets in the cards are relative to the outer rect
+    let row = 0;
     for (const st of inf.stats) {
-      drawText(ctx, st.name, x + 10, ly + 4, SIZE.CAPTION, '#8a6a3c');
-      let vx = x + 56;
-      vx += drawText(ctx, st.cur, vx, ly, SIZE.BODY, '#7d5027') + 6;
+      drawText(ctx, st.name, x + 10, ly, 6.5, '#8a6a3c');
+      const vy = ly + (!spawn && row === 0 ? 9.5 : 10);
+      drawText(ctx, st.cur, ox + 12, vy, 8.5, '#7d5027');
       if (st.next && st.next !== st.cur) {
-        vx += drawText(ctx, '>', vx, ly, SIZE.BODY, '#4a8f2c') + 6;
-        drawText(ctx, st.next, vx, ly, SIZE.BODY, '#3f7d1e');
+        let vx = Math.ceil((12 + measure(st.cur, 8.5) + 4) / 2) * 2;
+        drawText(ctx, '>', ox + vx, vy, 8.5, '#4a8f2c');
+        vx = Math.ceil((vx + measure('>', 8.5) + 2) / 2) * 2;
+        drawText(ctx, st.next, ox + vx, vy, 8.5, '#3f7d1e');
       }
-      ly += 17;
+      ly += 29.5;
+      row++;
     }
 
     // purchase highlight flash
@@ -4900,14 +5676,37 @@ const UI = (() => {
   const COIN_POS = { x: 30, y: 27 };
   function coinTarget() { return { x: COIN_POS.x, y: COIN_POS.y }; }
 
+  // Height of the HUD's top bar backdrop (Figma 30:3, 112/2).
+  const HUD_H = 56;
+
+  /**
+   * The band of the scene that in-scene UI may occupy: below the HUD bar,
+   * above the bottom button row, inset from the stage edges. Derived from
+   * the live HUD geometry rather than fixed coordinates, so anything
+   * anchored through it stays clear of both bars — the 360x640 stage itself
+   * is letterboxed to fit the device, which keeps it inside notches and
+   * rounded corners at every resolution and aspect ratio.
+   */
+  function safeArea() {
+    const M = 10;
+    let bottom = H - M;
+    // the bottom action row (top-anchored buttons live under the HUD bar)
+    for (const b of buttons) {
+      if (b.y > H / 2) bottom = Math.min(bottom, b.y - 8);
+    }
+    const top = HUD_H + 8;
+    return { x: M, y: top, w: W - M * 2, h: Math.max(0, bottom - top) };
+  }
+
   function makeButtons() {
-    const bw = 100, bh = 40, gap = 10, y = H - bh - 14;
-    const total = bw * 2 + gap;
-    const x0 = (W - total) / 2;
+    // rects and icon/label placement from Figma E03 (14:29), Figma px / 2
     buttons = [
-      { id: 'upgrade', color: 'green', x: x0, y, w: bw, h: bh, label: 'UPGRADE', icon: () => SPRITES.arrowUp(), scene: 'farm' },
-      { id: 'map', color: 'red', x: x0 + bw + gap, y, w: bw, h: bh, label: 'MAP', icon: () => SPRITES.mapPin(), scene: 'farm' },
-      { id: 'settings', color: 'wood', x: W - 46, y: 12, w: 34, h: 32, icon: () => SPRITES.gear(), scene: 'both' },
+      { id: 'upgrade', color: 'green', x: 75, y: 586, w: 100, h: 40, label: 'UPGRADE', icon: () => SPRITES.arrowUp(), scene: 'farm',
+        layout: { iconX: 5, iconY: 8, iconW: 24, iconH: 24, labelX: 30.5, labelY: 17, labelPx: 10 } },
+      { id: 'map', color: 'red', x: 185, y: 586, w: 100, h: 40, label: 'MAP', icon: () => SPRITES.mapPin(), scene: 'farm',
+        layout: { iconX: 11.5, iconY: 7, iconW: 24, iconH: 30, labelX: 48, labelY: 15, labelPx: 12 } },
+      { id: 'settings', color: 'wood', x: 314, y: 12, w: 34, h: 32, icon: () => SPRITES.gear(), scene: 'both',
+        layout: { iconX: 5.5, iconY: 3.5, iconW: 27, iconH: 27 } },
     ];
   }
   makeButtons();
@@ -4930,9 +5729,9 @@ const UI = (() => {
   // ---------------- HUD ----------------
   function drawHUD(ctx, scene) {
     const p = P();
-    // top bar backdrop
-    ctx.fillStyle = 'rgba(26,20,14,0.35)';
-    ctx.fillRect(0, 0, W, 56);
+    // top bar backdrop (Figma 30:3 — rgba(26,20,14,0.5), h 112/2)
+    ctx.fillStyle = 'rgba(26,20,14,0.5)';
+    ctx.fillRect(0, 0, W, HUD_H);
 
     // coin capsule
     displayedCoins = U.lerp(displayedCoins, SaveManager.data.coins, Math.min(1, CONFIG.COIN_COUNT_LERP * Game.dt));
@@ -4942,15 +5741,16 @@ const UI = (() => {
     coinPulse = Math.max(0, coinPulse - Game.dt * 4);
     const cs = 26 + coinPulse * 8;
     ctx.drawImage(coinImg, COIN_POS.x - cs / 2, COIN_POS.y - cs / 2, cs, cs);
-    drawText(ctx, U.fmt(displayedCoins), 48, 22, SIZE.BODY, '#fff6e8', 'left', false, true, 78);
+    drawText(ctx, U.fmt(displayedCoins), 48, 21, 12, '#fff6e8', 'left', false, false, 78);
 
-    // farm name plaque — auto-fits between the coin capsule and settings button
-    const name = scene === 'map' ? 'WORLD MAP' : CONFIG.FARMS[SaveManager.data.currentFarm].name;
-    const plaqueMax = 132;
-    const ts = PixelFont.fit(name, SIZE.SUBTITLE, plaqueMax - 28);
-    const nw = Math.min(measure(name, ts) + 28, plaqueMax);
-    woodPanel(ctx, Math.round(W / 2 - nw / 2) + 20, 12, nw, 30, { gold: true });
-    drawText(ctx, name, W / 2 + 20, 12 + Math.round((30 - ts) / 2), ts, '#f4e8cc', 'center', true, false, plaqueMax - 28);
+    // name plaque — fixed rects from Figma (farm 18:23, map 17:11)
+    if (scene === 'map') {
+      woodPanel(ctx, 142, 12, 116, 30, { gold: true, flecks: false });
+      drawText(ctx, 'WORLD MAP', 201, 22, 10, '#f4e8cc', 'center', false, false, 112);
+    } else {
+      woodPanel(ctx, 146, 12, 109, 30, { gold: true, flecks: false });
+      drawText(ctx, CONFIG.FARMS[SaveManager.data.currentFarm].name, 200, 21, 13, '#f4e8cc', 'center', false, false, 105);
+    }
 
     // buttons for this scene
     for (const b of buttons) {
@@ -4992,10 +5792,10 @@ const UI = (() => {
     const cx = px + pw / 2;
 
     popupTitle(ctx, 'NEW EVOLUTION', px, py, pw);
-    drawText(ctx, 'DISCOVERED!', cx, py + 22, SIZE.TITLE, '#ffe98a', 'center', true, false, pw - 24);
+    drawText(ctx, 'DISCOVERED!', cx, py + 48, 16, '#ffe98a', 'center', false, false, pw - 24);
 
-    // golden frame
-    const fs = 150, fx = cx - fs / 2, fy = py + 48;
+    // golden frame (22:33: outer 158px at 101, py+69.5)
+    const fs = 150, fx = cx - fs / 2, fy = py + 73.5;
     ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(fx - 4, fy - 4, fs + 8, fs + 8);
     ctx.fillStyle = p.gold;        ctx.fillRect(fx - 2, fy - 2, fs + 4, fs + 4);
     ctx.fillStyle = p.goldHi;      ctx.fillRect(fx - 2, fy - 2, fs + 4, 2);
@@ -5032,7 +5832,7 @@ const UI = (() => {
     // the star of the show, gently bobbing
     const img = SPRITES.animal(popup.species, popup.stage, 'idle', false);
     const bob = Math.sin(t * 3) * 2;
-    const sc = Math.min(3.4, (fs - 34) / img.height);
+    const sc = Math.min(3, (fs - 34) / img.height);
     PIXEL.blit(ctx, img, cx, fy + fs - 18 + bob, sc * Math.min(1, U.easeOutBack(Math.min(t * 2.5, 1))));
     // sparkles twinkling inside the frame
     ctx.fillStyle = '#fff6d0';
@@ -5047,14 +5847,13 @@ const UI = (() => {
     }
     ctx.restore();
 
-    // name, stage, flavor (flavor auto-wraps inside the panel)
-    drawText(ctx, Discovery.displayName(popup.species, popup.stage), cx, fy + fs + 14, SIZE.BODY, '#ffe98a', 'center', true, false, pw - 24);
-    drawText(ctx, 'STAGE ' + (popup.stage + 1) + ' - ' + CONFIG.STAGE_NAMES[popup.stage], cx, fy + fs + 32, SIZE.CAPTION, '#f4e8cc', 'center');
-    PixelFont.drawWrapped(ctx, Discovery.flavor(popup.species, popup.stage), cx, fy + fs + 46, SIZE.CAPTION, '#e0cfa8', 'center', pw - 28, 2);
+    // flavor first (white, 30:106), then the name below it (22:20)
+    PixelFont.drawWrapped(ctx, Discovery.flavor(popup.species, popup.stage), cx, py + 230.75, 5.5, '#ffffff', 'center', pw - 28, 2);
+    drawText(ctx, Discovery.displayName(popup.species, popup.stage), cx, py + 257.5, 12, '#ffe98a', 'center', false, false, pw - 24);
 
     // CONTINUE
     popup.okRect = { x: px + 50, y: py + ph - 56, w: pw - 100, h: 40 };
-    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'CONTINUE' });
+    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'CONTINUE', layout: { labelY: 19, labelPx: 10, center: true } });
 
     // confetti raining over the whole popup
     if (popup.confetti.length < 60 && Math.random() < 0.5) {
@@ -5084,52 +5883,106 @@ const UI = (() => {
    * appears when 2+ farms actually earned something; the panel height grows
    * with the rows and the cap note.
    */
-  function welcomeMetrics(rep) {
-    const rows = [];
-    for (const f of CONFIG.FARMS) {
-      const amt = Math.floor(rep.perFarm[f.id]);
-      if (amt >= 1) rows.push({ name: f.name, amt });
-    }
-    const list = rows.length > 1 ? rows : [];
-    const cardH = 76 + (rep.capped ? 12 : 0) + (list.length ? list.length * 14 + 4 : 0);
-    return { rows: list, cardH, ph: cardH + 134 };
+  function welcomeMetrics() {
+    // fixed geometry from Figma E08 (23:4/23:31)
+    return { cardH: 122, ph: 256 };
   }
 
   function drawWelcome(ctx, px, py, pw) {
     const rep = popup.rep;
-    const m = welcomeMetrics(rep);
     const total = Math.floor(rep.total);
-    popupTitle(ctx, 'WELCOME BACK!', px, py, pw);
-    // parchment card
-    const cy0 = py + 26;
-    ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, cy0 - 2, pw - 36, m.cardH + 4);
-    ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, cy0, pw - 40, m.cardH);
-    ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, cy0, pw - 40, 3);
+    popupTitle(ctx, 'WELCOME BACK!', px, py, pw, { size: 8.5, top: py - 1.25 });
+    // parchment card (23:31)
+    ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 24, pw - 36, 126);
+    ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 26, pw - 40, 122);
+    ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 26, pw - 40, 3);
     const cx = px + pw / 2;
-    let yy = cy0 + 12;
-    drawText(ctx, 'YOU WERE AWAY FOR', cx, yy, SIZE.CAPTION, '#7d5027', 'center'); yy += 12;
-    drawText(ctx, U.fmtDur(rep.awaySec), cx, yy, SIZE.BODY, '#b8860b', 'center'); yy += 20;
-    if (rep.capped) {
-      drawText(ctx, 'OFFLINE EARNINGS MAX OUT AT 2H', cx, yy, SIZE.CAPTION, '#b0442f', 'center', false, false, pw - 52);
-      yy += 12;
+    drawText(ctx, 'YOU WERE AWAY FOR', cx, py + 37.75, 6.5, '#7d5027', 'center');
+    drawText(ctx, U.fmtDur(rep.awaySec), cx, py + 51.25, 8.5, '#000000', 'center');
+    // total earned while away — big and black, coin at a fixed spot (23:43/23:44)
+    ctx.drawImage(SPRITES.coin(2), px + 48, py + 84, 21.5, 21.5);
+    drawText(ctx, '+' + U.fmt(total), px + 130.5, py + 86.5, 16, '#000000', 'center', false, false, 122);
+    PixelFont.drawWrapped(ctx, 'WHILE YOU WERE AWAY, THE FARMS WERE PRODUCTIVE.', cx, py + 131.5, 4, '#7d5027', 'center', 131.5, 2);
+    // primary collect + secondary rewarded-ad 2x (play icon + coin + amount)
+    popup.okRect = { x: px + 30, y: py + 158, w: pw - 60, h: 40 };
+    popup.adRect = { x: px + 30, y: py + 206, w: pw - 60, h: 34 };
+    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'COLLECT', layout: { labelY: 19, labelPx: 10, center: true } });
+    drawButton(ctx, { ...popup.adRect, color: 'wood' });
+    ctx.drawImage(SPRITES.adPlay(), px + 39.5, py + 212, 32, 24);
+    ctx.drawImage(SPRITES.coin(2), px + 85, py + 216.5, 14.5, 14.5);
+    drawText(ctx, U.fmt(total * 2), px + 104, py + 219, 10, '#fff6e8', 'left', false, false, 64);
+  }
+
+  // ---------------- build / fence-upgrade panel ----------------
+  /**
+   * Construction panel for a staged farm (see js/construction.js): where the
+   * player is in the build sequence, what the next purchase is, what it
+   * costs and what it unlocks — plus the live fence tier and animal count
+   * once the fence exists. The action button reuses the Figma upgrade-button
+   * component states (default / disabled / max-level / pressed).
+   */
+  function drawBuild(ctx, px, py, pw, ph) {
+    const id = popup.farmId;
+    const scene = Game.farm && Game.farm.farmId === id ? Game.farm : null;
+    const inf = Construction.info(id, scene ? scene.animals.length : 0);
+    const cx = px + pw / 2;
+    popupTitle(ctx, 'BUILD ' + CONFIG.FARMS[id].name, px, py, pw, { size: 10, top: py - 2 });
+
+    // parchment card
+    ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 154);
+    ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 150);
+    ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 28, pw - 40, 3);
+
+    // where we are in the sequence, and what comes next
+    drawText(ctx, 'STEP ' + inf.step + ' OF ' + inf.steps, cx, py + 38, 5.5, '#7d5027', 'center');
+    drawText(ctx, inf.title, cx, py + 50, 10, '#5c3a1d', 'center', false, false, pw - 52);
+    PixelFont.drawWrapped(ctx, inf.unlocks, cx, py + 68, 5.5, '#7d5027', 'center', pw - 56, 2);
+
+    // live fence status (only meaningful once the fence stands)
+    ctx.fillStyle = 'rgba(124,80,39,0.25)';
+    ctx.fillRect(px + 30, py + 92, pw - 60, 1);
+    let ry = py + 100;
+    if (inf.fenceBuilt) {
+      statRow(ctx, px, pw, ry, 'FENCE TIER', inf.level + ' / ' + inf.maxLevel);
+      ry += 14;
+      statRow(ctx, px, pw, ry, 'ANIMALS', inf.animals + ' / ' + inf.capacity);
+      ry += 14;
+      if (inf.nextCapacity) {
+        statRow(ctx, px, pw, ry, 'NEXT CAPACITY', inf.capacity + ' > ' + inf.nextCapacity, '#3f7d1e');
+        ry += 14;
+      }
+    } else {
+      statRow(ctx, px, pw, ry, 'FENCE', 'NOT BUILT');
+      ry += 14;
+      statRow(ctx, px, pw, ry, 'ANIMALS', inf.capacity > 0 ? 'ESCAPING!' : 'NONE YET', '#b0442f');
+      ry += 14;
     }
-    // per-farm breakdown (only when several farms earned)
-    for (const r of m.rows) {
-      drawText(ctx, r.name, px + 32, yy, SIZE.CAPTION, '#7d5027', 'left');
-      drawText(ctx, U.fmt(r.amt), px + pw - 32 - measure(U.fmt(r.amt), SIZE.CAPTION), yy, SIZE.CAPTION, '#b8860b', 'left');
-      yy += 14;
+
+    // price
+    const afford = !inf.maxed && SaveManager.data.coins >= inf.cost;
+    if (!inf.maxed) {
+      const txt = U.fmt(inf.cost);
+      const tw = measure(txt, 13);
+      ctx.drawImage(SPRITES.coin(2), cx - tw / 2 - 20, py + 150, 16, 16);
+      drawText(ctx, txt, cx - tw / 2, py + 152, 13, afford ? '#58972a' : '#b0442f', 'left');
+    } else {
+      drawText(ctx, 'NOTHING LEFT TO BUILD', cx, py + 154, 6.5, '#58972a', 'center', false, false, pw - 52);
     }
-    if (m.rows.length) yy += 4;
-    // total earned while away
-    const totTxt = '+' + U.fmt(total);
-    const tw = measure(totTxt, SIZE.SUBTITLE);
-    ctx.drawImage(SPRITES.coin(2), cx - tw / 2 - 20, yy - 1, 16, 16);
-    drawText(ctx, totTxt, cx - tw / 2, yy, SIZE.SUBTITLE, '#b8860b', 'left');
-    // primary collect + secondary rewarded-ad 2x
-    popup.okRect = { x: px + 30, y: cy0 + m.cardH + 10, w: pw - 60, h: 40 };
-    popup.adRect = { x: px + 30, y: popup.okRect.y + 48, w: pw - 60, h: 34 };
-    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'COLLECT' });
-    drawButton(ctx, { ...popup.adRect, color: 'wood', icon: () => SPRITES.adPlay(), label: '2X ' + U.fmt(total * 2) });
+
+    // action button (Figma upgrade-button component geometry: 96x28)
+    popup.fx = Math.max(0, (popup.fx || 0) - Game.dt * 2);
+    popup.okRect = { x: cx - 48, y: py + 200, w: 96, h: 28 };
+    const state = inf.maxed ? 'max-level'
+                : popup.fx > 0.85 ? 'pressed'
+                : afford ? 'default' : 'disabled';
+    drawStateButton(ctx, { ...popup.okRect, state, label: inf.stage === 'upgrade' ? 'UPGRADE' : 'BUILD' });
+    drawPanelFx(ctx);
+  }
+
+  /** One label/value row inside the build panel's parchment card. */
+  function statRow(ctx, px, pw, y, label, value, col = '#7d5027') {
+    drawText(ctx, label, px + 34, y, 6.5, '#8a6a3c', 'left');
+    drawText(ctx, value, px + pw - 34, y, 6.5, col, 'right');
   }
 
   // ---------------- popups ----------------
@@ -5141,8 +5994,9 @@ const UI = (() => {
       popup.t += Game.dt;
       ctx.fillStyle = 'rgba(8,8,12,0.94)';
       ctx.fillRect(0, 0, W, H);
-      drawText(ctx, 'REWARD AD', W / 2, H / 2 - 84, SIZE.TITLE, '#fff6e8', 'center', true);
-      drawText(ctx, 'SIMULATED AD PLACEHOLDER', W / 2, H / 2 - 52, SIZE.CAPTION, '#8c8678', 'center');
+      // values from Figma E11 (25:56..25:67), Figma px / 2
+      drawText(ctx, 'REWARD AD', W / 2, 237.5, SIZE.TITLE, '#fff6e8', 'center');
+      drawText(ctx, 'SIMULATED AD PLACEHOLDER', W / 2, 268.25, 4.5, '#8c8678', 'center');
       // silly ad: pigeon on a bombing run across the screen
       const t = Math.min(popup.t / popup.dur, 1);
       const bx = U.lerp(40, W - 40, t);
@@ -5154,7 +6008,7 @@ const UI = (() => {
       inset(ctx, W / 2 - 80, H / 2 + 60, 160, 14);
       ctx.fillStyle = '#7dbb4a';
       ctx.fillRect(W / 2 - 78, H / 2 + 62, Math.max(0, Math.round(156 * t)), 10);
-      drawText(ctx, 'REWARD IN ' + Math.ceil(popup.dur - popup.t) + 'S', W / 2, H / 2 + 88, SIZE.CAPTION, '#c8b088', 'center');
+      drawText(ctx, 'REWARD IN ' + Math.ceil(popup.dur - popup.t) + 'S', W / 2, 408.25, 4.5, '#c8b088', 'center');
       if (popup.t >= popup.dur) { const done = popup.onDone; popup = null; done(); }
       return;
     }
@@ -5162,113 +6016,126 @@ const UI = (() => {
     ctx.fillStyle = popup.type === 'discovery' ? 'rgba(16,10,6,0.75)' : 'rgba(16,10,6,0.55)';
     ctx.fillRect(0, 0, W, H);
 
-    const pw = popup.type === 'upgrades' ? 324 : popup.type === 'discovery' ? 280 : 240;
+    const pw = popup.type === 'upgrades' ? 324 : popup.type === 'discovery' ? 280
+             : popup.type === 'build' ? 260 : 240;
     const ph = popup.type === 'upgrades' ? 528
              : popup.type === 'discovery' ? 344
              : popup.type === 'unlock' ? 210
+             : popup.type === 'build' ? 258
              : popup.type === 'pigeonAd' ? 254
-             : popup.type === 'tornadoAd' ? 296
+             : popup.type === 'tornadoAd' ? 270.5
              : popup.type === 'welcomeBack' ? welcomeMetrics(popup.rep).ph : 190;
-    // upgrades panel sits lower so the HUD coin counter stays visible
-    const px = (W - pw) / 2, py = (H - ph) / 2 - (popup.type === 'upgrades' ? 0 : 20);
+    // upgrades panel sits lower so the HUD coin counter stays visible;
+    // the tornado panel sits higher than the centering formula (Figma 25:4)
+    const px = (W - pw) / 2;
+    const py = popup.type === 'tornadoAd' ? 152
+             : (H - ph) / 2 - (popup.type === 'upgrades' ? 0 : 20);
     popup.rect = { x: px, y: py, w: pw, h: ph };
-    woodPanel(ctx, px, py, pw, ph, { gold: true });
-    // title bar
-    woodPanel(ctx, px + 10, py - 10, pw - 20, 26, { dark: true });
+    // Figma: only the confirm-reset panel (21:4) shows plank seams
+    woodPanel(ctx, px, py, pw, ph, { gold: true, flecks: false, seams: popup.type === 'confirm-reset' });
 
-    // close X (discovery must be dismissed with CONTINUE)
-    if (popup.type === 'discovery') {
-      popup.closeRect = null;
-    } else {
-      popup.closeRect = { x: px + pw - 16, y: py - 16, w: 28, h: 26 };
-      drawButton(ctx, { ...popup.closeRect, color: 'red', icon: () => SPRITES.xIcon(), pressed: false });
-    }
+    // close X (discovery must be dismissed with CONTINUE); drawn after the
+    // branch so the title bar never paints over it
+    popup.closeRect = popup.type === 'discovery' ? null
+      : { x: px + pw - 16, y: py - 16, w: 28, h: 26 };
 
     if (popup.type === 'unlock') {
       const f = CONFIG.FARMS[popup.farmId];
-      popupTitle(ctx, 'UNLOCK ' + f.name, px, py, pw);
+      // construction farms buy bare land here and build the rest in-scene
+      const build = Construction.required(popup.farmId);
+      const unlockCost = Construction.landCost(popup.farmId);
+      // values from Figma E12 (26:2..26:47), Figma px / 2
+      popupTitle(ctx, (build ? 'BUY LAND: ' : 'UNLOCK ') + f.name, px, py, pw, { size: 10, top: py - 2 });
       // inner parchment card
       ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 28, pw - 36, 104);
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 30, pw - 40, 100);
       ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 30, pw - 40, 3);
-      // animal preview
+      // animal preview (26:35: bottom-center at 116.75, py+110.5)
       const img = SPRITES.animal(f.species, 1, 'idle', false);
-      PIXEL.blit(ctx, img, px + 58, py + 116, 2.6);
-      drawText(ctx, f.label.replace(/S$/, '') + ' FARM', px + 144, py + 48, SIZE.BODY, '#5c3a1d', 'center', false, false, 136);
-      drawText(ctx, 'UNLOCK COST:', px + 144, py + 72, SIZE.CAPTION, '#7d5027', 'center');
-      const cost = U.fmt(CONFIG.UNLOCK_COSTS[popup.farmId]);
-      const cw = measure(cost, SIZE.BODY);
-      ctx.drawImage(SPRITES.coin(2), px + 144 - cw / 2 - 20, py + 84, 16, 16);
-      drawText(ctx, cost, px + 144 - cw / 2, py + 88, SIZE.BODY, '#b8860b', 'left');
+      PIXEL.blit(ctx, img, px + 56.75, py + 110.5, 3.0);
+      drawText(ctx, f.label.replace(/S$/, '') + ' FARM', px + 120, py + 52.25, 8.5, '#5c3a1d', 'left', false, false, 96);
+      drawText(ctx, build ? 'LAND COST:' : 'UNLOCK COST:', px + 138.5, py + 72.75, 4.5, '#7d5027', 'left');
+      const cost = U.fmt(unlockCost);
+      ctx.drawImage(SPRITES.coin(2), px + 121.5, py + 88.5, 16, 16);
+      drawText(ctx, cost, px + 141.5, py + 92.25, 8.5, '#000000', 'left');
+      if (build) {
+        drawText(ctx, 'EMPTY PLOT - BUILD IT YOURSELF!', px + pw / 2, py + 138, 5.5, '#ffe98a', 'center', false, false, pw - 32);
+      }
       // unlock button
-      const can = SaveManager.data.coins >= CONFIG.UNLOCK_COSTS[popup.farmId];
+      const can = SaveManager.data.coins >= unlockCost;
       popup.okRect = { x: px + 40, y: py + ph - 60, w: pw - 80, h: 40 };
-      drawButton(ctx, { ...popup.okRect, color: 'green', label: 'UNLOCK', disabled: !can });
+      drawButton(ctx, { ...popup.okRect, color: 'green', label: build ? 'BUY LAND' : 'UNLOCK', disabled: !can,
+        layout: { labelY: 19, labelPx: 10, center: true } });
+    } else if (popup.type === 'build') {
+      drawBuild(ctx, px, py, pw, ph);
     } else if (popup.type === 'upgrades') {
       const f = CONFIG.FARMS[popup.farmId];
-      popupTitle(ctx, f.name + ' UPGRADES', px, py, pw);
+      popupTitle(ctx, 'UPGRADES!', px, py, pw, { tall: true });
       popup.cards = [];
-      let yy = py + 20;
-      drawText(ctx, 'FARM', px + 14, yy, SIZE.CAPTION, '#e0cfa8'); yy += 12;
-      yy = upgradeCard(ctx, popup, px + 12, yy, pw - 24, 76, Upgrades.info(popup.farmId, 'spawn')) + 10;
-      drawText(ctx, f.label, px + 14, yy, SIZE.CAPTION, '#e0cfa8'); yy += 12;
+      // section labels + card rows from Figma 19:70/19:86/19:71/19:106..30:84
+      drawText(ctx, 'FARM', px + 10, py + 21.75, SIZE.CAPTION, '#e0cfa8');
+      upgradeCard(ctx, popup, px + 12, py + 32, pw - 24, 76, Upgrades.info(popup.farmId, 'spawn'));
+      drawText(ctx, f.label, px + 10, py + 119.75, SIZE.CAPTION, '#e0cfa8');
       for (let s = 0; s < CONFIG.UPGRADES.STAGES.length; s++) {
-        yy = upgradeCard(ctx, popup, px + 12, yy, pw - 24, 88, Upgrades.info(popup.farmId, s)) + 8;
+        upgradeCard(ctx, popup, px + 12, py + 130 + s * 98, pw - 24, 88, Upgrades.info(popup.farmId, s));
       }
       drawPanelFx(ctx);
     } else if (popup.type === 'discovery') {
       drawDiscovery(ctx, px, py, pw, ph);
     } else if (popup.type === 'pigeonAd') {
       const inf = Pigeon.info();
-      popupTitle(ctx, 'SPECIAL DELIVERY!', px, py, pw);
+      // values from Figma E09 (24:2..24:51), Figma px / 2
+      popupTitle(ctx, 'POOP RAIN!', px, py, pw, { size: 10, top: py - 2 });
       // parchment card
       ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 132);
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 128);
       ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 28, pw - 40, 3);
-      // the messenger, gently bobbing
+      // the messenger, gently bobbing, with a COO! beside its head
       popup.fxT = (popup.fxT || 0) + Game.dt;
       const bob = Math.sin(popup.fxT * 3) * 2;
       PIXEL.blit(ctx, SPRITES.pigeon('idle', false), px + 58, py + 92 + bob, 3);
-      drawText(ctx, 'COO!', px + 58, py + 104, SIZE.CAPTION, '#7d5027', 'center');
-      // reward explanation
-      drawText(ctx, 'WATCH AN AD', px + 152, py + 44, SIZE.BODY, '#5c3a1d', 'center', false, false, 132);
-      drawText(ctx, 'TO GET A', px + 152, py + 64, SIZE.CAPTION, '#7d5027', 'center');
-      drawText(ctx, 'POOP RAIN!', px + 152, py + 78, SIZE.BODY, '#b8860b', 'center', false, false, 132);
-      // payout breakdown
-      PIXEL.blit(ctx, SPRITES.poop(0), px + 104, py + 138, 2);
-      drawText(ctx, 'X' + inf.count, px + 124, py + 118, SIZE.BODY, '#5c3a1d', 'left');
-      ctx.drawImage(SPRITES.coin(1), px + 150, py + 118, 12, 12);
-      drawText(ctx, '+' + U.fmt(inf.value) + ' EACH', px + 166, py + 120, SIZE.CAPTION, '#b8860b', 'left');
-      drawText(ctx, 'COINS COLLECT AUTOMATICALLY!', px + pw / 2, py + 144, SIZE.CAPTION, '#7d5027', 'center', false, false, pw - 44);
-      // watch button
-      popup.okRect = { x: px + 40, y: py + ph - 62, w: pw - 80, h: 40 };
-      drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
+      drawText(ctx, 'COO!', px + 87.5, py + 36.75, 4.5, '#7d5027', 'left');
+      // reward explanation (24:37 / 30:38)
+      drawText(ctx, 'WATCH AN AD', px + 97, py + 72.5, 10, '#5c3a1d', 'left', false, false, 110);
+      drawText(ctx, 'POOP MEANS MONEY', px + 97, py + 88.5, 7, '#7d5027', 'left', false, false, 115);
+      // scattered poop cluster (30:33..30:36, 24:40 — bottom-center anchors)
+      for (const [bx2, by2] of [[73.5, 116.5], [39.25, 109], [56.5, 125], [67, 146], [39.5, 140]]) {
+        PIXEL.blit(ctx, SPRITES.poop(0), px + bx2, py + by2, 1.25);
+      }
+      // payout: coin + big value (30:39 / 24:43)
+      ctx.drawImage(SPRITES.coin(2), px + 115, py + 111, 22.5, 22.5);
+      drawText(ctx, '+' + U.fmt(inf.value), px + 140.5, py + 116.5, 15, '#000000', 'left', false, false, 56);
+      // watch button + note below it
+      popup.okRect = { x: px + 40, y: py + 175, w: pw - 80, h: 40 };
+      drawButton(ctx, { ...popup.okRect, color: 'green', icon: () => SPRITES.adPlay(), label: 'REWARD AD',
+        layout: { iconX: 11, iconY: 9, iconW: 32, iconH: 24, labelX: 52.5, labelY: 17, labelPx: 10 } });
+      drawText(ctx, 'COINS COLLECT AUTOMATICALLY!', px + pw / 2, py + 223.75, 4.5, '#ffffff', 'center', false, false, pw - 44);
     } else if (popup.type === 'tornadoAd') {
-      popupTitle(ctx, 'TORNADO ALERT!', px, py, pw);
+      // values from Figma E10 (25:2..25:48), Figma px / 2
+      popupTitle(ctx, 'TORNADO ALERT!', px, py, pw, { size: 10, top: py - 2 });
       // parchment card
       ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(px + 18, py + 26, pw - 36, 132);
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 28, pw - 40, 128);
       ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 28, pw - 40, 3);
-      // the storm itself, spinning and swaying
+      // the storm itself, spinning and swaying (25:35: 72x84, bottom-center 116, py+127)
       popup.fxT = (popup.fxT || 0) + Game.dt;
       const frame = Math.floor(popup.fxT * 10) % 3;
       const sway = Math.sin(popup.fxT * 4) * 2;
-      PIXEL.blit(ctx, SPRITES.tornado(frame), px + 58 + sway, py + 122, 2);
+      const timg = SPRITES.tornado(frame);
+      PIXEL.blit(ctx, timg, px + 56 + sway, py + 127, 72 / timg.width);
       // reward explanation
-      drawText(ctx, 'WATCH AN AD', px + 152, py + 44, SIZE.BODY, '#5c3a1d', 'center', false, false, 132);
-      drawText(ctx, 'TO UNLEASH A', px + 152, py + 64, SIZE.CAPTION, '#7d5027', 'center');
-      drawText(ctx, 'MERGE STORM!', px + 152, py + 78, SIZE.BODY, '#b8860b', 'center', false, false, 132);
-      drawText(ctx, 'AUTO-MERGES EVERY', px + 152, py + 100, SIZE.CAPTION, '#7d5027', 'center');
-      drawText(ctx, 'POSSIBLE ANIMAL!', px + 152, py + 112, SIZE.CAPTION, '#7d5027', 'center');
+      drawText(ctx, 'WATCH AN AD', px + 112.5, py + 60.75, 8.5, '#5c3a1d', 'left', false, false, 100);
+      drawText(ctx, 'TO UNLEASH A', px + 132, py + 80.25, 4.5, '#7d5027', 'left');
+      drawText(ctx, 'MERGE STORM!', px + 96.5, py + 106.5, 10, '#b8860b', 'left', false, false, 120);
       // mutants feed the UFO only where it has been unlocked
       const ufoReady = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
       drawText(ctx, ufoReady ? 'MUTANTS BECOME MUTANT 2!' : 'MERGES ALL THE WAY TO MUTANTS!',
-        px + pw / 2, py + 144, SIZE.CAPTION, '#7d5027', 'center', false, false, pw - 44);
-      // watch + cancel buttons
-      popup.okRect = { x: px + 40, y: py + ph - 104, w: pw - 80, h: 40 };
-      popup.cancelRect = { x: px + 60, y: py + ph - 54, w: pw - 120, h: 32 };
-      drawButton(ctx, { ...popup.okRect, color: 'green', label: '> WATCH AD' });
-      drawButton(ctx, { ...popup.cancelRect, color: 'gray', label: 'CANCEL' });
+        px + pw / 2, py + 144.25, 4.5, '#7d5027', 'center', false, false, pw - 44);
+      // single watch button (dismiss via the close X)
+      popup.okRect = { x: px + 40, y: py + 192, w: pw - 80, h: 40 };
+      popup.cancelRect = null;
+      drawButton(ctx, { ...popup.okRect, color: 'green', icon: () => SPRITES.adPlay(), label: 'REWARD AD',
+        layout: { iconX: 13, iconY: 10, iconW: 32, iconH: 24, labelX: 53, labelY: 17, labelPx: 10 } });
     } else if (popup.type === 'welcomeBack') {
       drawWelcome(ctx, px, py, pw);
     } else if (popup.type === 'settings') {
@@ -5276,16 +6143,22 @@ const UI = (() => {
       popup.musicRect = { x: px + 30, y: py + 34, w: pw - 60, h: 34 };
       popup.sfxRect = { x: px + 30, y: py + 78, w: pw - 60, h: 34 };
       popup.resetRect = { x: px + 30, y: py + 128, w: pw - 60, h: 34 };
-      drawButton(ctx, { ...popup.musicRect, color: 'wood', label: 'MUSIC: ' + (AudioManager.musicOn ? 'ON' : 'OFF') });
-      drawButton(ctx, { ...popup.sfxRect, color: 'wood', label: 'SOUND: ' + (AudioManager.sfxOn ? 'ON' : 'OFF') });
-      drawButton(ctx, { ...popup.resetRect, color: 'red', label: 'RESET SAVE' });
+      const lay = { labelY: 14, labelPx: 10, center: true };
+      drawButton(ctx, { ...popup.musicRect, color: 'wood', label: 'MUSIC: ' + (AudioManager.musicOn ? 'ON' : 'OFF'), layout: lay });
+      drawButton(ctx, { ...popup.sfxRect, color: 'wood', label: 'SOUND: ' + (AudioManager.sfxOn ? 'ON' : 'OFF'), layout: lay });
+      drawButton(ctx, { ...popup.resetRect, color: 'red', label: 'RESET SAVE', layout: lay });
     } else if (popup.type === 'confirm-reset') {
       popupTitle(ctx, 'RESET GAME?', px, py, pw);
-      PixelFont.drawWrapped(ctx, 'ALL PROGRESS WILL BE LOST!', px + pw / 2, py + 44, SIZE.CAPTION, '#f4e8cc', 'center', pw - 60, 2);
+      drawText(ctx, 'ALL PROGRESS WILL BE LOST!', px + pw / 2, py + 42.5, 7.5, '#f4e8cc', 'center', false, false, pw - 40);
       popup.okRect = { x: px + 30, y: py + 84, w: pw - 60, h: 36 };
       popup.cancelRect = { x: px + 30, y: py + 130, w: pw - 60, h: 36 };
-      drawButton(ctx, { ...popup.okRect, color: 'red', label: 'YES, RESET' });
-      drawButton(ctx, { ...popup.cancelRect, color: 'gray', label: 'CANCEL' });
+      drawButton(ctx, { ...popup.okRect, color: 'red', label: 'YES, RESET', layout: { labelY: 17, labelPx: 10, center: true } });
+      drawButton(ctx, { ...popup.cancelRect, color: 'gray', label: 'CANCEL', layout: { labelY: 15, labelPx: 10, center: true } });
+    }
+
+    if (popup.closeRect) {
+      drawButton(ctx, { ...popup.closeRect, color: 'red', icon: () => SPRITES.xIcon(), pressed: false,
+        layout: { iconX: 6, iconY: 5, iconW: 20, iconH: 20 } });
     }
   }
 
@@ -5413,6 +6286,21 @@ const UI = (() => {
         }
         return true;
       }
+      if (popup.type === 'build') {
+        if (inRect(x, y, popup.okRect)) {
+          const r = Construction.buyNext(popup.farmId);
+          if (r.ok) {
+            AudioManager.play('buy');
+            popup.fx = 1;
+            spawnPanelFx(popup.okRect.x + popup.okRect.w / 2, popup.okRect.y + popup.okRect.h / 2);
+            Game.onConstructionBuilt(popup.farmId);
+          } else {
+            AudioManager.play('error');
+            toast = { text: r.reason, t: 1.6 };
+          }
+        }
+        return true;
+      }
       if (popup.type === 'unlock' && inRect(x, y, popup.okRect)) {
         Game.tryUnlock(popup.farmId);
         return true;
@@ -5442,22 +6330,23 @@ const UI = (() => {
 
   // ---------------- loading screen ----------------
   function drawLoading(ctx, t) {
+    // values from Figma E01 (14:27), all Figma px / 2
     ctx.fillStyle = '#2e2416';
     ctx.fillRect(0, 0, W, H);
     // decorative fence strip
     const f = SPRITES.fenceH(24);
-    for (let x = 0; x < W; x += 44) ctx.drawImage(f, x, H / 2 + 60, 44, 26);
-    drawText(ctx, 'FARM EVOLUTION', W / 2, H / 2 - 66, SIZE.TITLE, '#ffe98a', 'center', true, false, W - 24);
+    for (let x = 0; x < W; x += 44) ctx.drawImage(f, x, 380, 44, 26);
+    drawText(ctx, 'FARM EVOLUTION', W / 2, 255.5, SIZE.TITLE, '#ffe98a', 'center', false, false, W - 24);
     const img = SPRITES.animal('chicken', 1, (t * 3 | 0) % 2 ? 'walk' : 'idle');
-    PIXEL.blit(ctx, img, W / 2, H / 2 + 30, 3);
+    PIXEL.blit(ctx, img, W / 2, 350, 3);
     const dots = '.'.repeat(1 + ((t * 2) | 0) % 3);
-    drawText(ctx, 'TAP TO START' , W / 2, H / 2 + 100, SIZE.BUTTON, '#f4e8cc', 'center', true);
-    drawText(ctx, 'LOADING' + dots, W / 2, H / 2 + 124, SIZE.CAPTION, '#c8b088', 'center');
+    drawText(ctx, 'TAP TO START', W / 2, 590.5, 12, '#f4e8cc', 'center');
+    drawText(ctx, 'LOADING' + dots, W / 2, 420.75, 7.5, '#c8b088', 'center');
   }
 
   return {
     SIZE, drawText, measure, woodPanel, woodSign, drawButton, drawHUD, drawPopup, drawLoading,
-    drawHand, drawUpgradeTutorial,
+    drawHand, drawUpgradeTutorial, drawBadge, safeArea,
     tap, coinTarget,
     pulseCoin() { coinPulse = 1; },
     showToast(text) { toast = { text, t: 1.6 }; },
@@ -5728,6 +6617,8 @@ const Game = (() => {
   function maybeStartUpgradeTutorial() {
     if (upgradeTutorial || SaveManager.data.upgradeTutorialDone) return;
     if (farmScene.tutorial || UI.popup) return;
+    // a farm still under construction points at its build CTA, not upgrades
+    if (!Construction.fenceBuilt(farmScene.farmId)) return;
     if (SaveManager.data.coins < cheapestUpgradeCost()) return;
     farmScene.pointerUp(); // settle any in-progress drag
     upgradeTutorial = { t: 0 };
@@ -5750,6 +6641,20 @@ const Game = (() => {
   }
 
   // ---------------- buttons ----------------
+  /** Open the build/upgrade panel of a construction farm. */
+  function openBuild(farmId) {
+    UI.openPopup({ type: 'build', farmId, fx: 0 });
+  }
+
+  /**
+   * A construction step was purchased: the scene re-bakes for the new stage
+   * (house, fence footprint + art) and the map redraws its plot.
+   */
+  function onConstructionBuilt(farmId) {
+    if (farmScene && farmScene.farmId === farmId) farmScene.refresh();
+    SaveManager.save();
+  }
+
   function onButton(id) {
     if (id === 'settings') {
       UI.openPopup({ type: 'settings' });
@@ -5781,7 +6686,9 @@ const Game = (() => {
 
   // ---------------- unlock flow ----------------
   function tryUnlock(farmId) {
-    const cost = CONFIG.UNLOCK_COSTS[farmId];
+    // construction farms buy the bare land here; everything else is built
+    // in-scene (see js/construction.js)
+    const cost = Construction.landCost(farmId);
     if (SaveManager.data.coins < cost) {
       UI.showToast('NOT ENOUGH COINS!');
       AudioManager.play('error');
@@ -5798,6 +6705,7 @@ const Game = (() => {
   function onUnlockAnimDone(farmId) {
     SaveManager.data.unlocked[farmId] = true;
     SaveManager.data.currentFarm = farmId;
+    Construction.grantLand(farmId);
     SaveManager.save();
     // brief pause then enter the new farm
     setTimeout(() => {
@@ -5865,9 +6773,12 @@ const Game = (() => {
         maybeStartUpgradeTutorial();
         if (upgradeTutorial) upgradeTutorial.t += dt;
         else {
+          // reward events wait for a working farm: no tutorial pending and
+          // (on construction farms) a fence for the pigeon to perch on
+          const paused = !!farmScene.tutorial || !Construction.fenceBuilt(farmScene.farmId);
           farmScene.update(dt); UFO.update(dt);
-          Pigeon.update(dt, !!farmScene.tutorial);
-          Tornado.update(dt, !!farmScene.tutorial);
+          Pigeon.update(dt, paused);
+          Tornado.update(dt, paused);
         }
       }
     }
@@ -5943,6 +6854,7 @@ const Game = (() => {
 
   return {
     addCoins, onButton, tryUnlock, onUnlockAnimDone, resetAll,
+    openBuild, onConstructionBuilt,
     startCelebration, endCelebration, onUpgradePurchased,
     claimWelcome, onWelcomeAdDone, onWelcomeAdFailed,
     get scene() { return scene; },

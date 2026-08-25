@@ -14,27 +14,69 @@ class FarmScene {
     this.dragOffX = 0; this.dragOffY = 0;
     this.mergeTarget = null;
     this.bg = ENVIRONMENT.farm(farmId);
-    this.bounds = {
-      x: ENVIRONMENT.PLAY.x + 18,
-      y: ENVIRONMENT.PLAY.y + 26,
-      w: ENVIRONMENT.PLAY.w - 36,
-      h: ENVIRONMENT.PLAY.h - 46,
-    };
+    this.ghosts = [];      // in-scene hit rects (the farmhouse), see drawHouse()
+    this.setBounds();
     this.tutorial = null;
-    if (!SaveManager.data.tutorialDone[farmId]) {
+    if (Construction.capacity(farmId) <= 0) {
+      // nothing has been built here yet: no animals, no tutorial — the scene
+      // is just the plot plus its build call-to-action
+    } else if (!SaveManager.data.tutorialDone[farmId]) {
       // first visit: exactly two babies pre-placed, spawning paused until they merge
       this.startTutorial();
     } else {
       // restore saved animals (incl. offline-spawned ones) on free spots
       const saved = SaveManager.data.animals[farmId] || [];
-      for (const a of saved) {
+      const cap = Construction.capacity(farmId);
+      for (const a of saved.slice(0, cap)) {
         const p = this.freeSpot();
         const an = new Animal(this.def.species, a.stage, p.x, p.y);
         an.setState('idle', U.rand(0.5, 2));
         an.scaleX = an.scaleY = 1;
+        this.armEscape(an);
         this.animals.push(an);
       }
     }
+  }
+
+  /** Walk/spawn area: the current fence footprint (or the whole plot). */
+  setBounds() {
+    const R = ENVIRONMENT.playRect(this.farmId);
+    this.bounds = { x: R.x + 18, y: R.y + 26, w: R.w - 36, h: R.h - 46 };
+  }
+
+  /**
+   * A build step completed: re-bake the background, recalculate the playable
+   * area for the new fence footprint (so added capacity is physically
+   * usable), pull existing animals back inside it and start the first-merge
+   * tutorial if the house has only just made spawning possible.
+   */
+  refresh() {
+    this.bg = ENVIRONMENT.farm(this.farmId);
+    this.setBounds();
+    const b = this.bounds;
+    for (const a of this.animals) {
+      a.x = U.clamp(a.x, b.x, b.x + b.w);
+      a.y = U.clamp(a.y, b.y, b.y + b.h);
+      a.homeX = a.x; a.homeY = a.y;
+      if (!Construction.escapesActive(this.farmId)) {
+        // the fence is up: escape logic is off for good
+        a.escaping = false;
+        a.escapeT = Infinity;
+        a.alpha = 1;
+        if (a.state === 'escape') a.setState('idle', U.rand(0.5, 2));
+      }
+    }
+    if (!this.tutorial && Construction.capacity(this.farmId) > 0 &&
+        !SaveManager.data.tutorialDone[this.farmId]) {
+      this.startTutorial();
+    }
+    this.spawnT = Math.min(this.spawnT, Upgrades.spawnInterval(this.farmId));
+  }
+
+  /** Give one animal its own escape countdown (no fence = animals wander off). */
+  armEscape(animal) {
+    animal.escapeT = Construction.escapesActive(this.farmId)
+      ? Construction.escapeDelay(this.farmId) : Infinity;
   }
 
   /** TutorialManager: seed the guaranteed first merge and show the drag hint. */
@@ -71,9 +113,11 @@ class FarmScene {
 
   /** SpawnManager: place a new animal at a free spot. */
   spawnAnimal(stage = 0, sfx = true) {
-    if (this.animals.length >= CONFIG.MAX_ANIMALS) return null;
+    // hard cap: the fence tier's capacity on construction farms
+    if (this.animals.length >= Construction.capacity(this.farmId)) return null;
     const p = this.freeSpot();
     const a = new Animal(this.def.species, stage, p.x, p.y);
+    this.armEscape(a);
     this.animals.push(a);
     Discovery.mark(this.def.species, stage); // babies count for the collection, no celebration
     VFXManager.dust(p.x, p.y, 6);
@@ -118,6 +162,14 @@ class FarmScene {
 
   // ---------------- MergeManager: input ----------------
   pointerDown(x, y) {
+    // the farmhouse is the entry point for the build/upgrade menu
+    for (const gh of this.ghosts) {
+      if (x >= gh.x && x <= gh.x + gh.w && y >= gh.y && y <= gh.y + gh.h) {
+        AudioManager.play('click');
+        Game.openBuild(this.farmId);
+        return true;
+      }
+    }
     // topmost animal under pointer
     for (let i = this.animals.length - 1; i >= 0; i--) {
       const a = this.animals[i];
@@ -193,6 +245,9 @@ class FarmScene {
     const evolved = new Animal(species, newStage, mx, my);
     evolved.setState('idle', U.rand(1, 2));
     evolved.scaleX = evolved.scaleY = 1;
+    // a successful match cancels both escapes; the evolved animal starts a
+    // fresh countdown of its own
+    this.armEscape(evolved);
     this.animals.push(evolved);
     const cols = ['#ffe98a', '#f4c437', '#fff6d0', '#ffffff'];
     VFXManager.burst(mx, my - 14, cols, 18, 110);
@@ -220,7 +275,12 @@ class FarmScene {
   }
 
   update(dt) {
-    // SpawnManager tick (paused until the tutorial merge is done)
+    // SpawnManager tick (paused until the tutorial merge is done, and
+    // silent while nothing has been built that could hold animals)
+    if (Construction.capacity(this.farmId) <= 0) {
+      this.updatePoops(dt);
+      return;
+    }
     if (!this.tutorial) {
       this.spawnT -= dt;
       if (this.spawnT <= 0) {
@@ -231,18 +291,44 @@ class FarmScene {
       this.tutorial.t += dt;
     }
 
+    // no fence: every animal counts down its own escape timer and then
+    // wanders off the plot (staggered, never all at once)
+    const escapes = Construction.escapesActive(this.farmId) && !this.tutorial;
+    const cfg = Construction.escapeCfg(this.farmId);
+
+    let lost = false;
     for (let i = this.animals.length - 1; i >= 0; i--) {
       const a = this.animals[i];
+      if (escapes && !a.escaping && !a.dragging && a.state !== 'merging') {
+        a.escapeT -= dt;
+        if (a.escapeT <= 0) a.startEscape(this.bounds, cfg);
+      }
       a.update(dt, this.bounds, this);
       // keep the tutorial pair in place so the merge stays obvious
       if (this.tutorial && a.state === 'walk') a.setState('idle', 1e9);
-      if (a.dead) this.animals.splice(i, 1);
+      if (a.dead) {
+        if (a.escaped) lost = true;
+        this.animals.splice(i, 1);
+      }
+    }
+    // an animal that walked off is gone for good — keep the save in step
+    if (lost) {
+      if (this.dragged && this.dragged.dead) { this.dragged = null; this.mergeTarget = null; }
+      this.persist();
     }
     this.updatePoops(dt);
   }
 
+  /**
+   * Render order (back to front): background, the farmhouse layer (ghost
+   * placeholder + call-to-action indicator), poops, animals, UFO/pigeon/
+   * tornado, then the tutorial overlay. Tutorial content always draws last,
+   * so nothing in the scene can cover it — and the house indicator is
+   * suppressed entirely while the tutorial runs.
+   */
   draw(ctx) {
     ctx.drawImage(this.bg, 0, 0);
+    this.drawHouse(ctx);
 
     // poops (under animals)
     for (const p of this.poops) {
@@ -289,6 +375,82 @@ class FarmScene {
     if (this.tutorial) this.drawTutorial(ctx);
   }
 
+  // ---------------- construction: in-scene call to action ----------------
+  /**
+   * The farmhouse is the farm's single entry point: tapping it opens the
+   * build/upgrade menu (Game.openBuild). There are no loose in-scene build
+   * buttons — this draws the house layer only:
+   *   - the ghosted placeholder while the house itself is unbuilt (the built
+   *     house is baked into the background, see ENVIRONMENT.farm)
+   *   - the ghosted fence footprint, so "you need a fence" still reads in
+   *     the scene (a hint, not a button — it is not tappable)
+   *   - the call-to-action indicator when a purchase is actually affordable
+   * Registers the house's hit rect on this.ghosts.
+   */
+  drawHouse(ctx) {
+    this.ghosts = [];
+    if (!Construction.required(this.farmId)) return;
+    const stage = Construction.stage(this.farmId);
+    const hr = ENVIRONMENT.houseRect(this.farmId);
+    const pulse = 0.55 + Math.sin(performance.now() / 380) * 0.2;
+
+    if (stage === 'house') {
+      // not built yet: a plain translucent ghost right where it will stand —
+      // no outline or highlight around it, the badge is the only indicator
+      ctx.globalAlpha = 0.45;
+      ctx.drawImage(hr.img, hr.x, hr.y, hr.w, hr.h);
+      ctx.globalAlpha = 1;
+    } else if (stage === 'fence') {
+      // outline the footprint the first fence tier will enclose
+      const R = ENVIRONMENT.rectForLevel(this.farmId, 1);
+      const gx = R.x - 12, gy = R.y - 20, gw = R.w + 24, gh = R.h + 14;
+      this.dashedRect(ctx, gx, gy, gw, gh, pulse);
+      // ghost posts at the corners so it reads as a fence, not a UI box
+      ctx.globalAlpha = pulse * 0.55;
+      for (const [px, py] of [[gx, gy], [gx + gw - 8, gy], [gx, gy + gh - 16], [gx + gw - 8, gy + gh - 16]]) {
+        ctx.fillStyle = SPRITES.P.wood; ctx.fillRect(px, py, 8, 16);
+        ctx.fillStyle = SPRITES.P.woodHi; ctx.fillRect(px, py, 2, 16);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    this.ghosts.push({ id: 'house', x: hr.x - 8, y: hr.y - 8, w: hr.w + 16, h: hr.h + 16 });
+    this.drawHouseCTA(ctx, hr);
+  }
+
+  /** Is there a purchase the player can actually afford right now? */
+  buildActionReady() {
+    if (!Construction.required(this.farmId)) return false;
+    const inf = Construction.info(this.farmId);
+    return !inf.maxed && SaveManager.data.coins >= inf.cost;
+  }
+
+  /**
+   * Call-to-action on the house: the game's standard red "!" notification
+   * badge (UI.drawBadge — the same component the UPGRADE button uses), and
+   * nothing else. Pinned to the house sprite's top-right corner so it holds
+   * at any resolution, clamped into UI.safeArea() to stay clear of the HUD.
+   * Shown only when a real purchase is affordable, and suppressed while the
+   * first-merge tutorial is running.
+   */
+  drawHouseCTA(ctx, hr) {
+    if (this.tutorial || !this.buildActionReady()) return;
+    const safe = UI.safeArea();
+    const bx = U.clamp(hr.x + hr.w - 2, safe.x + 10, safe.x + safe.w - 10);
+    const by = U.clamp(hr.y + 2, safe.y + 10, safe.y + safe.h - 10);
+    UI.drawBadge(ctx, bx, by);
+  }
+
+  dashedRect(ctx, x, y, w, h, pulse) {
+    ctx.save();
+    ctx.globalAlpha = 0.45 + pulse * 0.4;
+    ctx.strokeStyle = '#fff6e8';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 5]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+
   /** Drag hint: dashed guide + hand sweeping from one baby onto the other. */
   drawTutorial(ctx) {
     const { a, b, t } = this.tutorial;
@@ -321,7 +483,7 @@ class FarmScene {
     ctx.save();
     ctx.globalAlpha = 0.85 + Math.sin(t * 4) * 0.15;
     const lx = (a.x + b.x) / 2, ly = Math.min(a.y, b.y) - 48;
-    UI.drawText(ctx, 'DRAG TO MERGE!', lx, ly, UI.SIZE.BUTTON, '#fff6e8', 'center', true);
+    UI.drawText(ctx, 'DRAG TO MERGE!', lx, ly, 8.5, '#fff6e8', 'center');
     ctx.restore();
   }
 }
