@@ -2,9 +2,41 @@
  * AnimalController — one instance per animal on the farm.
  * State machine: idle / walk / peck(graze) / drag / merging / spawning /
  * escape (walking off an unfenced farm, or jumping a full pen's fence —
- * see startEscape; an escaping animal is locked out of all interaction).
+ * see startEscape; an escaping animal is locked out of all interaction and
+ * says goodbye in a speech bubble on its way out).
  * Handles blinking, breathing squash, walk bounce, poop production.
  */
+/**
+ * Farewell — the line an escaping animal says on its way out. Draws from a
+ * reshuffled bag of CONFIG.ESCAPE.LINES rather than picking blind, so a
+ * burst of escapes cycles the whole pool and never repeats back to back.
+ */
+const Farewell = (() => {
+  let bag = [];
+  let last = null;
+
+  function next() {
+    const pool = CONFIG.ESCAPE.LINES;
+    if (!pool || !pool.length) return null;
+    if (!bag.length) {
+      bag = pool.slice();
+      for (let i = bag.length - 1; i > 0; i--) {
+        const j = U.randInt(0, i);
+        const t = bag[i]; bag[i] = bag[j]; bag[j] = t;
+      }
+      // guard the seam between two bags: the next line out must differ
+      // from the one the previous bag ended on
+      if (bag.length > 1 && bag[bag.length - 1] === last) {
+        const t = bag[bag.length - 1]; bag[bag.length - 1] = bag[0]; bag[0] = t;
+      }
+    }
+    last = bag.pop();
+    return last;
+  }
+
+  return { next };
+})();
+
 class Animal {
   constructor(species, stage, x, y) {
     this.init(species, stage, x, y);
@@ -38,6 +70,8 @@ class Animal {
     this.escPhase = null;
     this.arcY = 0;       // hop/jump height offset (visual only)
     this.cueT = 0;       // time since the escape tell started
+    this.farewell = null;   // goodbye line + which side its bubble sits on
+    this.bubbleSide = 1;
     this.shadowW = SPRITES.ANIMAL_SIZES[species][stage][0] * CONFIG.ANIMAL_VISUAL_SCALE * 0.6;
     return this;
   }
@@ -101,6 +135,11 @@ class Animal {
     this.legT = 0;
     this.wobble = 0;
     this.cueT = 0;
+    // the goodbye bubble opens on the same beat as the tell; it sits on the
+    // side the animal is leaving *from*, so it trails rather than covering
+    // the ground ahead (bubbleBox flips it back at the view edges)
+    this.farewell = Farewell.next();
+    this.bubbleSide = this.exitX > this.x ? -1 : 1;
     this.setState('escape', U.rand(cfg.TELL_MIN, cfg.TELL_MAX));
   }
 
@@ -315,6 +354,67 @@ class Animal {
     ctx.fillStyle = '#fff6e8';
     ctx.fillRect(this.x - 1, y - 4, 2, 6);
     ctx.fillRect(this.x - 1, y + 3, 2, 2);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  /**
+   * Opacity of the farewell bubble: it tracks the animal's own fade but
+   * bottoms out early (FADE_FLOOR), so the words are gone slightly before
+   * the animal is — never a bubble hanging over empty ground.
+   */
+  get bubbleAlpha() {
+    const f = CONFIG.ESCAPE.BUBBLE.FADE_FLOOR;
+    return U.clamp((this.alpha - f) / (1 - f), 0, 1);
+  }
+
+  /**
+   * Where the farewell bubble sits this frame (null if it has nothing to
+   * say). Anchored above the "!" tell cue and offset to one side; the side
+   * flips, then the whole box clamps, if it would run off the view.
+   * FarmScene owns the drawing so it can de-overlap several at once.
+   */
+  bubbleBox() {
+    if (!this.escaping || !this.farewell || this.bubbleAlpha <= 0) return null;
+    const B = CONFIG.ESCAPE.BUBBLE;
+    const w = Math.round(PixelFont.measure(this.farewell, B.TEXT)) + B.PAD_X * 2;
+    const h = Math.round(PixelFont.snap(B.TEXT)) + B.PAD_Y * 2;
+    // top of the "!" cue (see drawFleeCue) — the bubble stacks above it, so
+    // neither one ever covers the animal's body or the fence line
+    const cueTop = this.y + (this.arcY || 0) - this.radius * 1.7 - 24;
+    const half = w / 2;
+    let cx = this.x + this.bubbleSide * B.DX;
+    if (cx - half < B.MARGIN) cx = this.x + B.DX;
+    else if (cx + half > CONFIG.VIEW_W - B.MARGIN) cx = this.x - B.DX;
+    cx = U.clamp(cx, B.MARGIN + half, CONFIG.VIEW_W - B.MARGIN - half);
+    const bottom = cueTop - B.DY;
+    return { x: Math.round(cx - half), y: Math.round(bottom - h), w, h, tailX: this.x };
+  }
+
+  /**
+   * Cartoon speech bubble with a tail pointing down at the animal: cream
+   * face, the art bible's dark outline, game font inside, and a short
+   * scale-up pop so it reads as playful rather than as an error message.
+   */
+  drawSpeechBubble(ctx, box) {
+    const B = CONFIG.ESCAPE.BUBBLE;
+    const pop = U.easeOutBack(U.clamp(this.cueT / B.POP, 0, 1));
+    if (pop <= 0) return;
+    const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+    const tailX = Math.round(U.clamp(box.tailX, box.x + 6, box.x + box.w - 6));
+    ctx.save();
+    ctx.globalAlpha = this.bubbleAlpha;
+    ctx.translate(cx, cy);
+    ctx.scale(pop, pop);
+    ctx.translate(-cx, -cy);
+    // outline pass (box + tail), then the cream face inset by 1px
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(box.x, box.y, box.w, box.h);
+    for (let i = 0; i < 4; i++) ctx.fillRect(tailX - 3 + i, box.y + box.h + i, 4 - i, 1);
+    ctx.fillStyle = '#fff6e8';
+    ctx.fillRect(box.x + 1, box.y + 1, box.w - 2, box.h - 2);
+    for (let i = 0; i < 3; i++) ctx.fillRect(tailX - 3 + i, box.y + box.h - 1 + i, 3 - i, 1);
+    UI.drawText(ctx, this.farewell, cx, box.y + B.PAD_Y, B.TEXT, PIXEL.OUTLINE, 'center');
     ctx.globalAlpha = 1;
     ctx.restore();
   }

@@ -290,6 +290,24 @@ const CONFIG = {
     TELL_HOP_H: 7,         // startled hop height (px)
     SPEED: 22,             // px/sec while walking out (normal walk anim)
     FADE: 0.8,             // seconds to fade out past the boundary
+    // Farewell speech bubble — pops in on the same beat as the tell (so it
+    // doubles as the "this one no longer responds" signal) and rides along
+    // above the animal until it is gone. LINES is a plain tunable pool:
+    // add, edit or reorder freely, no code change needed. Lines are drawn
+    // from a reshuffled bag, so the same one never comes up twice in a row.
+    LINES: ['GOODBYE!', 'BYE!', 'SO LONG!', "I'M OUT!", 'LATER!', 'ADIOS!'],
+    BUBBLE: {
+      POP: 0.15,           // scale-up pop-in (s)
+      TEXT: 6.5,           // text size (px)
+      PAD_X: 5,            // text padding inside the bubble (px)
+      PAD_Y: 4,
+      DX: 14,              // sideways offset from the animal (flips at edges)
+      DY: 6,               // gap above the "!" tell cue
+      MARGIN: 4,           // keep this far inside the view edges
+      GAP: 3,              // min spacing between two bubbles
+      FADE_FLOOR: 0.4,     // bubble is fully gone while the animal is still
+                           // this visible (it never lingers over empty ground)
+    },
   },
 
   // Animal behaviour
