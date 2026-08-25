@@ -70,20 +70,55 @@ const ENVIRONMENT = (() => {
     }
   }
 
-  // Fence art tiers (construction farms): 0 rough wood, 1 planked (the base
-  // sprite art, used by every classic farm), 2 painted/reinforced. Each tier
-  // tints the horizontal fence sprite and recolors posts + side rails.
-  const FENCE_TIERS = [
-    { tint: 'rgba(52,34,16,0.38)', post: ['#7d5c33', '#8f6c3f', '#5a3d1e'], rail: ['#5a3d1e', '#7d5c33'] },
-    null, // planked = untinted base art with the standard wood palette
-    { tint: 'rgba(240,236,226,0.42)', post: ['#e9e9e4', '#ffffff', '#c2c2ba'], rail: ['#c2c2ba', '#e9e9e4'] },
-  ];
+  /**
+   * Fence art, one palette set per farm theme (a construction farm picks its
+   * set with FENCE_THEME; a farm's FENCE_LEVELS[].art indexes into it). Each
+   * tier tints the horizontal fence sprite and recolors posts + side rails,
+   * so a farm's fence reads as its own material across the whole upgrade
+   * path instead of every farm sharing one wood look. A `null` tier means
+   * "untinted base sprite art with the standard wood palette" — that is what
+   * every classic, non-construction farm renders.
+   */
+  const FENCE_THEMES = {
+    // Farm 2 pasture wood: rough offcuts -> clean planks -> painted white
+    wood: [
+      { tint: 'rgba(52,34,16,0.38)', post: ['#7d5c33', '#8f6c3f', '#5a3d1e'], rail: ['#5a3d1e', '#7d5c33'] },
+      null,
+      { tint: 'rgba(240,236,226,0.42)', post: ['#e9e9e4', '#ffffff', '#c2c2ba'], rail: ['#c2c2ba', '#e9e9e4'] },
+    ],
+    // Farm 3 cattle ranch: sun-bleached rails -> barn-red stained timber ->
+    // iron-reinforced posts. Cooler and heavier than Farm 2's wood, and
+    // pitched against Farm 3's brown dirt ground rather than green pasture.
+    ranch: [
+      { tint: 'rgba(196,186,168,0.40)', post: ['#a89d88', '#c2b8a4', '#7d735f'], rail: ['#7d735f', '#a89d88'] },
+      { tint: 'rgba(150,48,38,0.45)',   post: ['#9c3a2c', '#b8503c', '#6e2419'], rail: ['#6e2419', '#9c3a2c'] },
+      { tint: 'rgba(84,92,104,0.48)',   post: ['#6b7480', '#8b95a2', '#454c56'], rail: ['#454c56', '#6b7480'] },
+    ],
+  };
+
+  /** Palette for one tier of one theme, or null for the base wood look. */
+  function fenceTier(theme, art) {
+    const set = FENCE_THEMES[theme] || FENCE_THEMES.wood;
+    return set[art] || null;
+  }
+
+  /**
+   * Post colors [face, highlight, shadow] for a farm's fence at a given art
+   * tier — shared by the baked fence and the live ghost preview so an
+   * unbuilt fence previews in the material the farm is actually going to get.
+   */
+  function fencePalette(farmId, art = 0) {
+    const tier = fenceTier(Construction.fenceTheme(farmId), art);
+    return tier ? tier.post : [SPRITES.P.wood, SPRITES.P.woodHi, SPRITES.P.woodDk];
+  }
+
   const fenceRowCache = {};
-  function fenceRow(art) {
-    const tier = FENCE_TIERS[art];
+  function fenceRow(theme, art) {
+    const tier = fenceTier(theme, art);
     const base = SPRITES.fenceH(24);
     if (!tier) return base;
-    if (fenceRowCache[art]) return fenceRowCache[art];
+    const key = theme + ':' + art;
+    if (fenceRowCache[key]) return fenceRowCache[key];
     const c = document.createElement('canvas');
     c.width = base.width; c.height = base.height;
     const g = c.getContext('2d');
@@ -91,14 +126,14 @@ const ENVIRONMENT = (() => {
     g.globalCompositeOperation = 'source-atop';
     g.fillStyle = tier.tint;
     g.fillRect(0, 0, c.width, c.height);
-    fenceRowCache[art] = c;
+    fenceRowCache[key] = c;
     return c;
   }
 
-  /** Fence perimeter around a play rect, in the given art tier. */
-  function drawFence(g, rect, art = 1) {
-    const tier = FENCE_TIERS[art];
-    const f = fenceRow(art);
+  /** Fence perimeter around a play rect, in the given theme's art tier. */
+  function drawFence(g, rect, art = 1, theme = 'wood') {
+    const tier = fenceTier(theme, art);
+    const f = fenceRow(theme, art);
     const sc = 2;
     const { x, y, w, h } = rect;
     const top = y - 20, bot = y + h - 6;
@@ -150,7 +185,7 @@ const ENVIRONMENT = (() => {
    * Build one farm background. Construction farms re-render (and re-cache)
    * per build stage: a bare plot has neither house nor pen, a housed-but-
    * unfenced plot is open pasture, and each fence tier bakes its own
-   * footprint + art (see playRect / FENCE_TIERS).
+   * footprint + art (see playRect / FENCE_THEMES).
    */
   function farm(id) {
     const house = Construction.houseBuilt(id);
@@ -235,7 +270,7 @@ const ENVIRONMENT = (() => {
     }
 
     const def = Construction.levelDef(id);
-    drawFence(g, R, def ? def.art : 1);
+    drawFence(g, R, def ? def.art : 1, Construction.fenceTheme(id));
 
     // in-pen props tucked into the top corners, out of the walk area
     g.drawImage(SPRITES.barrel(), R.x + 6, R.y - 2, 28, 32);
@@ -342,9 +377,11 @@ const ENVIRONMENT = (() => {
   }
 
   function worldMap() {
-    // the map re-bakes (and re-caches) whenever a construction farm's
-    // build stage changes, so plots develop visibly as the player builds
-    const mapKey = 'map-' + CONFIG.FARMS.map(f => mapStage(f.id)).join('');
+    // the map re-bakes (and re-caches) whenever a construction farm's build
+    // stage or fence tier changes, so plots develop visibly as the player
+    // builds — including the fence ring taking on each new tier's material
+    const mapKey = 'map-' + CONFIG.FARMS
+      .map(f => mapStage(f.id) + '.' + Construction.fenceLevel(f.id)).join('');
     if (cache[mapKey]) return cache[mapKey];
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
@@ -401,13 +438,16 @@ const ENVIRONMENT = (() => {
         g.fillRect(n.x - 40 + rnd() * 78, n.y - 26 + rnd() * 52, 3, 2);
       }
       if (stage < 2) continue; // no fence built yet: no fence ring on the plot
-      // fence ring: posts around ellipse
+      // fence ring: posts around ellipse, in the tier the farm has actually
+      // built so the map plot matches the material inside the farm
+      const [face, hi] = fencePalette(i, Construction.fenceLevel(i)
+        ? Construction.levelDef(i).art : 1);
       for (let a = 0; a < 14; a++) {
         const t = a / 14 * Math.PI * 2;
         const px2 = n.x + Math.cos(t) * 44, py = n.y + Math.sin(t) * 32;
         g.fillStyle = PIXEL.OUTLINE; g.fillRect(px2 - 2, py - 7, 6, 12);
-        g.fillStyle = SPRITES.P.wood; g.fillRect(px2 - 1, py - 6, 4, 10);
-        g.fillStyle = SPRITES.P.woodHi; g.fillRect(px2 - 1, py - 6, 1, 10);
+        g.fillStyle = face; g.fillRect(px2 - 1, py - 6, 4, 10);
+        g.fillStyle = hi; g.fillRect(px2 - 1, py - 6, 1, 10);
       }
     }
 
@@ -450,15 +490,17 @@ const ENVIRONMENT = (() => {
       bush1: () => SPRITES.bush(1), rock0: () => SPRITES.rock(0),
     };
     // Props tagged with a farm id + the build stage they appear at grow in
-    // with that farm's construction (Farm 2: the cottage arrives with the
-    // house, the pasture dressing with the fence).
+    // with that farm's construction: the farmhouse prop arrives with the
+    // house (stage 1) and the farm's dressing with the fence (stage 2), so a
+    // plot under construction reads as under construction from the map.
+    // Farm 1 has no entry and is therefore always fully dressed.
     const MID_PROPS = [
       ['haystack', 47.5, 197, 24, 19], ['coop', 45, 121.84, 71, 62.16], ['nest', 85.5, 194, 32, 20],
       ['windmillTower', 170, 282, 36, 60, 1, 2], ['cottage', 212.3, 248.09, 79.9, 75.26, 1, 1],
       ['woolBale', 268, 342, 28, 22, 1, 2], ['woolBale', 256, 354.36, 22, 18, 1, 2],
       ['flower0', 212, 336, 16, 20, 1, 2], ['flower2', 208, 332, 16, 20, 1, 2],
-      ['silo', 37, 397, 32, 68], ['barn', 67.15, 379.22, 88.2, 78.22],
-      ['milkCan', 62, 480, 20, 24], ['milkCan', 76, 486, 16, 20],
+      ['silo', 37, 397, 32, 68, 2, 2], ['barn', 67.15, 379.22, 88.2, 78.22, 2, 1],
+      ['milkCan', 62, 480, 20, 24, 2, 2], ['milkCan', 76, 486, 16, 20, 2, 2],
     ];
     const FG_PROPS = [
       ['tree1', 206, 79.5, 60, 72], ['tree0', 258, 409, 60, 72], ['tree1', 244, 490, 60, 72],
@@ -482,7 +524,7 @@ const ENVIRONMENT = (() => {
   }
 
   return {
-    farm, worldMap, mapStage, playRect, rectForLevel, houseRect,
+    farm, worldMap, mapStage, playRect, rectForLevel, houseRect, fencePalette,
     PLAY, MAP_NODES, THEME, FLAG, roadPoints, GROUNDS,
   };
 })();

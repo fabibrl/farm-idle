@@ -461,11 +461,15 @@ class FarmScene {
       const R = ENVIRONMENT.rectForLevel(this.farmId, 1);
       const gx = R.x - 12, gy = R.y - 20, gw = R.w + 24, gh = R.h + 14;
       this.dashedRect(ctx, gx, gy, gw, gh, pulse);
-      // ghost posts at the corners so it reads as a fence, not a UI box
+      // ghost posts at the corners so it reads as a fence, not a UI box —
+      // in the material this farm's first fence tier will actually be built
+      // from (see ENVIRONMENT.FENCE_THEMES)
+      const lv1 = Construction.levelDef(this.farmId, 1);
+      const [face, hi] = ENVIRONMENT.fencePalette(this.farmId, lv1 ? lv1.art : 0);
       ctx.globalAlpha = pulse * 0.55;
       for (const [px, py] of [[gx, gy], [gx + gw - 8, gy], [gx, gy + gh - 16], [gx + gw - 8, gy + gh - 16]]) {
-        ctx.fillStyle = SPRITES.P.wood; ctx.fillRect(px, py, 8, 16);
-        ctx.fillStyle = SPRITES.P.woodHi; ctx.fillRect(px, py, 2, 16);
+        ctx.fillStyle = face; ctx.fillRect(px, py, 8, 16);
+        ctx.fillStyle = hi; ctx.fillRect(px, py, 2, 16);
       }
       ctx.globalAlpha = 1;
     }

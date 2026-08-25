@@ -28,6 +28,16 @@ const Construction = (() => {
 
   function maxFenceLevel(farmId) { return required(farmId) ? plan(farmId).FENCE_LEVELS.length : 0; }
 
+  /**
+   * Which fence palette set this farm's art tiers index into (see
+   * ENVIRONMENT.FENCE_THEMES) — every farm gets its own visual identity
+   * across tiers. Classic farms fall back to the base wood look.
+   */
+  function fenceTheme(farmId) {
+    const p = plan(farmId);
+    return (p && p.FENCE_THEME) || 'wood';
+  }
+
   function fenceBuilt(farmId) { return !required(farmId) || state(farmId).fence >= 1; }
 
   /** Definition of the current fence tier, or null while unbuilt. */
@@ -212,7 +222,7 @@ const Construction = (() => {
   }
 
   return {
-    required, landOwned, houseBuilt, fenceLevel, maxFenceLevel, fenceBuilt,
+    required, landOwned, houseBuilt, fenceLevel, maxFenceLevel, fenceBuilt, fenceTheme,
     levelDef, nextDef, isComplete, capacity, escapesActive, jumpCfg,
     escapeDelay, landCost, houseCost, nextCost, stage, pending, grantLand,
     buyHouse, buyFence, buyNext, info,

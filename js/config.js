@@ -173,9 +173,12 @@ const CONFIG = {
   // progresses, but never wall).
   UNLOCK_COSTS: [0, 12000, 120000],
 
-  // ---------------- Farm construction (Farm 2 only) ----------------
+  // ---------------- Farm construction ----------------
   // Step-by-step build progression, keyed by farm id (see js/construction.js).
-  // Farms without an entry keep the classic one-shot unlock, untouched.
+  // The system is fully data-driven: adding a farm to this map is all it takes
+  // to put that farm on the staged build flow — every consumer (scene, map,
+  // build panel, idle, escapes) reads its numbers, art tier and copy from
+  // here. Farms without an entry keep the classic one-shot unlock, untouched.
   //   1. LAND_COST buys the plot on the map (replaces UNLOCK_COSTS for this
   //      farm) — the scene opens but the plot is bare and produces nothing.
   //   2. HOUSE_COST builds the farmhouse: this is what starts animal
@@ -188,17 +191,23 @@ const CONFIG = {
   //      exclusive to farms listed here: on every other farm animals stay
   //      contained and spawning simply stops at the capacity limit.
   //   4. Later levels upgrade the fence: a higher hard animal cap, a
-  //      physically bigger pen footprint and an art tier per level
-  //      (0 rough wood, 1 planked, 2 painted/reinforced).
-  // Land + house + first fence together match the old 12000 lump-sum unlock,
-  // so reaching an operational Farm 2 costs the same as before; the two
-  // fence upgrades are new, optional capacity growth beyond that. The final
-  // tier's capacity matches MAX_ANIMALS so a finished Farm 2 plays exactly
-  // like every other farm. All values are balance-tunable.
+  //      physically bigger pen footprint and an art tier per level. `art`
+  //      indexes into the farm's FENCE_THEME palette set (see
+  //      ENVIRONMENT.FENCE_THEMES) so each farm's fence follows its own
+  //      visual identity instead of sharing one wood look.
+  // On every construction farm, land + house + first fence together add up to
+  // that farm's old UNLOCK_COSTS lump sum, so reaching an operational farm
+  // costs exactly what it did before; the fence upgrades are new, optional
+  // capacity growth beyond that. Every farm's final tier caps at
+  // MAX_ANIMALS — the pen is a fixed physical size, so the top tier is the
+  // point where a constructed farm plays exactly like a classic one, and
+  // later farms scale up by *starting* more generous rather than by ending
+  // higher. All values are balance-tunable.
   CONSTRUCTION: {
     1: {
       LAND_COST: 4000,
       HOUSE_COST: 3000,
+      FENCE_THEME: 'wood',    // pasture wood: rough -> planked -> painted white
       FENCE_LEVELS: [
         { cost: 5000,  capacity: 6,  size: 0.62, art: 0 },
         { cost: 14000, capacity: 10, size: 0.82, art: 1 },
@@ -230,13 +239,50 @@ const CONFIG = {
         HOP_HEIGHT: 40,        // peak of the arc above the ground line (px)
       },
     },
+
+    // Farm 3 (cows) — same build sequence as Farm 2, scaled to its slot in
+    // the progression. Costs are 10x Farm 2's throughout, matching the 10x
+    // step between the two farms' old lump-sum unlocks (12000 -> 120000), so
+    // land + house + first fence still total exactly UNLOCK_COSTS[2].
+    // Production scales on top of that through FARMS[2].incomeMult (12 vs
+    // Farm 2's 4), so a built Farm 3 out-earns Farm 2 without needing any
+    // per-farm income values here.
+    2: {
+      LAND_COST: 40000,
+      HOUSE_COST: 30000,
+      FENCE_THEME: 'ranch',   // cattle ranch: weathered rails -> barn-red timber -> iron-reinforced
+      // Capacities start higher than Farm 2's (8/11 vs 6/10) and still land
+      // on MAX_ANIMALS at the top tier — the pen footprint is the same
+      // physical rect on every farm, so the ceiling is shared and the
+      // scaling shows up as a roomier farm from the very first fence.
+      FENCE_LEVELS: [
+        { cost: 50000,  capacity: 8,  size: 0.70, art: 0 },
+        { cost: 140000, capacity: 11, size: 0.86, art: 1 },
+        { cost: 400000, capacity: 14, size: 1.00, art: 2 },
+      ],
+      // Cows are slower and heavier than sheep: a bigger unfenced herd, a
+      // touch longer on the board before wandering off, and a lower, slower
+      // hop when one does clear the fence.
+      UNFENCED_CAPACITY: 7,
+      ESCAPE_TIME: 16,
+      ESCAPE_VARIANCE: 5,
+      FENCE_JUMP: {
+        ENABLED: true,
+        MIN_STAGE: 1,          // stage index: 1 = tier 2 (ADULT) and above
+        PRESSURE_TIME: 9,
+        VARIANCE: 3,
+        COOLDOWN: 20,
+        HOP_TIME: 1.05,
+        HOP_HEIGHT: 34,
+      },
+    },
   },
 
   // ---------------- Leaving the farm ----------------
   // Animation values shared by both ways an animal leaves for good (see
   // js/animal.js 'escape'): the unfenced walk-off and the fence jump. Both
-  // belong to the construction farm above — a farm without a CONSTRUCTION
-  // entry never escapes, so nothing here is ever reached from Farm 1 or 3.
+  // belong to the construction farms above — a farm without a CONSTRUCTION
+  // entry never escapes, so nothing here is ever reached from Farm 1.
   // An animal that has started leaving is locked out of interaction — it
   // can't be picked up or matched — so the sequence opens with a readable
   // tell (startled hop + "!" + a brief opacity blink) before it sets off.
