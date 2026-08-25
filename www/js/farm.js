@@ -461,11 +461,8 @@ class FarmScene {
       const R = ENVIRONMENT.rectForLevel(this.farmId, 1);
       const gx = R.x - 12, gy = R.y - 20, gw = R.w + 24, gh = R.h + 14;
       this.dashedRect(ctx, gx, gy, gw, gh, pulse);
-      // ghost posts at the corners so it reads as a fence, not a UI box —
-      // in the material this farm's first fence tier will actually be built
-      // from (see ENVIRONMENT.FENCE_THEMES)
-      const lv1 = Construction.levelDef(this.farmId, 1);
-      const [face, hi] = ENVIRONMENT.fencePalette(this.farmId, lv1 ? lv1.art : 0);
+      // ghost posts at the corners so it reads as a fence, not a UI box
+      const [face, hi] = ENVIRONMENT.fencePalette();
       ctx.globalAlpha = pulse * 0.55;
       for (const [px, py] of [[gx, gy], [gx + gw - 8, gy], [gx, gy + gh - 16], [gx + gw - 8, gy + gh - 16]]) {
         ctx.fillStyle = face; ctx.fillRect(px, py, 8, 16);
@@ -478,9 +475,19 @@ class FarmScene {
     this.drawHouseCTA(ctx, hr);
   }
 
-  /** Is there a purchase the player can actually afford right now? */
+  /**
+   * Is there a purchase the player can actually afford right now? While the
+   * farm is still going up that means the next build step; once everything
+   * is built the house is the way into the upgrade menu instead, so it
+   * badges for an affordable upgrade. An undiscovered (locked) upgrade never
+   * counts — the badge only ever signals a purchase that can be made (see
+   * Upgrades.anyAffordable).
+   */
   buildActionReady() {
     if (!Construction.required(this.farmId)) return false;
+    if (Construction.stage(this.farmId) === 'max') {
+      return SaveManager.data.upgradeTutorialDone && Upgrades.anyAffordable(this.farmId);
+    }
     const inf = Construction.info(this.farmId);
     return !inf.maxed && SaveManager.data.coins >= inf.cost;
   }

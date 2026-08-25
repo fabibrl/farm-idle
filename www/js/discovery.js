@@ -25,6 +25,17 @@ const Discovery = (() => {
     return true;
   }
 
+  /**
+   * The ET mutant (MUTANT 2) — the farm's final, fully mutated form. It is
+   * discovered by matching two Mutants on that farm, which is exactly what
+   * starts its UFO layer, so the farm's saved UFO state IS the discovery
+   * record (landed, or a Mutant 2 already collected / in transit).
+   */
+  function isEtDiscovered(farmId) {
+    const u = SaveManager.data.ufo[farmId];
+    return !!u && (u.landed || u.aliens > 0 || (u.pending || 0) > 0);
+  }
+
   /** Full collection snapshot: [{species, label, stages:[{name, discovered}]}] */
   function collection() {
     return CONFIG.FARMS.map(f => ({
@@ -47,5 +58,5 @@ const Discovery = (() => {
     return (f && f[stage]) || '';
   }
 
-  return { isDiscovered, mark, collection, displayName, flavor };
+  return { isDiscovered, isEtDiscovered, mark, collection, displayName, flavor };
 })();

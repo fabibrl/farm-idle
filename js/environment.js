@@ -71,69 +71,24 @@ const ENVIRONMENT = (() => {
   }
 
   /**
-   * Fence art, one palette set per farm theme (a construction farm picks its
-   * set with FENCE_THEME; a farm's FENCE_LEVELS[].art indexes into it). Each
-   * tier tints the horizontal fence sprite and recolors posts + side rails,
-   * so a farm's fence reads as its own material across the whole upgrade
-   * path instead of every farm sharing one wood look. A `null` tier means
-   * "untinted base sprite art with the standard wood palette" — that is what
-   * every classic, non-construction farm renders.
+   * Fence art — one look for the whole game. Every farm, built or classic,
+   * renders Farm 1's wood fence: same sprite, same palette, same proportions.
+   * A fence upgrade grows the enclosure (footprint + segment count, see
+   * playRect / rectForLevel); it never changes the material.
    */
-  const FENCE_THEMES = {
-    // Farm 2 pasture wood: rough offcuts -> clean planks -> painted white
-    wood: [
-      { tint: 'rgba(52,34,16,0.38)', post: ['#7d5c33', '#8f6c3f', '#5a3d1e'], rail: ['#5a3d1e', '#7d5c33'] },
-      null,
-      { tint: 'rgba(240,236,226,0.42)', post: ['#e9e9e4', '#ffffff', '#c2c2ba'], rail: ['#c2c2ba', '#e9e9e4'] },
-    ],
-    // Farm 3 cattle ranch: sun-bleached rails -> barn-red stained timber ->
-    // iron-reinforced posts. Cooler and heavier than Farm 2's wood, and
-    // pitched against Farm 3's brown dirt ground rather than green pasture.
-    ranch: [
-      { tint: 'rgba(196,186,168,0.40)', post: ['#a89d88', '#c2b8a4', '#7d735f'], rail: ['#7d735f', '#a89d88'] },
-      { tint: 'rgba(150,48,38,0.45)',   post: ['#9c3a2c', '#b8503c', '#6e2419'], rail: ['#6e2419', '#9c3a2c'] },
-      { tint: 'rgba(84,92,104,0.48)',   post: ['#6b7480', '#8b95a2', '#454c56'], rail: ['#454c56', '#6b7480'] },
-    ],
-  };
-
-  /** Palette for one tier of one theme, or null for the base wood look. */
-  function fenceTier(theme, art) {
-    const set = FENCE_THEMES[theme] || FENCE_THEMES.wood;
-    return set[art] || null;
-  }
 
   /**
-   * Post colors [face, highlight, shadow] for a farm's fence at a given art
-   * tier — shared by the baked fence and the live ghost preview so an
-   * unbuilt fence previews in the material the farm is actually going to get.
+   * Post colors [face, highlight, shadow] — shared by the baked fence and the
+   * live ghost preview, so an unbuilt fence previews in the material it will
+   * actually be built from.
    */
-  function fencePalette(farmId, art = 0) {
-    const tier = fenceTier(Construction.fenceTheme(farmId), art);
-    return tier ? tier.post : [SPRITES.P.wood, SPRITES.P.woodHi, SPRITES.P.woodDk];
+  function fencePalette() {
+    return [SPRITES.P.wood, SPRITES.P.woodHi, SPRITES.P.woodDk];
   }
 
-  const fenceRowCache = {};
-  function fenceRow(theme, art) {
-    const tier = fenceTier(theme, art);
-    const base = SPRITES.fenceH(24);
-    if (!tier) return base;
-    const key = theme + ':' + art;
-    if (fenceRowCache[key]) return fenceRowCache[key];
-    const c = document.createElement('canvas');
-    c.width = base.width; c.height = base.height;
-    const g = c.getContext('2d');
-    g.drawImage(base, 0, 0);
-    g.globalCompositeOperation = 'source-atop';
-    g.fillStyle = tier.tint;
-    g.fillRect(0, 0, c.width, c.height);
-    fenceRowCache[key] = c;
-    return c;
-  }
-
-  /** Fence perimeter around a play rect, in the given theme's art tier. */
-  function drawFence(g, rect, art = 1, theme = 'wood') {
-    const tier = fenceTier(theme, art);
-    const f = fenceRow(theme, art);
+  /** Fence perimeter around a play rect. */
+  function drawFence(g, rect) {
+    const f = SPRITES.fenceH(24);
     const sc = 2;
     const { x, y, w, h } = rect;
     const top = y - 20, bot = y + h - 6;
@@ -143,15 +98,13 @@ const ENVIRONMENT = (() => {
     }
     // side fences (vertical posts made from small segments)
     for (let fy = top + 16; fy < bot; fy += 22) {
-      drawPost(g, x - 12, fy, tier); drawPost(g, x + w + 4, fy, tier);
+      drawPost(g, x - 12, fy); drawPost(g, x + w + 4, fy);
     }
     // side rails
-    const railDk = tier ? tier.rail[0] : SPRITES.P.woodDk;
-    const railHi = tier ? tier.rail[1] : SPRITES.P.wood;
-    g.fillStyle = railDk;
+    g.fillStyle = SPRITES.P.woodDk;
     g.fillRect(x - 8, top + 10, 3, bot - top - 4);
     g.fillRect(x + w + 8, top + 10, 3, bot - top - 4);
-    g.fillStyle = railHi;
+    g.fillStyle = SPRITES.P.wood;
     g.fillRect(x - 9, top + 10, 1, bot - top - 4);
     g.fillRect(x + w + 7, top + 10, 1, bot - top - 4);
     // front fence
@@ -159,10 +112,8 @@ const ENVIRONMENT = (() => {
       g.drawImage(f, fx, bot, f.width * sc, f.height * sc);
     }
   }
-  function drawPost(g, x, y, tier) {
-    const face = tier ? tier.post[0] : SPRITES.P.wood;
-    const hi = tier ? tier.post[1] : SPRITES.P.woodHi;
-    const dk = tier ? tier.post[2] : SPRITES.P.woodDk;
+  function drawPost(g, x, y) {
+    const [face, hi, dk] = fencePalette();
     g.fillStyle = PIXEL.OUTLINE; g.fillRect(x - 1, y - 1, 10, 18);
     g.fillStyle = face; g.fillRect(x, y, 8, 16);
     g.fillStyle = hi; g.fillRect(x, y, 2, 16);
@@ -185,7 +136,7 @@ const ENVIRONMENT = (() => {
    * Build one farm background. Construction farms re-render (and re-cache)
    * per build stage: a bare plot has neither house nor pen, a housed-but-
    * unfenced plot is open pasture, and each fence tier bakes its own
-   * footprint + art (see playRect / FENCE_THEMES).
+   * footprint (see playRect).
    */
   function farm(id) {
     const house = Construction.houseBuilt(id);
@@ -269,8 +220,7 @@ const ENVIRONMENT = (() => {
       return c;
     }
 
-    const def = Construction.levelDef(id);
-    drawFence(g, R, def ? def.art : 1, Construction.fenceTheme(id));
+    drawFence(g, R);
 
     // in-pen props tucked into the top corners, out of the walk area
     g.drawImage(SPRITES.barrel(), R.x + 6, R.y - 2, 28, 32);
@@ -438,10 +388,9 @@ const ENVIRONMENT = (() => {
         g.fillRect(n.x - 40 + rnd() * 78, n.y - 26 + rnd() * 52, 3, 2);
       }
       if (stage < 2) continue; // no fence built yet: no fence ring on the plot
-      // fence ring: posts around ellipse, in the tier the farm has actually
-      // built so the map plot matches the material inside the farm
-      const [face, hi] = fencePalette(i, Construction.fenceLevel(i)
-        ? Construction.levelDef(i).art : 1);
+      // fence ring: posts around the ellipse, in the same wood the farm's
+      // own fence is built from
+      const [face, hi] = fencePalette();
       for (let a = 0; a < 14; a++) {
         const t = a / 14 * Math.PI * 2;
         const px2 = n.x + Math.cos(t) * 44, py = n.y + Math.sin(t) * 32;

@@ -229,13 +229,16 @@ const UI = (() => {
     }
   }
 
-  /** Small wooden sign with 1-2 lines (used on world map). An optional
-   *  `note` replaces the cost line on owned-but-unfinished plots. */
-  function woodSign(ctx, cx, cy, line1, line2, cost, note) {
-    const w = Math.max(measure(line1, SIZE.BUTTON), line2 ? measure(line2, SIZE.CAPTION) : 0,
-                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0,
-                       note ? measure(note, SIZE.CAPTION) : 0) + 18;
-    const h = 18 + (line2 ? 9 : 0) + (cost || note ? 11 : 0);
+  /** Small wooden sign with 1-2 lines (used on world map). `altLine1` is the
+   *  other title this sign can show (a farm swaps its generic name for its
+   *  themed one once the house is up): it is never drawn, only measured, so
+   *  the board keeps one width and the swap reads as a rename. */
+  function woodSign(ctx, cx, cy, line1, line2, cost, altLine1) {
+    const w = Math.max(measure(line1, SIZE.BUTTON),
+                       altLine1 ? measure(altLine1, SIZE.BUTTON) : 0,
+                       line2 ? measure(line2, SIZE.CAPTION) : 0,
+                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0) + 18;
+    const h = 18 + (line2 ? 9 : 0) + (cost ? 11 : 0);
     woodPanel(ctx, cx - w / 2, cy, w, h, {});
     drawText(ctx, line1, cx, cy + 5, SIZE.BUTTON, '#f4e8cc', 'center', true);
     let yy = cy + 17;
@@ -245,8 +248,6 @@ const UI = (() => {
       const tw = measure(cost, SIZE.CAPTION);
       ctx.drawImage(img, cx - tw / 2 - 12, yy - 3, 10, 10);
       drawText(ctx, cost, cx - tw / 2, yy, SIZE.CAPTION, '#ffe98a', 'left');
-    } else if (note) {
-      drawText(ctx, note, cx, yy, SIZE.CAPTION, '#ffb0a0', 'center', false, false, w - 8);
     }
     // legs
     ctx.fillStyle = P().woodDk;
@@ -263,6 +264,118 @@ const UI = (() => {
    * its hit rect on popup.cards and applies the purchase flash from popup.fx.
    * Returns the card's bottom y.
    */
+  // ---------------- upgrade panel ----------------
+  /**
+   * The panel lists ONLY discovered upgrades: an undiscovered animal has no
+   * row, no placeholder and no gap, so the player is never shown that
+   * anything else exists (see Upgrades.unlocked). The panel is pinned to the
+   * top it has at full height and grows downwards, so rows never shift.
+   */
+  const UPGRADES_TOP = 56;    // (H - 528) / 2: the full-height panel's top
+  const CARD_H = { spawn: 76, stage: 88 };
+  // A row discovered since the panel was last open slides in and fades up
+  // while the rows below it make room, then a shine sweeps across it.
+  const REVEAL = { DUR: 0.36, STAGGER: 0.1, SLIDE: 22, SHINE: 0.5 };
+  const easeOut = t => 1 - Math.pow(1 - t, 3);
+
+  /** Seconds this row has been revealing for, or null if it is at rest. */
+  function revealT(popup, key) {
+    const d = popup.reveal && popup.reveal[key];
+    return d === undefined ? null : popup.revealT - d;
+  }
+
+  /** 0..1 entry progress (1 = settled in its resting state). */
+  function revealP(popup, key) {
+    const t = revealT(popup, key);
+    return t === null ? 1 : U.clamp(t / REVEAL.DUR, 0, 1);
+  }
+
+  /** 0..1 shine-sweep progress, or null when no sweep is running. */
+  function revealShine(popup, key) {
+    const t = revealT(popup, key);
+    if (t === null) return null;
+    const s = (t - REVEAL.DUR) / REVEAL.SHINE;
+    return s >= 0 && s <= 1 ? s : null;
+  }
+
+  /**
+   * Row layout: every discovered upgrade in progression order, each taking
+   * only the fraction of its height it has grown to, plus the panel height
+   * that fits them. Pure metrics — called for the panel frame and again to
+   * draw, so both always agree.
+   */
+  function upgradeLayout(popup) {
+    const rows = [];
+    let dy = 32, first = true, stageSection = false;
+    for (const key of Upgrades.keys()) {
+      if (!Upgrades.unlocked(popup.farmId, key)) continue;
+      const spawn = key === 'spawn';
+      const p = easeOut(revealP(popup, key));
+      // 'FARM' heads the spawn row, the animal's name the first stage row
+      const caption = spawn ? 'FARM' : stageSection ? null
+                    : CONFIG.FARMS[popup.farmId].label;
+      if (!first) dy += (caption ? 22 : 10) * p;
+      if (caption && !spawn) stageSection = true;
+      const h = spawn ? CARD_H.spawn : CARD_H.stage;
+      rows.push({ key, dy, h, p, caption, shine: revealShine(popup, key) });
+      dy += h * p;
+      first = false;
+    }
+    // 16px of panel below the last row; an empty list keeps a small plaque
+    return { rows, ph: rows.length ? dy + 16 : 96 };
+  }
+
+  function drawUpgrades(ctx, px, py, pw, ph) {
+    popupTitle(ctx, 'UPGRADES!', px, py, pw, { tall: true });
+    popup.cards = [];
+    const { rows } = upgradeLayout(popup);
+    for (const r of rows) {
+      if (r.caption) {
+        ctx.globalAlpha = r.p;
+        drawText(ctx, r.caption, px + 10, py + r.dy - 10.25, SIZE.CAPTION, '#e0cfa8');
+        ctx.globalAlpha = 1;
+      }
+      const inf = Upgrades.info(popup.farmId, r.key);
+      if (r.p >= 1 && r.shine === null) {
+        upgradeCard(ctx, popup, px + 12, py + r.dy, pw - 24, r.h, inf);
+      } else {
+        drawRevealingCard(ctx, px + 12, py + r.dy, pw - 24, r.h, inf, r);
+      }
+    }
+    if (!rows.length) {
+      drawText(ctx, 'NOTHING TO UPGRADE YET', px + pw / 2, py + 40, 7, '#e0cfa8', 'center', false, false, pw - 28);
+    }
+    drawPanelFx(ctx);
+  }
+
+  /**
+   * One row mid-entry: clipped to the height it has grown to (so it never
+   * spills onto the row below), slid in from the right, faded up, then lit
+   * by a diagonal shine. Its BUY button is registered at its resting rect,
+   * so the row stays tappable the whole way in.
+   */
+  function drawRevealingCard(ctx, x, y, w, h, inf, r) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x - 4, y - 4, w + 8, Math.max(0, r.h * r.p) + 8);
+    ctx.clip();
+    ctx.globalAlpha = r.p;
+    ctx.translate((1 - r.p) * REVEAL.SLIDE, 0);
+    upgradeCard(ctx, popup, x, y, w, h, inf);
+    ctx.globalAlpha = 1;
+    if (r.shine !== null) {
+      const sx = x - 44 + (w + 88) * r.shine;
+      ctx.globalAlpha = 0.4 * Math.sin(r.shine * Math.PI);
+      ctx.fillStyle = '#fff6e8';
+      ctx.beginPath();
+      ctx.moveTo(sx, y + h); ctx.lineTo(sx + 18, y + h);
+      ctx.lineTo(sx + 40, y); ctx.lineTo(sx + 22, y);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
   function upgradeCard(ctx, popup, x, y, w, h, inf) {
     // parchment card (x,y,w,h = inner face rect; all values Figma E04 / 2)
     ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
@@ -697,20 +810,26 @@ const UI = (() => {
     ctx.fillStyle = popup.type === 'discovery' ? 'rgba(16,10,6,0.75)' : 'rgba(16,10,6,0.55)';
     ctx.fillRect(0, 0, W, H);
 
+    // the upgrade panel's entry animations advance before its height is
+    // measured, so the frame and the rows inside it are always in step
+    if (popup.type === 'upgrades') popup.revealT = (popup.revealT || 0) + Game.dt;
+
     const pw = popup.type === 'upgrades' ? 324 : popup.type === 'discovery' ? 280
              : popup.type === 'build' ? 260 : 240;
-    const ph = popup.type === 'upgrades' ? 528
+    const ph = popup.type === 'upgrades' ? upgradeLayout(popup).ph
              : popup.type === 'discovery' ? 344
              : popup.type === 'unlock' ? 210
              : popup.type === 'build' ? 258
              : popup.type === 'pigeonAd' ? 254
              : popup.type === 'tornadoAd' ? 270.5
              : popup.type === 'welcomeBack' ? welcomeMetrics(popup.rep).ph : 190;
-    // upgrades panel sits lower so the HUD coin counter stays visible;
+    // the upgrades panel is pinned to the top it has at full height: it grows
+    // downwards as rows unlock, so no row ever shifts under the player;
     // the tornado panel sits higher than the centering formula (Figma 25:4)
     const px = (W - pw) / 2;
-    const py = popup.type === 'tornadoAd' ? 152
-             : (H - ph) / 2 - (popup.type === 'upgrades' ? 0 : 20);
+    const py = popup.type === 'upgrades' ? UPGRADES_TOP
+             : popup.type === 'tornadoAd' ? 152
+             : (H - ph) / 2 - 20;
     popup.rect = { x: px, y: py, w: pw, h: ph };
     // Figma: only the confirm-reset panel (21:4) shows plank seams
     woodPanel(ctx, px, py, pw, ph, { gold: true, flecks: false, seams: popup.type === 'confirm-reset' });
@@ -750,17 +869,7 @@ const UI = (() => {
     } else if (popup.type === 'build') {
       drawBuild(ctx, px, py, pw, ph);
     } else if (popup.type === 'upgrades') {
-      const f = CONFIG.FARMS[popup.farmId];
-      popupTitle(ctx, 'UPGRADES!', px, py, pw, { tall: true });
-      popup.cards = [];
-      // section labels + card rows from Figma 19:70/19:86/19:71/19:106..30:84
-      drawText(ctx, 'FARM', px + 10, py + 21.75, SIZE.CAPTION, '#e0cfa8');
-      upgradeCard(ctx, popup, px + 12, py + 32, pw - 24, 76, Upgrades.info(popup.farmId, 'spawn'));
-      drawText(ctx, f.label, px + 10, py + 119.75, SIZE.CAPTION, '#e0cfa8');
-      for (let s = 0; s < CONFIG.UPGRADES.STAGES.length; s++) {
-        upgradeCard(ctx, popup, px + 12, py + 130 + s * 98, pw - 24, 88, Upgrades.info(popup.farmId, s));
-      }
-      drawPanelFx(ctx);
+      drawUpgrades(ctx, px, py, pw, ph);
     } else if (popup.type === 'discovery') {
       drawDiscovery(ctx, px, py, pw, ph);
     } else if (popup.type === 'pigeonAd') {
@@ -1031,7 +1140,16 @@ const UI = (() => {
     tap, coinTarget,
     pulseCoin() { coinPulse = 1; },
     showToast(text) { toast = { text, t: 1.6 }; },
-    openPopup(p) { popup = p; },
+    openPopup(p) {
+      if (p.type === 'upgrades') {
+        // rows discovered since this panel was last open animate in, one
+        // after the other rather than all at once
+        p.reveal = {};
+        Upgrades.takeUnrevealed(p.farmId).forEach((k, i) => { p.reveal[k] = i * REVEAL.STAGGER; });
+        p.revealT = 0;
+      }
+      popup = p;
+    },
     closePopup() { popup = null; panelFx = []; },
     get popup() { return popup; },
     syncCoins() { displayedCoins = SaveManager.data.coins; },

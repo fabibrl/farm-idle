@@ -190,11 +190,10 @@ const CONFIG = {
   //      Both ways of losing an animal (that walk-off and FENCE_JUMP) are
   //      exclusive to farms listed here: on every other farm animals stay
   //      contained and spawning simply stops at the capacity limit.
-  //   4. Later levels upgrade the fence: a higher hard animal cap, a
-  //      physically bigger pen footprint and an art tier per level. `art`
-  //      indexes into the farm's FENCE_THEME palette set (see
-  //      ENVIRONMENT.FENCE_THEMES) so each farm's fence follows its own
-  //      visual identity instead of sharing one wood look.
+  //   4. Later levels upgrade the fence: a higher hard animal cap and a
+  //      physically bigger pen footprint. The fence art never changes — every
+  //      farm and every tier renders Farm 1's wood fence (see
+  //      ENVIRONMENT.drawFence); an upgrade grows the enclosure, not its look.
   // On every construction farm, land + house + first fence together add up to
   // that farm's old UNLOCK_COSTS lump sum, so reaching an operational farm
   // costs exactly what it did before; the fence upgrades are new, optional
@@ -207,11 +206,10 @@ const CONFIG = {
     1: {
       LAND_COST: 4000,
       HOUSE_COST: 3000,
-      FENCE_THEME: 'wood',    // pasture wood: rough -> planked -> painted white
       FENCE_LEVELS: [
-        { cost: 5000,  capacity: 6,  size: 0.62, art: 0 },
-        { cost: 14000, capacity: 10, size: 0.82, art: 1 },
-        { cost: 40000, capacity: 14, size: 1.00, art: 2 },
+        { cost: 5000,  capacity: 6,  size: 0.62 },
+        { cost: 14000, capacity: 10, size: 0.82 },
+        { cost: 40000, capacity: 14, size: 1.00 },
       ],
       // House built, no fence: animals still spawn (up to this cap) but each
       // one walks off the plot when its own escape timer runs out. The timer
@@ -250,15 +248,14 @@ const CONFIG = {
     2: {
       LAND_COST: 40000,
       HOUSE_COST: 30000,
-      FENCE_THEME: 'ranch',   // cattle ranch: weathered rails -> barn-red timber -> iron-reinforced
       // Capacities start higher than Farm 2's (8/11 vs 6/10) and still land
       // on MAX_ANIMALS at the top tier — the pen footprint is the same
       // physical rect on every farm, so the ceiling is shared and the
       // scaling shows up as a roomier farm from the very first fence.
       FENCE_LEVELS: [
-        { cost: 50000,  capacity: 8,  size: 0.70, art: 0 },
-        { cost: 140000, capacity: 11, size: 0.86, art: 1 },
-        { cost: 400000, capacity: 14, size: 1.00, art: 2 },
+        { cost: 50000,  capacity: 8,  size: 0.70 },
+        { cost: 140000, capacity: 11, size: 0.86 },
+        { cost: 400000, capacity: 14, size: 1.00 },
       ],
       // Cows are slower and heavier than sheep: a bigger unfenced herd, a
       // touch longer on the board before wandering off, and a lower, slower
@@ -335,9 +332,11 @@ const CONFIG = {
   // while numbers, goals and ad rewards grow with the player.
   // offlinePenFill: fraction of MAX_ANIMALS that offline spawning may fill
   // (per-farm balance knob; falls back to IDLE.OFFLINE_PEN_FILL if omitted).
+  // themedName is the map sign's title once the plot's house is bought (the
+  // moment animals start spawning there); before that the sign shows `name`.
   FARMS: [
-    { id: 0, name: 'FARM 1', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.65 },
-    { id: 1, name: 'FARM 2', species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4,  offlinePenFill: 0.65 },
-    { id: 2, name: 'FARM 3', species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12, offlinePenFill: 0.65 },
+    { id: 0, name: 'FARM 1', themedName: 'CHICKEN FARM', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.65 },
+    { id: 1, name: 'FARM 2', themedName: 'SHEEP FARM',   species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4,  offlinePenFill: 0.65 },
+    { id: 2, name: 'FARM 3', themedName: 'COW FARM',     species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12, offlinePenFill: 0.65 },
   ],
 };

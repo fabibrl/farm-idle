@@ -227,11 +227,16 @@ class MapScene {
       // still waiting on it gets the standard red "!" badge over its pin
       if (unbuilt) UI.drawBadge(ctx, n.x + 20, n.y - 16);
 
-      // wooden sign with farm name (price while locked, build call while
-      // the plot is owned but unfinished)
-      UI.woodSign(ctx, n.x, n.y + 40, CONFIG.FARMS[i].name, CONFIG.FARMS[i].label,
+      // wooden sign: one board whose title renames itself from the generic
+      // farm number to the themed name the moment the house is bought (which
+      // is what starts animal spawning) — so a fenceless, still-escaping farm
+      // already reads as e.g. SHEEP FARM. Price shows while locked; a pending
+      // build step is signalled only by the red badge above.
+      const farm = CONFIG.FARMS[i];
+      const named = Construction.houseBuilt(i);
+      UI.woodSign(ctx, n.x, n.y + 40, named ? farm.themedName : farm.name, farm.label,
         unlocked ? null : U.fmtCost(Construction.landCost(i)),
-        unbuilt ? 'UNDER CONSTRUCTION' : null);
+        named ? farm.name : farm.themedName);
     }
 
     // chimney smoke puffs (spawned only for unlocked farms)

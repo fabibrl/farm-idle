@@ -243,11 +243,10 @@ const CONFIG = {
   //      Both ways of losing an animal (that walk-off and FENCE_JUMP) are
   //      exclusive to farms listed here: on every other farm animals stay
   //      contained and spawning simply stops at the capacity limit.
-  //   4. Later levels upgrade the fence: a higher hard animal cap, a
-  //      physically bigger pen footprint and an art tier per level. `art`
-  //      indexes into the farm's FENCE_THEME palette set (see
-  //      ENVIRONMENT.FENCE_THEMES) so each farm's fence follows its own
-  //      visual identity instead of sharing one wood look.
+  //   4. Later levels upgrade the fence: a higher hard animal cap and a
+  //      physically bigger pen footprint. The fence art never changes — every
+  //      farm and every tier renders Farm 1's wood fence (see
+  //      ENVIRONMENT.drawFence); an upgrade grows the enclosure, not its look.
   // On every construction farm, land + house + first fence together add up to
   // that farm's old UNLOCK_COSTS lump sum, so reaching an operational farm
   // costs exactly what it did before; the fence upgrades are new, optional
@@ -260,11 +259,10 @@ const CONFIG = {
     1: {
       LAND_COST: 4000,
       HOUSE_COST: 3000,
-      FENCE_THEME: 'wood',    // pasture wood: rough -> planked -> painted white
       FENCE_LEVELS: [
-        { cost: 5000,  capacity: 6,  size: 0.62, art: 0 },
-        { cost: 14000, capacity: 10, size: 0.82, art: 1 },
-        { cost: 40000, capacity: 14, size: 1.00, art: 2 },
+        { cost: 5000,  capacity: 6,  size: 0.62 },
+        { cost: 14000, capacity: 10, size: 0.82 },
+        { cost: 40000, capacity: 14, size: 1.00 },
       ],
       // House built, no fence: animals still spawn (up to this cap) but each
       // one walks off the plot when its own escape timer runs out. The timer
@@ -303,15 +301,14 @@ const CONFIG = {
     2: {
       LAND_COST: 40000,
       HOUSE_COST: 30000,
-      FENCE_THEME: 'ranch',   // cattle ranch: weathered rails -> barn-red timber -> iron-reinforced
       // Capacities start higher than Farm 2's (8/11 vs 6/10) and still land
       // on MAX_ANIMALS at the top tier — the pen footprint is the same
       // physical rect on every farm, so the ceiling is shared and the
       // scaling shows up as a roomier farm from the very first fence.
       FENCE_LEVELS: [
-        { cost: 50000,  capacity: 8,  size: 0.70, art: 0 },
-        { cost: 140000, capacity: 11, size: 0.86, art: 1 },
-        { cost: 400000, capacity: 14, size: 1.00, art: 2 },
+        { cost: 50000,  capacity: 8,  size: 0.70 },
+        { cost: 140000, capacity: 11, size: 0.86 },
+        { cost: 400000, capacity: 14, size: 1.00 },
       ],
       // Cows are slower and heavier than sheep: a bigger unfenced herd, a
       // touch longer on the board before wandering off, and a lower, slower
@@ -388,10 +385,12 @@ const CONFIG = {
   // while numbers, goals and ad rewards grow with the player.
   // offlinePenFill: fraction of MAX_ANIMALS that offline spawning may fill
   // (per-farm balance knob; falls back to IDLE.OFFLINE_PEN_FILL if omitted).
+  // themedName is the map sign's title once the plot's house is bought (the
+  // moment animals start spawning there); before that the sign shows `name`.
   FARMS: [
-    { id: 0, name: 'FARM 1', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.65 },
-    { id: 1, name: 'FARM 2', species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4,  offlinePenFill: 0.65 },
-    { id: 2, name: 'FARM 3', species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12, offlinePenFill: 0.65 },
+    { id: 0, name: 'FARM 1', themedName: 'CHICKEN FARM', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.65 },
+    { id: 1, name: 'FARM 2', themedName: 'SHEEP FARM',   species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4,  offlinePenFill: 0.65 },
+    { id: 2, name: 'FARM 3', themedName: 'COW FARM',     species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12, offlinePenFill: 0.65 },
   ],
 };
 </script>
@@ -1991,69 +1990,24 @@ const ENVIRONMENT = (() => {
   }
 
   /**
-   * Fence art, one palette set per farm theme (a construction farm picks its
-   * set with FENCE_THEME; a farm's FENCE_LEVELS[].art indexes into it). Each
-   * tier tints the horizontal fence sprite and recolors posts + side rails,
-   * so a farm's fence reads as its own material across the whole upgrade
-   * path instead of every farm sharing one wood look. A `null` tier means
-   * "untinted base sprite art with the standard wood palette" — that is what
-   * every classic, non-construction farm renders.
+   * Fence art — one look for the whole game. Every farm, built or classic,
+   * renders Farm 1's wood fence: same sprite, same palette, same proportions.
+   * A fence upgrade grows the enclosure (footprint + segment count, see
+   * playRect / rectForLevel); it never changes the material.
    */
-  const FENCE_THEMES = {
-    // Farm 2 pasture wood: rough offcuts -> clean planks -> painted white
-    wood: [
-      { tint: 'rgba(52,34,16,0.38)', post: ['#7d5c33', '#8f6c3f', '#5a3d1e'], rail: ['#5a3d1e', '#7d5c33'] },
-      null,
-      { tint: 'rgba(240,236,226,0.42)', post: ['#e9e9e4', '#ffffff', '#c2c2ba'], rail: ['#c2c2ba', '#e9e9e4'] },
-    ],
-    // Farm 3 cattle ranch: sun-bleached rails -> barn-red stained timber ->
-    // iron-reinforced posts. Cooler and heavier than Farm 2's wood, and
-    // pitched against Farm 3's brown dirt ground rather than green pasture.
-    ranch: [
-      { tint: 'rgba(196,186,168,0.40)', post: ['#a89d88', '#c2b8a4', '#7d735f'], rail: ['#7d735f', '#a89d88'] },
-      { tint: 'rgba(150,48,38,0.45)',   post: ['#9c3a2c', '#b8503c', '#6e2419'], rail: ['#6e2419', '#9c3a2c'] },
-      { tint: 'rgba(84,92,104,0.48)',   post: ['#6b7480', '#8b95a2', '#454c56'], rail: ['#454c56', '#6b7480'] },
-    ],
-  };
-
-  /** Palette for one tier of one theme, or null for the base wood look. */
-  function fenceTier(theme, art) {
-    const set = FENCE_THEMES[theme] || FENCE_THEMES.wood;
-    return set[art] || null;
-  }
 
   /**
-   * Post colors [face, highlight, shadow] for a farm's fence at a given art
-   * tier — shared by the baked fence and the live ghost preview so an
-   * unbuilt fence previews in the material the farm is actually going to get.
+   * Post colors [face, highlight, shadow] — shared by the baked fence and the
+   * live ghost preview, so an unbuilt fence previews in the material it will
+   * actually be built from.
    */
-  function fencePalette(farmId, art = 0) {
-    const tier = fenceTier(Construction.fenceTheme(farmId), art);
-    return tier ? tier.post : [SPRITES.P.wood, SPRITES.P.woodHi, SPRITES.P.woodDk];
+  function fencePalette() {
+    return [SPRITES.P.wood, SPRITES.P.woodHi, SPRITES.P.woodDk];
   }
 
-  const fenceRowCache = {};
-  function fenceRow(theme, art) {
-    const tier = fenceTier(theme, art);
-    const base = SPRITES.fenceH(24);
-    if (!tier) return base;
-    const key = theme + ':' + art;
-    if (fenceRowCache[key]) return fenceRowCache[key];
-    const c = document.createElement('canvas');
-    c.width = base.width; c.height = base.height;
-    const g = c.getContext('2d');
-    g.drawImage(base, 0, 0);
-    g.globalCompositeOperation = 'source-atop';
-    g.fillStyle = tier.tint;
-    g.fillRect(0, 0, c.width, c.height);
-    fenceRowCache[key] = c;
-    return c;
-  }
-
-  /** Fence perimeter around a play rect, in the given theme's art tier. */
-  function drawFence(g, rect, art = 1, theme = 'wood') {
-    const tier = fenceTier(theme, art);
-    const f = fenceRow(theme, art);
+  /** Fence perimeter around a play rect. */
+  function drawFence(g, rect) {
+    const f = SPRITES.fenceH(24);
     const sc = 2;
     const { x, y, w, h } = rect;
     const top = y - 20, bot = y + h - 6;
@@ -2063,15 +2017,13 @@ const ENVIRONMENT = (() => {
     }
     // side fences (vertical posts made from small segments)
     for (let fy = top + 16; fy < bot; fy += 22) {
-      drawPost(g, x - 12, fy, tier); drawPost(g, x + w + 4, fy, tier);
+      drawPost(g, x - 12, fy); drawPost(g, x + w + 4, fy);
     }
     // side rails
-    const railDk = tier ? tier.rail[0] : SPRITES.P.woodDk;
-    const railHi = tier ? tier.rail[1] : SPRITES.P.wood;
-    g.fillStyle = railDk;
+    g.fillStyle = SPRITES.P.woodDk;
     g.fillRect(x - 8, top + 10, 3, bot - top - 4);
     g.fillRect(x + w + 8, top + 10, 3, bot - top - 4);
-    g.fillStyle = railHi;
+    g.fillStyle = SPRITES.P.wood;
     g.fillRect(x - 9, top + 10, 1, bot - top - 4);
     g.fillRect(x + w + 7, top + 10, 1, bot - top - 4);
     // front fence
@@ -2079,10 +2031,8 @@ const ENVIRONMENT = (() => {
       g.drawImage(f, fx, bot, f.width * sc, f.height * sc);
     }
   }
-  function drawPost(g, x, y, tier) {
-    const face = tier ? tier.post[0] : SPRITES.P.wood;
-    const hi = tier ? tier.post[1] : SPRITES.P.woodHi;
-    const dk = tier ? tier.post[2] : SPRITES.P.woodDk;
+  function drawPost(g, x, y) {
+    const [face, hi, dk] = fencePalette();
     g.fillStyle = PIXEL.OUTLINE; g.fillRect(x - 1, y - 1, 10, 18);
     g.fillStyle = face; g.fillRect(x, y, 8, 16);
     g.fillStyle = hi; g.fillRect(x, y, 2, 16);
@@ -2105,7 +2055,7 @@ const ENVIRONMENT = (() => {
    * Build one farm background. Construction farms re-render (and re-cache)
    * per build stage: a bare plot has neither house nor pen, a housed-but-
    * unfenced plot is open pasture, and each fence tier bakes its own
-   * footprint + art (see playRect / FENCE_THEMES).
+   * footprint (see playRect).
    */
   function farm(id) {
     const house = Construction.houseBuilt(id);
@@ -2189,8 +2139,7 @@ const ENVIRONMENT = (() => {
       return c;
     }
 
-    const def = Construction.levelDef(id);
-    drawFence(g, R, def ? def.art : 1, Construction.fenceTheme(id));
+    drawFence(g, R);
 
     // in-pen props tucked into the top corners, out of the walk area
     g.drawImage(SPRITES.barrel(), R.x + 6, R.y - 2, 28, 32);
@@ -2358,10 +2307,9 @@ const ENVIRONMENT = (() => {
         g.fillRect(n.x - 40 + rnd() * 78, n.y - 26 + rnd() * 52, 3, 2);
       }
       if (stage < 2) continue; // no fence built yet: no fence ring on the plot
-      // fence ring: posts around ellipse, in the tier the farm has actually
-      // built so the map plot matches the material inside the farm
-      const [face, hi] = fencePalette(i, Construction.fenceLevel(i)
-        ? Construction.levelDef(i).art : 1);
+      // fence ring: posts around the ellipse, in the same wood the farm's
+      // own fence is built from
+      const [face, hi] = fencePalette();
       for (let a = 0; a < 14; a++) {
         const t = a / 14 * Math.PI * 2;
         const px2 = n.x + Math.cos(t) * 44, py = n.y + Math.sin(t) * 32;
@@ -2619,6 +2567,10 @@ const SaveManager = (() => {
       animals: [[], [], []],
       // discovery collection: species -> [bool per stage], permanent once true
       discovered: discoveredDefaults(),
+      // per-farm: upgrade keys ('spawn' | stage index | 'et') whose row has
+      // already animated into the upgrade panel, so each discovery plays its
+      // entry animation exactly once (see Upgrades.takeUnrevealed)
+      upgradesRevealed: CONFIG.FARMS.map(() => []),
       // per-farm: has the first-merge tutorial been completed?
       tutorialDone: CONFIG.FARMS.map(() => false),
       // one-time: has the first-upgrade tutorial been completed?
@@ -2699,6 +2651,19 @@ const SaveManager = (() => {
         if (a.stage < STAGE_COUNT()) d.discovered[f.species][a.stage] = true;
       }
     }
+    // existing saves: every upgrade the player can already see counts as
+    // revealed, so opening the panel doesn't replay entry animations for rows
+    // that have always been there
+    if (!d.upgradesRevealed) {
+      d.upgradesRevealed = CONFIG.FARMS.map(f => {
+        const disc = d.discovered[f.species] || [];
+        const seen = disc.flatMap((v, s) => (v ? [String(s)] : []));
+        if (disc[0]) seen.push('spawn');
+        if (d.ufo[f.id] && d.ufo[f.id].landed) seen.push('et');
+        return seen;
+      });
+    }
+    while (d.upgradesRevealed.length < CONFIG.FARMS.length) d.upgradesRevealed.push([]);
     return d;
   }
 
@@ -2753,6 +2718,17 @@ const Discovery = (() => {
     return true;
   }
 
+  /**
+   * The ET mutant (MUTANT 2) — the farm's final, fully mutated form. It is
+   * discovered by matching two Mutants on that farm, which is exactly what
+   * starts its UFO layer, so the farm's saved UFO state IS the discovery
+   * record (landed, or a Mutant 2 already collected / in transit).
+   */
+  function isEtDiscovered(farmId) {
+    const u = SaveManager.data.ufo[farmId];
+    return !!u && (u.landed || u.aliens > 0 || (u.pending || 0) > 0);
+  }
+
   /** Full collection snapshot: [{species, label, stages:[{name, discovered}]}] */
   function collection() {
     return CONFIG.FARMS.map(f => ({
@@ -2775,7 +2751,7 @@ const Discovery = (() => {
     return (f && f[stage]) || '';
   }
 
-  return { isDiscovered, mark, collection, displayName, flavor };
+  return { isDiscovered, isEtDiscovered, mark, collection, displayName, flavor };
 })();
 </script>
 <script>
@@ -2783,7 +2759,8 @@ const Discovery = (() => {
  * Construction — step-by-step farm build progression (see CONFIG.CONSTRUCTION).
  * A construction farm goes: buy the land (map) -> build the house (starts
  * animal spawning) -> build the fence (animals stop escaping, production
- * starts) -> fence upgrades (capacity + pen footprint + art tier).
+ * starts) -> fence upgrades (capacity + pen footprint; the fence art is the
+ * same wood on every farm and every tier).
  *
  * The farm produces NOTHING — no money, no background/offline accrual — until
  * land + house + fence all exist; with the house but no fence, animals spawn
@@ -2808,16 +2785,6 @@ const Construction = (() => {
   function fenceLevel(farmId) { return required(farmId) ? state(farmId).fence : 0; }
 
   function maxFenceLevel(farmId) { return required(farmId) ? plan(farmId).FENCE_LEVELS.length : 0; }
-
-  /**
-   * Which fence palette set this farm's art tiers index into (see
-   * ENVIRONMENT.FENCE_THEMES) — every farm gets its own visual identity
-   * across tiers. Classic farms fall back to the base wood look.
-   */
-  function fenceTheme(farmId) {
-    const p = plan(farmId);
-    return (p && p.FENCE_THEME) || 'wood';
-  }
 
   function fenceBuilt(farmId) { return !required(farmId) || state(farmId).fence >= 1; }
 
@@ -3003,7 +2970,7 @@ const Construction = (() => {
   }
 
   return {
-    required, landOwned, houseBuilt, fenceLevel, maxFenceLevel, fenceBuilt, fenceTheme,
+    required, landOwned, houseBuilt, fenceLevel, maxFenceLevel, fenceBuilt,
     levelDef, nextDef, isComplete, capacity, escapesActive, jumpCfg,
     escapeDelay, landCost, houseCost, nextCost, stage, pending, grantLand,
     buyHouse, buyFence, buyNext, info,
@@ -3017,7 +2984,11 @@ const Construction = (() => {
  * All numbers come from CONFIG.UPGRADES / CONFIG base values; nothing hardcoded here.
  *
  * Keys used throughout: 'spawn' for the farm spawn-speed upgrade,
- * or a stage index (0..CONFIG.STAGE_NAMES.length-1) for the animal upgrades.
+ * a stage index (0..CONFIG.STAGE_NAMES.length-1) for the animal upgrades,
+ * or 'et' for the ET mutant (MUTANT 2).
+ *
+ * On constructed farms every upgrade is gated behind discovery — see
+ * unlocked() — so the menu fills in as the player merges their way up.
  */
 const Upgrades = (() => {
   const CU = () => CONFIG.UPGRADES;
@@ -3043,6 +3014,48 @@ const Upgrades = (() => {
 
   function isMaxed(farmId, key) {
     return level(farmId, key) >= maxLevel(key);
+  }
+
+  /**
+   * Discovery gating. On a constructed farm (Farm 2, Farm 3) an upgrade is
+   * not offered up front: it unlocks only once the player has discovered the
+   * animal it improves on that farm — the farm has spawned it and they have
+   * matched their way up to it. Discovery is per species (so per farm) and
+   * permanent, so an unlocked upgrade stays unlocked across sessions.
+   * The spawn-speed upgrade rides on the baby: the farm has to have produced
+   * one before its spawn rate can be tuned. The ET mutant follows the same
+   * rule via its own discovery record. Farm 1 is never gated.
+   */
+  function unlocked(farmId, key) {
+    if (!Construction.required(farmId)) return true;
+    if (key === 'et') return Discovery.isEtDiscovered(farmId);
+    const stage = key === 'spawn' ? 0 : key;
+    return Discovery.isDiscovered(CONFIG.FARMS[farmId].species, stage);
+  }
+
+  /** What the player has to find before this upgrade exists. */
+  function unlockHint(key) {
+    const stage = key === 'et' ? null : key === 'spawn' ? 0 : key;
+    return 'DISCOVER THE ' + (stage === null ? 'ET MUTANT' : CONFIG.STAGE_NAMES[stage]);
+  }
+
+  /**
+   * Upgrades unlocked since this farm's panel was last opened, in panel
+   * order — the panel plays its entry animation for exactly these, then they
+   * are at rest for good. Marking happens here, on open, so a discovery made
+   * while the panel is closed still animates the next time it is opened, and
+   * a player who closes the panel mid-animation does not see it replayed.
+   * The record is per farm and saved, so it survives a session.
+   */
+  function takeUnrevealed(farmId) {
+    if (!Construction.required(farmId)) return [];   // Farm 1: nothing is gated
+    const seen = SaveManager.data.upgradesRevealed[farmId];
+    const fresh = keys().filter(k => unlocked(farmId, k) && !seen.includes(String(k)));
+    if (fresh.length) {
+      for (const k of fresh) seen.push(String(k));
+      SaveManager.save();
+    }
+    return fresh;
   }
 
   /** Seconds between automatic baby spawns for this farm (optionally at a given level). */
@@ -3089,6 +3102,7 @@ const Upgrades = (() => {
 
   /** Attempt a purchase. Returns {ok} or {ok:false, reason}. */
   function buy(farmId, key) {
+    if (!unlocked(farmId, key)) return { ok: false, reason: unlockHint(key) + '!' };
     if (isMaxed(farmId, key)) return { ok: false, reason: 'MAX LEVEL!' };
     const c = cost(farmId, key);
     if (SaveManager.data.coins < c) return { ok: false, reason: 'NOT ENOUGH COINS!' };
@@ -3099,19 +3113,37 @@ const Upgrades = (() => {
     return { ok: true };
   }
 
-  /** True if the player can afford at least one non-maxed upgrade on this farm. */
+  /** Every upgrade key this farm's panel lists, in panel order. */
+  function keys() {
+    const k = ['spawn'];
+    for (let s = 0; s < CU().STAGES.length; s++) k.push(s);
+    return k;
+  }
+
+  /**
+   * True if the player can afford at least one unlocked, non-maxed upgrade on
+   * this farm — a locked upgrade never badges, it isn't buyable yet.
+   */
   function anyAffordable(farmId) {
-    const keys = ['spawn'];
-    for (let s = 0; s < CU().STAGES.length; s++) keys.push(s);
-    return keys.some(k => !isMaxed(farmId, k) && SaveManager.data.coins >= cost(farmId, k));
+    return keys().some(k => unlocked(farmId, k) && !isMaxed(farmId, k) &&
+                            SaveManager.data.coins >= cost(farmId, k));
   }
 
   /**
    * Everything the upgrade panel needs to render one card.
    * stats: [{name, cur, next}] — next is null when maxed, so the UI can
    * render a "cur > next" improvement comparison per stat.
+   * A locked card carries no numbers at all: the animal it belongs to is
+   * still unknown, so the panel only shows how to find it.
    */
   function info(farmId, key) {
+    if (!unlocked(farmId, key)) {
+      // an undiscovered upgrade has no row in the panel at all, so this is
+      // only a guard: no label, and no cost — price is never evaluated while
+      // an upgrade is locked
+      return { key, locked: true, label: '???', hint: unlockHint(key),
+               level: 0, maxed: false, cost: 0, stats: [] };
+    }
     const lv = level(farmId, key);
     const maxed = isMaxed(farmId, key);
     const fmtS = v => v.toFixed(1) + 'S';
@@ -3129,10 +3161,11 @@ const Upgrades = (() => {
           next: maxed ? null : String(coinValue(farmId, key, lv + 1)) },
       ];
     }
-    return { key, label, level: lv, maxed, cost: maxed ? 0 : cost(farmId, key), stats };
+    return { key, locked: false, label, level: lv, maxed, cost: maxed ? 0 : cost(farmId, key), stats };
   }
 
-  return { level, cost, isMaxed, spawnInterval, poopInterval, coinValue, alienValue, incomeRate, buy, info, anyAffordable };
+  return { level, cost, isMaxed, unlocked, keys, takeUnrevealed, spawnInterval, poopInterval, coinValue,
+           alienValue, incomeRate, buy, info, anyAffordable };
 })();
 </script>
 <script>
@@ -5237,11 +5270,8 @@ class FarmScene {
       const R = ENVIRONMENT.rectForLevel(this.farmId, 1);
       const gx = R.x - 12, gy = R.y - 20, gw = R.w + 24, gh = R.h + 14;
       this.dashedRect(ctx, gx, gy, gw, gh, pulse);
-      // ghost posts at the corners so it reads as a fence, not a UI box —
-      // in the material this farm's first fence tier will actually be built
-      // from (see ENVIRONMENT.FENCE_THEMES)
-      const lv1 = Construction.levelDef(this.farmId, 1);
-      const [face, hi] = ENVIRONMENT.fencePalette(this.farmId, lv1 ? lv1.art : 0);
+      // ghost posts at the corners so it reads as a fence, not a UI box
+      const [face, hi] = ENVIRONMENT.fencePalette();
       ctx.globalAlpha = pulse * 0.55;
       for (const [px, py] of [[gx, gy], [gx + gw - 8, gy], [gx, gy + gh - 16], [gx + gw - 8, gy + gh - 16]]) {
         ctx.fillStyle = face; ctx.fillRect(px, py, 8, 16);
@@ -5254,9 +5284,19 @@ class FarmScene {
     this.drawHouseCTA(ctx, hr);
   }
 
-  /** Is there a purchase the player can actually afford right now? */
+  /**
+   * Is there a purchase the player can actually afford right now? While the
+   * farm is still going up that means the next build step; once everything
+   * is built the house is the way into the upgrade menu instead, so it
+   * badges for an affordable upgrade. An undiscovered (locked) upgrade never
+   * counts — the badge only ever signals a purchase that can be made (see
+   * Upgrades.anyAffordable).
+   */
   buildActionReady() {
     if (!Construction.required(this.farmId)) return false;
+    if (Construction.stage(this.farmId) === 'max') {
+      return SaveManager.data.upgradeTutorialDone && Upgrades.anyAffordable(this.farmId);
+    }
     const inf = Construction.info(this.farmId);
     return !inf.maxed && SaveManager.data.coins >= inf.cost;
   }
@@ -5554,11 +5594,16 @@ class MapScene {
       // still waiting on it gets the standard red "!" badge over its pin
       if (unbuilt) UI.drawBadge(ctx, n.x + 20, n.y - 16);
 
-      // wooden sign with farm name (price while locked, build call while
-      // the plot is owned but unfinished)
-      UI.woodSign(ctx, n.x, n.y + 40, CONFIG.FARMS[i].name, CONFIG.FARMS[i].label,
+      // wooden sign: one board whose title renames itself from the generic
+      // farm number to the themed name the moment the house is bought (which
+      // is what starts animal spawning) — so a fenceless, still-escaping farm
+      // already reads as e.g. SHEEP FARM. Price shows while locked; a pending
+      // build step is signalled only by the red badge above.
+      const farm = CONFIG.FARMS[i];
+      const named = Construction.houseBuilt(i);
+      UI.woodSign(ctx, n.x, n.y + 40, named ? farm.themedName : farm.name, farm.label,
         unlocked ? null : U.fmtCost(Construction.landCost(i)),
-        unbuilt ? 'UNDER CONSTRUCTION' : null);
+        named ? farm.name : farm.themedName);
     }
 
     // chimney smoke puffs (spawned only for unlocked farms)
@@ -5817,13 +5862,16 @@ const UI = (() => {
     }
   }
 
-  /** Small wooden sign with 1-2 lines (used on world map). An optional
-   *  `note` replaces the cost line on owned-but-unfinished plots. */
-  function woodSign(ctx, cx, cy, line1, line2, cost, note) {
-    const w = Math.max(measure(line1, SIZE.BUTTON), line2 ? measure(line2, SIZE.CAPTION) : 0,
-                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0,
-                       note ? measure(note, SIZE.CAPTION) : 0) + 18;
-    const h = 18 + (line2 ? 9 : 0) + (cost || note ? 11 : 0);
+  /** Small wooden sign with 1-2 lines (used on world map). `altLine1` is the
+   *  other title this sign can show (a farm swaps its generic name for its
+   *  themed one once the house is up): it is never drawn, only measured, so
+   *  the board keeps one width and the swap reads as a rename. */
+  function woodSign(ctx, cx, cy, line1, line2, cost, altLine1) {
+    const w = Math.max(measure(line1, SIZE.BUTTON),
+                       altLine1 ? measure(altLine1, SIZE.BUTTON) : 0,
+                       line2 ? measure(line2, SIZE.CAPTION) : 0,
+                       cost ? measure(cost, SIZE.CAPTION) + 12 : 0) + 18;
+    const h = 18 + (line2 ? 9 : 0) + (cost ? 11 : 0);
     woodPanel(ctx, cx - w / 2, cy, w, h, {});
     drawText(ctx, line1, cx, cy + 5, SIZE.BUTTON, '#f4e8cc', 'center', true);
     let yy = cy + 17;
@@ -5833,8 +5881,6 @@ const UI = (() => {
       const tw = measure(cost, SIZE.CAPTION);
       ctx.drawImage(img, cx - tw / 2 - 12, yy - 3, 10, 10);
       drawText(ctx, cost, cx - tw / 2, yy, SIZE.CAPTION, '#ffe98a', 'left');
-    } else if (note) {
-      drawText(ctx, note, cx, yy, SIZE.CAPTION, '#ffb0a0', 'center', false, false, w - 8);
     }
     // legs
     ctx.fillStyle = P().woodDk;
@@ -5851,6 +5897,118 @@ const UI = (() => {
    * its hit rect on popup.cards and applies the purchase flash from popup.fx.
    * Returns the card's bottom y.
    */
+  // ---------------- upgrade panel ----------------
+  /**
+   * The panel lists ONLY discovered upgrades: an undiscovered animal has no
+   * row, no placeholder and no gap, so the player is never shown that
+   * anything else exists (see Upgrades.unlocked). The panel is pinned to the
+   * top it has at full height and grows downwards, so rows never shift.
+   */
+  const UPGRADES_TOP = 56;    // (H - 528) / 2: the full-height panel's top
+  const CARD_H = { spawn: 76, stage: 88 };
+  // A row discovered since the panel was last open slides in and fades up
+  // while the rows below it make room, then a shine sweeps across it.
+  const REVEAL = { DUR: 0.36, STAGGER: 0.1, SLIDE: 22, SHINE: 0.5 };
+  const easeOut = t => 1 - Math.pow(1 - t, 3);
+
+  /** Seconds this row has been revealing for, or null if it is at rest. */
+  function revealT(popup, key) {
+    const d = popup.reveal && popup.reveal[key];
+    return d === undefined ? null : popup.revealT - d;
+  }
+
+  /** 0..1 entry progress (1 = settled in its resting state). */
+  function revealP(popup, key) {
+    const t = revealT(popup, key);
+    return t === null ? 1 : U.clamp(t / REVEAL.DUR, 0, 1);
+  }
+
+  /** 0..1 shine-sweep progress, or null when no sweep is running. */
+  function revealShine(popup, key) {
+    const t = revealT(popup, key);
+    if (t === null) return null;
+    const s = (t - REVEAL.DUR) / REVEAL.SHINE;
+    return s >= 0 && s <= 1 ? s : null;
+  }
+
+  /**
+   * Row layout: every discovered upgrade in progression order, each taking
+   * only the fraction of its height it has grown to, plus the panel height
+   * that fits them. Pure metrics — called for the panel frame and again to
+   * draw, so both always agree.
+   */
+  function upgradeLayout(popup) {
+    const rows = [];
+    let dy = 32, first = true, stageSection = false;
+    for (const key of Upgrades.keys()) {
+      if (!Upgrades.unlocked(popup.farmId, key)) continue;
+      const spawn = key === 'spawn';
+      const p = easeOut(revealP(popup, key));
+      // 'FARM' heads the spawn row, the animal's name the first stage row
+      const caption = spawn ? 'FARM' : stageSection ? null
+                    : CONFIG.FARMS[popup.farmId].label;
+      if (!first) dy += (caption ? 22 : 10) * p;
+      if (caption && !spawn) stageSection = true;
+      const h = spawn ? CARD_H.spawn : CARD_H.stage;
+      rows.push({ key, dy, h, p, caption, shine: revealShine(popup, key) });
+      dy += h * p;
+      first = false;
+    }
+    // 16px of panel below the last row; an empty list keeps a small plaque
+    return { rows, ph: rows.length ? dy + 16 : 96 };
+  }
+
+  function drawUpgrades(ctx, px, py, pw, ph) {
+    popupTitle(ctx, 'UPGRADES!', px, py, pw, { tall: true });
+    popup.cards = [];
+    const { rows } = upgradeLayout(popup);
+    for (const r of rows) {
+      if (r.caption) {
+        ctx.globalAlpha = r.p;
+        drawText(ctx, r.caption, px + 10, py + r.dy - 10.25, SIZE.CAPTION, '#e0cfa8');
+        ctx.globalAlpha = 1;
+      }
+      const inf = Upgrades.info(popup.farmId, r.key);
+      if (r.p >= 1 && r.shine === null) {
+        upgradeCard(ctx, popup, px + 12, py + r.dy, pw - 24, r.h, inf);
+      } else {
+        drawRevealingCard(ctx, px + 12, py + r.dy, pw - 24, r.h, inf, r);
+      }
+    }
+    if (!rows.length) {
+      drawText(ctx, 'NOTHING TO UPGRADE YET', px + pw / 2, py + 40, 7, '#e0cfa8', 'center', false, false, pw - 28);
+    }
+    drawPanelFx(ctx);
+  }
+
+  /**
+   * One row mid-entry: clipped to the height it has grown to (so it never
+   * spills onto the row below), slid in from the right, faded up, then lit
+   * by a diagonal shine. Its BUY button is registered at its resting rect,
+   * so the row stays tappable the whole way in.
+   */
+  function drawRevealingCard(ctx, x, y, w, h, inf, r) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x - 4, y - 4, w + 8, Math.max(0, r.h * r.p) + 8);
+    ctx.clip();
+    ctx.globalAlpha = r.p;
+    ctx.translate((1 - r.p) * REVEAL.SLIDE, 0);
+    upgradeCard(ctx, popup, x, y, w, h, inf);
+    ctx.globalAlpha = 1;
+    if (r.shine !== null) {
+      const sx = x - 44 + (w + 88) * r.shine;
+      ctx.globalAlpha = 0.4 * Math.sin(r.shine * Math.PI);
+      ctx.fillStyle = '#fff6e8';
+      ctx.beginPath();
+      ctx.moveTo(sx, y + h); ctx.lineTo(sx + 18, y + h);
+      ctx.lineTo(sx + 40, y); ctx.lineTo(sx + 22, y);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
   function upgradeCard(ctx, popup, x, y, w, h, inf) {
     // parchment card (x,y,w,h = inner face rect; all values Figma E04 / 2)
     ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
@@ -6285,20 +6443,26 @@ const UI = (() => {
     ctx.fillStyle = popup.type === 'discovery' ? 'rgba(16,10,6,0.75)' : 'rgba(16,10,6,0.55)';
     ctx.fillRect(0, 0, W, H);
 
+    // the upgrade panel's entry animations advance before its height is
+    // measured, so the frame and the rows inside it are always in step
+    if (popup.type === 'upgrades') popup.revealT = (popup.revealT || 0) + Game.dt;
+
     const pw = popup.type === 'upgrades' ? 324 : popup.type === 'discovery' ? 280
              : popup.type === 'build' ? 260 : 240;
-    const ph = popup.type === 'upgrades' ? 528
+    const ph = popup.type === 'upgrades' ? upgradeLayout(popup).ph
              : popup.type === 'discovery' ? 344
              : popup.type === 'unlock' ? 210
              : popup.type === 'build' ? 258
              : popup.type === 'pigeonAd' ? 254
              : popup.type === 'tornadoAd' ? 270.5
              : popup.type === 'welcomeBack' ? welcomeMetrics(popup.rep).ph : 190;
-    // upgrades panel sits lower so the HUD coin counter stays visible;
+    // the upgrades panel is pinned to the top it has at full height: it grows
+    // downwards as rows unlock, so no row ever shifts under the player;
     // the tornado panel sits higher than the centering formula (Figma 25:4)
     const px = (W - pw) / 2;
-    const py = popup.type === 'tornadoAd' ? 152
-             : (H - ph) / 2 - (popup.type === 'upgrades' ? 0 : 20);
+    const py = popup.type === 'upgrades' ? UPGRADES_TOP
+             : popup.type === 'tornadoAd' ? 152
+             : (H - ph) / 2 - 20;
     popup.rect = { x: px, y: py, w: pw, h: ph };
     // Figma: only the confirm-reset panel (21:4) shows plank seams
     woodPanel(ctx, px, py, pw, ph, { gold: true, flecks: false, seams: popup.type === 'confirm-reset' });
@@ -6338,17 +6502,7 @@ const UI = (() => {
     } else if (popup.type === 'build') {
       drawBuild(ctx, px, py, pw, ph);
     } else if (popup.type === 'upgrades') {
-      const f = CONFIG.FARMS[popup.farmId];
-      popupTitle(ctx, 'UPGRADES!', px, py, pw, { tall: true });
-      popup.cards = [];
-      // section labels + card rows from Figma 19:70/19:86/19:71/19:106..30:84
-      drawText(ctx, 'FARM', px + 10, py + 21.75, SIZE.CAPTION, '#e0cfa8');
-      upgradeCard(ctx, popup, px + 12, py + 32, pw - 24, 76, Upgrades.info(popup.farmId, 'spawn'));
-      drawText(ctx, f.label, px + 10, py + 119.75, SIZE.CAPTION, '#e0cfa8');
-      for (let s = 0; s < CONFIG.UPGRADES.STAGES.length; s++) {
-        upgradeCard(ctx, popup, px + 12, py + 130 + s * 98, pw - 24, 88, Upgrades.info(popup.farmId, s));
-      }
-      drawPanelFx(ctx);
+      drawUpgrades(ctx, px, py, pw, ph);
     } else if (popup.type === 'discovery') {
       drawDiscovery(ctx, px, py, pw, ph);
     } else if (popup.type === 'pigeonAd') {
@@ -6619,7 +6773,16 @@ const UI = (() => {
     tap, coinTarget,
     pulseCoin() { coinPulse = 1; },
     showToast(text) { toast = { text, t: 1.6 }; },
-    openPopup(p) { popup = p; },
+    openPopup(p) {
+      if (p.type === 'upgrades') {
+        // rows discovered since this panel was last open animate in, one
+        // after the other rather than all at once
+        p.reveal = {};
+        Upgrades.takeUnrevealed(p.farmId).forEach((k, i) => { p.reveal[k] = i * REVEAL.STAGGER; });
+        p.revealT = 0;
+      }
+      popup = p;
+    },
     closePopup() { popup = null; panelFx = []; },
     get popup() { return popup; },
     syncCoins() { displayedCoins = SaveManager.data.coins; },
@@ -6867,14 +7030,12 @@ const Game = (() => {
   }
 
   // ---------------- first-upgrade tutorial ----------------
-  /** Cheapest non-maxed upgrade cost on the current farm. */
+  /** Cheapest unlocked, non-maxed upgrade cost on the current farm. */
   function cheapestUpgradeCost() {
     const id = SaveManager.data.currentFarm;
-    const keys = ['spawn'];
-    for (let s = 0; s < CONFIG.UPGRADES.STAGES.length; s++) keys.push(s);
     let min = Infinity;
-    for (const k of keys) {
-      if (!Upgrades.isMaxed(id, k)) min = Math.min(min, Upgrades.cost(id, k));
+    for (const k of Upgrades.keys()) {
+      if (Upgrades.unlocked(id, k) && !Upgrades.isMaxed(id, k)) min = Math.min(min, Upgrades.cost(id, k));
     }
     return min;
   }
@@ -6910,8 +7071,17 @@ const Game = (() => {
   }
 
   // ---------------- buttons ----------------
-  /** Open the build/upgrade panel of a construction farm. */
+  /**
+   * Open the house menu of a construction farm: the build panel while there
+   * is still something to build, the upgrade panel once the farm is finished
+   * (the house is that farm's single entry point, so it must never open a
+   * dead-end "nothing left to build" panel).
+   */
   function openBuild(farmId) {
+    if (Construction.stage(farmId) === 'max') {
+      UI.openPopup({ type: 'upgrades', farmId, fx: {} });
+      return;
+    }
     UI.openPopup({ type: 'build', farmId, fx: 0 });
   }
 

@@ -18,6 +18,10 @@ const SaveManager = (() => {
       animals: [[], [], []],
       // discovery collection: species -> [bool per stage], permanent once true
       discovered: discoveredDefaults(),
+      // per-farm: upgrade keys ('spawn' | stage index | 'et') whose row has
+      // already animated into the upgrade panel, so each discovery plays its
+      // entry animation exactly once (see Upgrades.takeUnrevealed)
+      upgradesRevealed: CONFIG.FARMS.map(() => []),
       // per-farm: has the first-merge tutorial been completed?
       tutorialDone: CONFIG.FARMS.map(() => false),
       // one-time: has the first-upgrade tutorial been completed?
@@ -98,6 +102,19 @@ const SaveManager = (() => {
         if (a.stage < STAGE_COUNT()) d.discovered[f.species][a.stage] = true;
       }
     }
+    // existing saves: every upgrade the player can already see counts as
+    // revealed, so opening the panel doesn't replay entry animations for rows
+    // that have always been there
+    if (!d.upgradesRevealed) {
+      d.upgradesRevealed = CONFIG.FARMS.map(f => {
+        const disc = d.discovered[f.species] || [];
+        const seen = disc.flatMap((v, s) => (v ? [String(s)] : []));
+        if (disc[0]) seen.push('spawn');
+        if (d.ufo[f.id] && d.ufo[f.id].landed) seen.push('et');
+        return seen;
+      });
+    }
+    while (d.upgradesRevealed.length < CONFIG.FARMS.length) d.upgradesRevealed.push([]);
     return d;
   }
 

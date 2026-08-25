@@ -238,14 +238,12 @@ const Game = (() => {
   }
 
   // ---------------- first-upgrade tutorial ----------------
-  /** Cheapest non-maxed upgrade cost on the current farm. */
+  /** Cheapest unlocked, non-maxed upgrade cost on the current farm. */
   function cheapestUpgradeCost() {
     const id = SaveManager.data.currentFarm;
-    const keys = ['spawn'];
-    for (let s = 0; s < CONFIG.UPGRADES.STAGES.length; s++) keys.push(s);
     let min = Infinity;
-    for (const k of keys) {
-      if (!Upgrades.isMaxed(id, k)) min = Math.min(min, Upgrades.cost(id, k));
+    for (const k of Upgrades.keys()) {
+      if (Upgrades.unlocked(id, k) && !Upgrades.isMaxed(id, k)) min = Math.min(min, Upgrades.cost(id, k));
     }
     return min;
   }
@@ -281,8 +279,17 @@ const Game = (() => {
   }
 
   // ---------------- buttons ----------------
-  /** Open the build/upgrade panel of a construction farm. */
+  /**
+   * Open the house menu of a construction farm: the build panel while there
+   * is still something to build, the upgrade panel once the farm is finished
+   * (the house is that farm's single entry point, so it must never open a
+   * dead-end "nothing left to build" panel).
+   */
   function openBuild(farmId) {
+    if (Construction.stage(farmId) === 'max') {
+      UI.openPopup({ type: 'upgrades', farmId, fx: {} });
+      return;
+    }
     UI.openPopup({ type: 'build', farmId, fx: 0 });
   }
 

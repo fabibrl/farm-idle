@@ -2,7 +2,8 @@
  * Construction — step-by-step farm build progression (see CONFIG.CONSTRUCTION).
  * A construction farm goes: buy the land (map) -> build the house (starts
  * animal spawning) -> build the fence (animals stop escaping, production
- * starts) -> fence upgrades (capacity + pen footprint + art tier).
+ * starts) -> fence upgrades (capacity + pen footprint; the fence art is the
+ * same wood on every farm and every tier).
  *
  * The farm produces NOTHING — no money, no background/offline accrual — until
  * land + house + fence all exist; with the house but no fence, animals spawn
@@ -27,16 +28,6 @@ const Construction = (() => {
   function fenceLevel(farmId) { return required(farmId) ? state(farmId).fence : 0; }
 
   function maxFenceLevel(farmId) { return required(farmId) ? plan(farmId).FENCE_LEVELS.length : 0; }
-
-  /**
-   * Which fence palette set this farm's art tiers index into (see
-   * ENVIRONMENT.FENCE_THEMES) — every farm gets its own visual identity
-   * across tiers. Classic farms fall back to the base wood look.
-   */
-  function fenceTheme(farmId) {
-    const p = plan(farmId);
-    return (p && p.FENCE_THEME) || 'wood';
-  }
 
   function fenceBuilt(farmId) { return !required(farmId) || state(farmId).fence >= 1; }
 
@@ -222,7 +213,7 @@ const Construction = (() => {
   }
 
   return {
-    required, landOwned, houseBuilt, fenceLevel, maxFenceLevel, fenceBuilt, fenceTheme,
+    required, landOwned, houseBuilt, fenceLevel, maxFenceLevel, fenceBuilt,
     levelDef, nextDef, isComplete, capacity, escapesActive, jumpCfg,
     escapeDelay, landCost, houseCost, nextCost, stage, pending, grantLand,
     buyHouse, buyFence, buyNext, info,
