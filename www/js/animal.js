@@ -1,7 +1,8 @@
 /**
  * AnimalController — one instance per animal on the farm.
  * State machine: idle / walk / peck(graze) / drag / merging / spawning /
- * escape (unfenced construction farms only, see startEscape).
+ * escape (walking off an unfenced farm, or jumping a full pen's fence —
+ * see startEscape; an escaping animal is locked out of all interaction).
  * Handles blinking, breathing squash, walk bounce, poop production.
  */
 class Animal {
@@ -33,6 +34,10 @@ class Animal {
     this.escapeT = Infinity;
     this.escaping = false;
     this.escapeCfg = null;
+    this.escapeMode = null;
+    this.escPhase = null;
+    this.arcY = 0;       // hop/jump height offset (visual only)
+    this.cueT = 0;       // time since the escape tell started
     this.shadowW = SPRITES.ANIMAL_SIZES[species][stage][0] * CONFIG.ANIMAL_VISUAL_SCALE * 0.6;
     return this;
   }
@@ -43,6 +48,7 @@ class Animal {
       const t = this.stateT / this.stateDur;
       return (t % 0.5) > 0.22 ? 'peck' : 'idle';
     }
+    if (this.state === 'escape' && this.escPhase === 'hop') return 'walk';
     const walking = this.state === 'walk' || (this.state === 'escape' && this.escPhase === 'go');
     if (walking && !this.dragging) return (this.bob % (Math.PI * 2)) < Math.PI ? 'walk' : 'idle';
     return 'idle';
@@ -55,16 +61,23 @@ class Animal {
   }
 
   /**
-   * Start wandering off the plot: the animal idles a beat, then drifts
-   * toward the nearest open edge with the normal walk animation and fades
-   * out past the boundary. Called by FarmScene once this animal's own
-   * escape timer runs out (house built, no fence). A successful match
-   * cancels it simply by removing the animal from the board.
+   * Leave the farm for good. The animal is locked out of interaction from
+   * this moment (it can no longer be picked up or matched), so the sequence
+   * opens with a readable tell — a startled hop, the "!" cue popping in and
+   * a brief opacity blink — before it sets off:
+   *   mode 'walk' — wanders out through the nearest open edge (unfenced farm)
+   *   mode 'jump' — hops the fence in an arc, then trots away (full pen);
+   *                 `jump` carries that farm's Construction.jumpCfg()
+   * Either way it produces nothing on the way out and never comes back.
+   * Only the constructed farm ever calls this — see FarmScene.
    */
-  startEscape(bounds, cfg) {
+  startEscape(bounds, mode = 'walk', jump = null) {
     if (this.escaping) return;
+    const cfg = CONFIG.ESCAPE;
     this.escaping = true;
     this.escapeCfg = cfg;
+    this.escapeMode = mode === 'jump' && jump ? 'jump' : 'walk';
+    this.dragging = false;
     // nearest open edge — left, right or bottom (the house sits at the top)
     const dl = this.x - bounds.x;
     const dr = bounds.x + bounds.w - this.x;
@@ -73,10 +86,22 @@ class Animal {
     if (m === dl)      { this.exitX = bounds.x - 60; this.exitY = this.y + U.rand(-20, 30); }
     else if (m === dr) { this.exitX = bounds.x + bounds.w + 60; this.exitY = this.y + U.rand(-20, 30); }
     else               { this.exitX = this.x + U.rand(-40, 40); this.exitY = bounds.y + bounds.h + 70; }
-    this.escPhase = 'pause';
+    // the jump clears the fence line itself before the walk-away leg
+    if (mode === 'jump' && jump) {
+      const J = jump;
+      this.jumpFromX = this.x; this.jumpFromY = this.y;
+      if (m === dl)      { this.jumpToX = bounds.x - 30; this.jumpToY = this.y; }
+      else if (m === dr) { this.jumpToX = bounds.x + bounds.w + 30; this.jumpToY = this.y; }
+      else               { this.jumpToX = this.x; this.jumpToY = bounds.y + bounds.h + 34; }
+      this.jumpDur = J.HOP_TIME;
+      this.jumpH = J.HOP_HEIGHT;
+    }
+    this.escPhase = 'tell';
+    this.arcY = 0;
     this.legT = 0;
     this.wobble = 0;
-    this.setState('escape', U.rand(cfg.ESCAPE_PAUSE_MIN, cfg.ESCAPE_PAUSE_MAX));
+    this.cueT = 0;
+    this.setState('escape', U.rand(cfg.TELL_MIN, cfg.TELL_MAX));
   }
 
   chooseNext(bounds) {
@@ -153,8 +178,37 @@ class Animal {
       }
       case 'escape': {
         const cfg = this.escapeCfg;
-        if (this.escPhase === 'pause') {
-          if (this.stateT >= this.stateDur) { this.escPhase = 'go'; this.setState('escape', 1e9); }
+        this.cueT += dt;
+        if (this.escPhase === 'tell') {
+          // the tell: startled hops in place + a brief opacity blink, so the
+          // player sees why this animal has stopped responding
+          const k = U.clamp(this.stateT / this.stateDur, 0, 1);
+          this.arcY = -Math.abs(Math.sin(k * Math.PI * cfg.TELL_HOPS)) * cfg.TELL_HOP_H;
+          this.alpha = 0.72 + Math.abs(Math.sin(k * Math.PI * 4)) * 0.28;
+          if (this.stateT >= this.stateDur) {
+            this.arcY = 0;
+            this.alpha = 1;
+            this.escPhase = this.escapeMode === 'jump' ? 'hop' : 'go';
+            this.setState('escape', this.escapeMode === 'jump' ? this.jumpDur : 1e9);
+          }
+          break;
+        }
+        if (this.escPhase === 'hop') {
+          // deliberate arc over the fence, with a takeoff/landing squash
+          const k = U.clamp(this.stateT / this.stateDur, 0, 1);
+          this.x = U.lerp(this.jumpFromX, this.jumpToX, k);
+          this.y = U.lerp(this.jumpFromY, this.jumpToY, k);
+          this.arcY = -Math.sin(k * Math.PI) * this.jumpH;
+          const stretch = Math.sin(k * Math.PI);
+          this.scaleY = 1 + stretch * 0.16;
+          this.scaleX = 1 - stretch * 0.10;
+          if (this.jumpToX !== this.jumpFromX) this.facing = this.jumpToX > this.jumpFromX ? 1 : -1;
+          if (k >= 1) {
+            this.arcY = 0;
+            this.scaleX = this.scaleY = 1;
+            this.escPhase = 'go';
+            this.setState('escape', 1e9);
+          }
           break;
         }
         // drift toward the exit, re-aiming every leg with a random angle
@@ -165,14 +219,14 @@ class Animal {
           this.wobble = U.rand(-0.55, 0.55);
         }
         const ang = Math.atan2(this.exitY - this.y, this.exitX - this.x) + this.wobble;
-        this.x += Math.cos(ang) * cfg.ESCAPE_SPEED * dt;
-        this.y += Math.sin(ang) * cfg.ESCAPE_SPEED * 0.7 * dt;
+        this.x += Math.cos(ang) * cfg.SPEED * dt;
+        this.y += Math.sin(ang) * cfg.SPEED * 0.7 * dt;
         this.facing = Math.cos(ang) > 0 ? 1 : -1;
-        // fade out once past the plot boundary, then leave the board for good
+        // fade out once past the boundary, then leave the board for good
         const out = this.x < bounds.x - 10 || this.x > bounds.x + bounds.w + 10 ||
                     this.y > bounds.y + bounds.h + 12;
         if (out) {
-          this.alpha -= dt / cfg.ESCAPE_FADE;
+          this.alpha -= dt / cfg.FADE;
           if (this.alpha <= 0) { this.alpha = 0; this.dead = true; this.escaped = true; }
         }
         break;
@@ -221,24 +275,38 @@ class Animal {
   draw(ctx) {
     const img = this.img;
     const sc = CONFIG.ANIMAL_VISUAL_SCALE;
-    const lift = this.dragging ? -10 : 0;
+    // arcY lifts the sprite off the ground for the startled hops and the
+    // fence jump; the shadow stays on the ground and shrinks with the height
+    const arc = this.arcY || 0;
+    const lift = (this.dragging ? -10 : 0) + arc;
+    const airborne = U.clamp(1 - Math.abs(arc) / 46, 0.45, 1);
     // soft shadow
-    ctx.globalAlpha = (this.dragging ? 0.18 : 0.28) * this.alpha;
+    ctx.globalAlpha = (this.dragging ? 0.18 : 0.28) * this.alpha * airborne;
     ctx.fillStyle = '#1c2b12';
     ctx.beginPath();
-    ctx.ellipse(this.x, this.y + 2, this.shadowW / 2 * this.scaleX, 4, 0, 0, 7);
+    ctx.ellipse(this.x, this.y + 2, this.shadowW / 2 * this.scaleX * airborne, 4 * airborne, 0, 0, 7);
     ctx.fill();
     ctx.globalAlpha = this.alpha;
     PIXEL.blit(ctx, img, this.x, this.y + this.hopY + lift, sc, this.facing < 0, this.scaleY, this.scaleX);
     ctx.globalAlpha = 1;
-    // fleeing cue: a bobbing "!" so the stage reads as "you need a fence"
+    // the tell / fleeing cue: an alarm bubble for as long as it is leaving
     if (this.escaping && this.alpha > 0.15) this.drawFleeCue(ctx);
   }
 
-  /** Small alarm bubble over an animal that has started walking off. */
+  /**
+   * Alarm bubble over an animal that is leaving: pops in on the first beat
+   * of the tell (the moment it stops responding to input) and rides along
+   * until it is gone.
+   */
   drawFleeCue(ctx) {
     const t = performance.now() / 1000;
-    const y = this.y - this.radius * 1.7 - 16 + Math.sin(t * 6) * 2;
+    const pop = U.easeOutBack(U.clamp(this.cueT / 0.22, 0, 1));
+    if (pop <= 0) return;
+    const y = this.y + (this.arcY || 0) - this.radius * 1.7 - 16 + Math.sin(t * 6) * 2;
+    ctx.save();
+    ctx.translate(this.x, y);
+    ctx.scale(pop, pop);
+    ctx.translate(-this.x, -y);
     ctx.globalAlpha = this.alpha;
     ctx.fillStyle = PIXEL.OUTLINE;
     ctx.fillRect(this.x - 6, y - 8, 12, 16);
@@ -248,5 +316,6 @@ class Animal {
     ctx.fillRect(this.x - 1, y - 4, 2, 6);
     ctx.fillRect(this.x - 1, y + 3, 2, 2);
     ctx.globalAlpha = 1;
+    ctx.restore();
   }
 }

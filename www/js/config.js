@@ -184,6 +184,9 @@ const CONFIG = {
   //      wander off the plot and are lost (see the ESCAPE_* values below),
   //      and the farm is excluded from background/offline production —
   //      the idle clock is stamped the moment the fence completes.
+  //      Both ways of losing an animal (that walk-off and FENCE_JUMP) are
+  //      exclusive to farms listed here: on every other farm animals stay
+  //      contained and spawning simply stops at the capacity limit.
   //   4. Later levels upgrade the fence: a higher hard animal cap, a
   //      physically bigger pen footprint and an art tier per level
   //      (0 rough wood, 1 planked, 2 painted/reinforced).
@@ -204,15 +207,46 @@ const CONFIG = {
       // House built, no fence: animals still spawn (up to this cap) but each
       // one walks off the plot when its own escape timer runs out. The timer
       // starts at spawn and is staggered by +/- ESCAPE_VARIANCE seconds so
-      // they never leave all at once; a successful match cancels it.
+      // they never leave all at once. Shared leaving animation values (the
+      // tell, walk speed, fade) live in CONFIG.ESCAPE.
       UNFENCED_CAPACITY: 5,
       ESCAPE_TIME: 14,        // seconds on the board before an animal leaves
       ESCAPE_VARIANCE: 5,     // +/- random seconds on that timer
-      ESCAPE_PAUSE_MIN: 0.4,  // idle beat before it starts wandering off
-      ESCAPE_PAUSE_MAX: 1.4,
-      ESCAPE_SPEED: 22,       // px/sec while walking out (normal walk anim)
-      ESCAPE_FADE: 0.8,       // seconds to fade out past the plot boundary
+
+      // Fence jumping — the constructed farm's second way of losing an
+      // animal. Once the pen is fenced and full, spawn pressure keeps
+      // building until an older animal hops the fence and is lost, so the
+      // board makes room instead of hard-blocking spawns. Tier 1 (babies)
+      // never jump — only MIN_STAGE and above, and the cheapest eligible
+      // tier goes first, so a full pen costs the player its most redundant
+      // animal, never its best.
+      FENCE_JUMP: {
+        ENABLED: true,
+        MIN_STAGE: 1,          // stage index: 1 = tier 2 (ADULT) and above
+        PRESSURE_TIME: 8,      // seconds of blocked spawns before one jumps
+        VARIANCE: 3,           // +/- random seconds on that pressure timer
+        COOLDOWN: 18,          // minimum seconds between jumps on this farm
+        HOP_TIME: 0.95,        // arc over the fence (s)
+        HOP_HEIGHT: 40,        // peak of the arc above the ground line (px)
+      },
     },
+  },
+
+  // ---------------- Leaving the farm ----------------
+  // Animation values shared by both ways an animal leaves for good (see
+  // js/animal.js 'escape'): the unfenced walk-off and the fence jump. Both
+  // belong to the construction farm above — a farm without a CONSTRUCTION
+  // entry never escapes, so nothing here is ever reached from Farm 1 or 3.
+  // An animal that has started leaving is locked out of interaction — it
+  // can't be picked up or matched — so the sequence opens with a readable
+  // tell (startled hop + "!" + a brief opacity blink) before it sets off.
+  ESCAPE: {
+    TELL_MIN: 0.55,        // shortest startled beat before setting off (s)
+    TELL_MAX: 1.20,        // longest
+    TELL_HOPS: 2,          // startled hops during the tell
+    TELL_HOP_H: 7,         // startled hop height (px)
+    SPEED: 22,             // px/sec while walking out (normal walk anim)
+    FADE: 0.8,             // seconds to fade out past the boundary
   },
 
   // Animal behaviour

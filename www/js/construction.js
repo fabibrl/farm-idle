@@ -67,8 +67,15 @@ const Construction = (() => {
     return required(farmId) && houseBuilt(farmId) && !fenceBuilt(farmId);
   }
 
-  /** Escape tuning for this farm (only meaningful while escapesActive). */
-  function escapeCfg(farmId) { return plan(farmId); }
+  /**
+   * Fence-jump tuning, or null on a farm that doesn't use construction —
+   * both escape behaviours are exclusive to construction farms, so a null
+   * here means animals on that farm are never lost (see FarmScene).
+   */
+  function jumpCfg(farmId) {
+    const p = plan(farmId);
+    return p && p.FENCE_JUMP && p.FENCE_JUMP.ENABLED ? p.FENCE_JUMP : null;
+  }
 
   /** Seconds this animal stays on the board before walking off. */
   function escapeDelay(farmId) {
@@ -206,7 +213,7 @@ const Construction = (() => {
 
   return {
     required, landOwned, houseBuilt, fenceLevel, maxFenceLevel, fenceBuilt,
-    levelDef, nextDef, isComplete, capacity, escapesActive, escapeCfg,
+    levelDef, nextDef, isComplete, capacity, escapesActive, jumpCfg,
     escapeDelay, landCost, houseCost, nextCost, stage, pending, grantLand,
     buyHouse, buyFence, buyNext, info,
   };

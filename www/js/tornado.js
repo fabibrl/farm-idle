@@ -189,6 +189,7 @@ const Tornado = (() => {
 
   /** Will this animal take part in the cascade? (see mergePlan) */
   function collectible(a, active) {
+    if (a.escaping) return false;   // already leaving: no longer matchable
     return !!active[a.species] && active[a.species].has(a.stage);
   }
 

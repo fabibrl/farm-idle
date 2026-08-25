@@ -15,6 +15,12 @@ class FarmScene {
     this.mergeTarget = null;
     this.bg = ENVIRONMENT.farm(farmId);
     this.ghosts = [];      // in-scene hit rects (the farmhouse), see drawHouse()
+    // fence jumping (construction farms only): pressure builds while spawns
+    // bounce off a full pen — see updateFenceJump()
+    this.penPressure = 0;
+    this.jumpCooldown = 0;
+    const J = Construction.jumpCfg(farmId);
+    this.jumpAt = J ? Math.max(1, J.PRESSURE_TIME + U.rand(-J.VARIANCE, J.VARIANCE)) : Infinity;
     this.setBounds();
     this.tutorial = null;
     if (Construction.capacity(farmId) <= 0) {
@@ -63,6 +69,7 @@ class FarmScene {
         a.escaping = false;
         a.escapeT = Infinity;
         a.alpha = 1;
+        a.arcY = 0;
         if (a.state === 'escape') a.setState('idle', U.rand(0.5, 2));
       }
     }
@@ -71,6 +78,53 @@ class FarmScene {
       this.startTutorial();
     }
     this.spawnT = Math.min(this.spawnT, Upgrades.spawnInterval(this.farmId));
+  }
+
+  /**
+   * Fence jumping — construction farms only (Construction.jumpCfg is null
+   * everywhere else, so no other farm ever runs this): while the pen sits at
+   * capacity and spawns keep getting blocked, pressure builds; when it runs
+   * out, one eligible animal hops the fence and is lost, making room instead
+   * of hard-blocking spawning forever. Babies (below MIN_STAGE) never jump.
+   * A cooldown keeps it to an occasional event, not a drain.
+   */
+  updateFenceJump(dt) {
+    const J = Construction.jumpCfg(this.farmId);
+    if (!J) return;   // not a construction farm: animals are never lost here
+    this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
+    // pressure only builds while the pen is full and spawns are bouncing off
+    // it; it bleeds away as soon as a merge or a jump has freed a slot
+    if (this.animals.length < Construction.capacity(this.farmId)) {
+      this.penPressure = Math.max(0, this.penPressure - dt);
+      return;
+    }
+    // no fence yet: the walk-off escape covers this stage instead
+    if (Construction.escapesActive(this.farmId)) return;
+    this.penPressure += dt;
+    if (this.penPressure < this.jumpAt || this.jumpCooldown > 0) return;
+    const victim = this.pickJumper(J);
+    if (!victim) return;      // only babies in the pen: nothing jumps
+    this.penPressure = 0;
+    this.jumpAt = Math.max(1, J.PRESSURE_TIME + U.rand(-J.VARIANCE, J.VARIANCE));
+    this.jumpCooldown = J.COOLDOWN;
+    victim.startEscape(this.bounds, 'jump', J);
+    AudioManager.play('pop');
+  }
+
+  /**
+   * Which animal hops the fence: the cheapest eligible tier present (tier 2
+   * and up), picked at random within it — a full pen costs the player its
+   * most redundant animal, never its best.
+   */
+  pickJumper(J = Construction.jumpCfg(this.farmId)) {
+    if (!J) return null;
+    const min = J.MIN_STAGE;
+    const eligible = this.animals.filter(a =>
+      a.stage >= min && !a.escaping && !a.dragging && !a.dead &&
+      a.state !== 'merging' && a.state !== 'spawning');
+    if (!eligible.length) return null;
+    const lowest = Math.min(...eligible.map(a => a.stage));
+    return U.pick(eligible.filter(a => a.stage === lowest));
   }
 
   /** Give one animal its own escape countdown (no fence = animals wander off). */
@@ -170,10 +224,11 @@ class FarmScene {
         return true;
       }
     }
-    // topmost animal under pointer
+    // topmost animal under pointer — an animal that has started leaving is
+    // locked out of interaction (the tell shows the player why)
     for (let i = this.animals.length - 1; i >= 0; i--) {
       const a = this.animals[i];
-      if (a.state === 'merging' || a.state === 'spawning') continue;
+      if (a.state === 'merging' || a.state === 'spawning' || a.escaping) continue;
       if (U.dist(x, y, a.x, a.y - a.radius * 0.6) < a.radius + 8) {
         this.dragged = a;
         a.dragging = true;
@@ -202,6 +257,7 @@ class FarmScene {
     let best = null, bestDist = CONFIG.MERGE_RADIUS + d.radius * 0.5;
     for (const a of this.animals) {
       if (a === d || a.dead || a.state === 'merging' || a.state === 'spawning') continue;
+      if (a.escaping) continue;   // on its way out: no longer matchable
       // mutants (final stage) can still pair up — they become a MUTANT 2
       if (a.species !== d.species || a.stage !== d.stage) continue;
       const dist = U.dist(a.x, a.y, d.x, d.y);
@@ -285,8 +341,9 @@ class FarmScene {
       this.spawnT -= dt;
       if (this.spawnT <= 0) {
         this.spawnT = Upgrades.spawnInterval(this.farmId);
-        this.spawnAnimal(0);
+        this.spawnAnimal(0);   // returns null while the pen is full
       }
+      this.updateFenceJump(dt);
     } else {
       this.tutorial.t += dt;
     }
@@ -294,14 +351,13 @@ class FarmScene {
     // no fence: every animal counts down its own escape timer and then
     // wanders off the plot (staggered, never all at once)
     const escapes = Construction.escapesActive(this.farmId) && !this.tutorial;
-    const cfg = Construction.escapeCfg(this.farmId);
 
     let lost = false;
     for (let i = this.animals.length - 1; i >= 0; i--) {
       const a = this.animals[i];
       if (escapes && !a.escaping && !a.dragging && a.state !== 'merging') {
         a.escapeT -= dt;
-        if (a.escapeT <= 0) a.startEscape(this.bounds, cfg);
+        if (a.escapeT <= 0) a.startEscape(this.bounds, 'walk');
       }
       a.update(dt, this.bounds, this);
       // keep the tutorial pair in place so the merge stays obvious
