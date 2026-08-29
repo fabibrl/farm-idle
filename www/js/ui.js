@@ -270,8 +270,13 @@ const UI = (() => {
    * row, no placeholder and no gap, so the player is never shown that
    * anything else exists (see Upgrades.unlocked). The panel is pinned to the
    * top it has at full height and grows downwards, so rows never shift.
+   *
+   * A long chain (Farm 1 fully discovered is eight rows) grows past what the
+   * stage can show, so once the content exceeds UPGRADES_MAX_PH the panel
+   * stops growing and scrolls inside itself instead — see drawUpgrades.
    */
-  const UPGRADES_TOP = 56;    // (H - 528) / 2: the full-height panel's top
+  const UPGRADES_TOP = 56;       // (H - 528) / 2: the full-height panel's top
+  const UPGRADES_MAX_PH = 528;   // panel height ceiling — beyond this it scrolls
   const CARD_H = { spawn: 76, stage: 88 };
   // A row discovered since the panel was last open slides in and fades up
   // while the rows below it make room, then a shine sweeps across it.
@@ -307,7 +312,7 @@ const UI = (() => {
   function upgradeLayout(popup) {
     const rows = [];
     let dy = 32, first = true, stageSection = false;
-    for (const key of Upgrades.keys()) {
+    for (const key of Upgrades.keys(popup.farmId)) {
       if (!Upgrades.unlocked(popup.farmId, key)) continue;
       const spawn = key === 'spawn';
       const p = easeOut(revealP(popup, key));
@@ -321,31 +326,85 @@ const UI = (() => {
       dy += h * p;
       first = false;
     }
-    // 16px of panel below the last row; an empty list keeps a small plaque
-    return { rows, ph: rows.length ? dy + 16 : 96 };
+    // 16px of panel below the last row; an empty list keeps a small plaque.
+    // The panel takes the content's height until it hits the ceiling, after
+    // which it stays put and the rows scroll inside it.
+    const ch = rows.length ? dy + 16 : 96;
+    return { rows, ch, ph: Math.min(ch, UPGRADES_MAX_PH) };
   }
 
+  /**
+   * The scrollable row list. Rows are drawn into a clipped viewport shifted
+   * by popup.scroll, and only the BUY buttons actually inside that viewport
+   * are registered as hit rects — a row scrolled out of sight can't be
+   * tapped through the panel frame.
+   */
   function drawUpgrades(ctx, px, py, pw, ph) {
     popupTitle(ctx, 'UPGRADES!', px, py, pw, { tall: true });
     popup.cards = [];
-    const { rows } = upgradeLayout(popup);
+    const { rows, ch } = upgradeLayout(popup);
+    const view = { x: px + 4, y: py + 24, w: pw - 8, h: ph - 32 };
+    popup.maxScroll = Math.max(0, ch - ph);
+    popup.scroll = U.clamp(popup.scroll || 0, 0, popup.maxScroll);
+    followReveal(popup, rows, view.y - py, view.h);
+    const sc = popup.scroll;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(view.x, view.y, view.w, view.h);
+    ctx.clip();
     for (const r of rows) {
+      const ry = py + r.dy - sc;
+      if (ry > view.y + view.h || ry + r.h < view.y) continue;   // fully off-view
       if (r.caption) {
         ctx.globalAlpha = r.p;
-        drawText(ctx, r.caption, px + 10, py + r.dy - 10.25, SIZE.CAPTION, '#e0cfa8');
+        drawText(ctx, r.caption, px + 10, ry - 10.25, SIZE.CAPTION, '#e0cfa8');
         ctx.globalAlpha = 1;
       }
       const inf = Upgrades.info(popup.farmId, r.key);
       if (r.p >= 1 && r.shine === null) {
-        upgradeCard(ctx, popup, px + 12, py + r.dy, pw - 24, r.h, inf);
+        upgradeCard(ctx, popup, px + 12, ry, pw - 24, r.h, inf, view);
       } else {
-        drawRevealingCard(ctx, px + 12, py + r.dy, pw - 24, r.h, inf, r);
+        drawRevealingCard(ctx, px + 12, ry, pw - 24, r.h, inf, r, view);
       }
     }
+    ctx.restore();
+
+    if (popup.maxScroll > 0) drawScrollbar(ctx, px, pw, view, sc, popup.maxScroll, ch);
     if (!rows.length) {
       drawText(ctx, 'NOTHING TO UPGRADE YET', px + pw / 2, py + 40, 7, '#e0cfa8', 'center', false, false, pw - 28);
     }
     drawPanelFx(ctx);
+  }
+
+  /**
+   * On a long chain the row that just unlocked can be below the fold, where
+   * its entry animation would play unseen — so while rows are still coming
+   * in, the list scrolls to keep the newest one on screen. The moment the
+   * player scrolls by hand it stops following and leaves them in control.
+   */
+  function followReveal(popup, rows, viewTop, viewH) {
+    if (popup.userScrolled || !popup.reveal) return;
+    const fresh = rows.filter(r => revealT(popup, r.key) !== null);
+    if (!fresh.length) return;
+    const last = fresh[fresh.length - 1];
+    if (revealT(popup, last.key) > REVEAL.DUR + REVEAL.SHINE) return;   // settled
+    const want = last.dy + last.h - viewTop - viewH;
+    popup.scroll = U.clamp(Math.max(popup.scroll, want), 0, popup.maxScroll);
+  }
+
+  /** Slim thumb on the panel's right edge showing how far down the list is. */
+  function drawScrollbar(ctx, px, pw, view, scroll, maxScroll, contentH) {
+    const x = px + pw - 6, top = view.y + 2, h = view.h - 4;
+    const th = Math.max(24, h * (view.h / contentH));
+    const ty = top + (h - th) * (scroll / maxScroll);
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = PIXEL.OUTLINE;
+    ctx.fillRect(x, top, 3, h);
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = '#e0cfa8';
+    ctx.fillRect(x, ty, 3, th);
+    ctx.globalAlpha = 1;
   }
 
   /**
@@ -354,14 +413,14 @@ const UI = (() => {
    * by a diagonal shine. Its BUY button is registered at its resting rect,
    * so the row stays tappable the whole way in.
    */
-  function drawRevealingCard(ctx, x, y, w, h, inf, r) {
+  function drawRevealingCard(ctx, x, y, w, h, inf, r, view) {
     ctx.save();
     ctx.beginPath();
     ctx.rect(x - 4, y - 4, w + 8, Math.max(0, r.h * r.p) + 8);
     ctx.clip();
     ctx.globalAlpha = r.p;
     ctx.translate((1 - r.p) * REVEAL.SLIDE, 0);
-    upgradeCard(ctx, popup, x, y, w, h, inf);
+    upgradeCard(ctx, popup, x, y, w, h, inf, view);
     ctx.globalAlpha = 1;
     if (r.shine !== null) {
       const sx = x - 44 + (w + 88) * r.shine;
@@ -376,7 +435,7 @@ const UI = (() => {
     ctx.restore();
   }
 
-  function upgradeCard(ctx, popup, x, y, w, h, inf) {
+  function upgradeCard(ctx, popup, x, y, w, h, inf, view) {
     // parchment card (x,y,w,h = inner face rect; all values Figma E04 / 2)
     ctx.fillStyle = PIXEL.OUTLINE; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
     ctx.fillStyle = '#e8d8b4'; ctx.fillRect(x, y, w, h);
@@ -430,7 +489,10 @@ const UI = (() => {
       ctx.globalAlpha = 1;
     }
 
-    popup.cards.push({ key: inf.key, btn });
+    // only a button fully inside the scroll viewport is tappable
+    if (!view || (btn.y >= view.y && btn.y + btn.h <= view.y + view.h)) {
+      popup.cards.push({ key: inf.key, btn });
+    }
     return y + h;
   }
 
@@ -851,7 +913,7 @@ const UI = (() => {
       ctx.fillStyle = '#e8d8b4'; ctx.fillRect(px + 20, py + 30, pw - 40, 100);
       ctx.fillStyle = '#f2e6c8'; ctx.fillRect(px + 20, py + 30, pw - 40, 3);
       // animal preview (26:35: bottom-center at 116.75, py+110.5)
-      const img = SPRITES.animal(f.species, 1, 'idle', false);
+      const img = SPRITES.animal(f.species, CONFIG.showcaseStage(f.species), 'idle', false);
       PIXEL.blit(ctx, img, px + 56.75, py + 110.5, 3.0);
       drawText(ctx, f.label.replace(/S$/, '') + ' FARM', px + 120, py + 52.25, 8.5, '#5c3a1d', 'left', false, false, 96);
       drawText(ctx, build ? 'LAND COST:' : 'UNLOCK COST:', px + 138.5, py + 72.75, 4.5, '#7d5027', 'left');
@@ -919,7 +981,10 @@ const UI = (() => {
       drawText(ctx, 'MERGE STORM!', px + 96.5, py + 106.5, 10, '#b8860b', 'left', false, false, 120);
       // mutants feed the UFO only where it has been unlocked
       const ufoReady = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
-      drawText(ctx, ufoReady ? 'MUTANTS BECOME MUTANT 2!' : 'MERGES ALL THE WAY TO MUTANTS!',
+      const chain = CONFIG.chain(CONFIG.FARMS[SaveManager.data.currentFarm].species);
+      const topName = chain.stages[chain.stages.length - 1].name;
+      drawText(ctx, ufoReady ? topName + 'S BECOME ' + chain.final.name + '!'
+                             : 'MERGES ALL THE WAY TO ' + topName + 'S!',
         px + pw / 2, py + 144.25, 4.5, '#7d5027', 'center', false, false, pw - 44);
       // single watch button (dismiss via the close X)
       popup.okRect = { x: px + 40, y: py + 192, w: pw - 80, h: 40 };
@@ -953,6 +1018,52 @@ const UI = (() => {
   }
 
   function inRect(x, y, r) { return r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
+
+  // ---------------- upgrade panel: scroll + deferred purchase ----------------
+  const DRAG_SLOP = 5;   // px of movement that turns a press into a scroll
+
+  /** Pointer moved while a popup press is live: scroll the upgrade list. */
+  function drag(x, y) {
+    if (!popup || !popup.press) return false;
+    const p = popup.press;
+    const dy = y - p.y;
+    if (Math.abs(dy) > DRAG_SLOP) p.moved = true;
+    if (p.moved) {
+      popup.userScrolled = true;   // the player took over: stop following reveals
+      popup.scroll = U.clamp(p.scroll - dy, 0, popup.maxScroll || 0);
+    }
+    return true;
+  }
+
+  /**
+   * Pointer released. A press that never turned into a scroll and comes up
+   * on the same BUY button it started on is the actual purchase.
+   */
+  function release(x, y) {
+    if (!popup || !popup.press) return false;
+    const p = popup.press;
+    popup.press = null;
+    if (p.moved || !p.card || !inRect(x, y, p.card.btn)) return true;
+    const r = Upgrades.buy(popup.farmId, p.card.key);
+    if (r.ok) {
+      AudioManager.play('buy');
+      popup.fx[p.card.key] = 1;
+      spawnPanelFx(p.card.btn.x + p.card.btn.w / 2, p.card.btn.y + p.card.btn.h / 2);
+      Game.onUpgradePurchased();
+    } else {
+      AudioManager.play('error');
+      toast = { text: r.reason, t: 1.6 };
+    }
+    return true;
+  }
+
+  /** Mouse wheel / trackpad over an open upgrade panel. */
+  function scrollBy(dy) {
+    if (!popup || popup.type !== 'upgrades') return false;
+    popup.userScrolled = true;
+    popup.scroll = U.clamp((popup.scroll || 0) + dy, 0, popup.maxScroll || 0);
+    return true;
+  }
 
   // ---------------- first-upgrade tutorial overlay ----------------
   /** Pixel-style pointing hand, fingertip at (x, y). */
@@ -1033,21 +1144,10 @@ const UI = (() => {
         AudioManager.play('click'); popup = null; panelFx = []; return true;
       }
       if (popup.type === 'upgrades') {
-        for (const c of popup.cards || []) {
-          if (inRect(x, y, c.btn)) {
-            const r = Upgrades.buy(popup.farmId, c.key);
-            if (r.ok) {
-              AudioManager.play('buy');
-              popup.fx[c.key] = 1;
-              spawnPanelFx(c.btn.x + c.btn.w / 2, c.btn.y + c.btn.h / 2);
-              Game.onUpgradePurchased();
-            } else {
-              AudioManager.play('error');
-              toast = { text: r.reason, t: 1.6 };
-            }
-            return true;
-          }
-        }
+        // the list scrolls, so a press only ARMS a purchase: it goes through
+        // on release, and only if the finger stayed put (see drag/release)
+        const card = (popup.cards || []).find(c => inRect(x, y, c.btn));
+        popup.press = { y, scroll: popup.scroll || 0, moved: false, card };
         return true;
       }
       if (popup.type === 'discovery') {
@@ -1127,7 +1227,7 @@ const UI = (() => {
     const f = SPRITES.fenceH(24);
     for (let x = 0; x < W; x += 44) ctx.drawImage(f, x, 380, 44, 26);
     drawText(ctx, 'FARM EVOLUTION', W / 2, 255.5, SIZE.TITLE, '#ffe98a', 'center', false, false, W - 24);
-    const img = SPRITES.animal('chicken', 1, (t * 3 | 0) % 2 ? 'walk' : 'idle');
+    const img = SPRITES.animal('chicken', CONFIG.showcaseStage('chicken'), (t * 3 | 0) % 2 ? 'walk' : 'idle');
     PIXEL.blit(ctx, img, W / 2, 350, 3);
     const dots = '.'.repeat(1 + ((t * 2) | 0) % 3);
     drawText(ctx, 'TAP TO START', W / 2, 590.5, 12, '#f4e8cc', 'center');
@@ -1137,7 +1237,7 @@ const UI = (() => {
   return {
     SIZE, drawText, measure, woodPanel, woodSign, drawButton, drawHUD, drawPopup, drawLoading,
     drawHand, drawUpgradeTutorial, drawBadge, safeArea,
-    tap, coinTarget,
+    tap, drag, release, scrollBy, coinTarget,
     pulseCoin() { coinPulse = 1; },
     showToast(text) { toast = { text, t: 1.6 }; },
     openPopup(p) {
@@ -1147,10 +1247,15 @@ const UI = (() => {
         p.reveal = {};
         Upgrades.takeUnrevealed(p.farmId).forEach((k, i) => { p.reveal[k] = i * REVEAL.STAGGER; });
         p.revealT = 0;
+        p.scroll = 0;
+        p.maxScroll = 0;
+        p.userScrolled = false;
       }
       popup = p;
     },
     closePopup() { popup = null; panelFx = []; },
+    /** A live press was interrupted (scene change, cinematic): drop it. */
+    cancelPress() { if (popup) popup.press = null; },
     get popup() { return popup; },
     syncCoins() { displayedCoins = SaveManager.data.coins; },
   };

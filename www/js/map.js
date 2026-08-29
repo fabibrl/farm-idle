@@ -203,7 +203,7 @@ class MapScene {
       const blink = unlocked && Math.sin(this.time * 3 + i) > 0.96;
       // an undeveloped plot has no animals on it at all
       if (stage >= 1) {
-        PIXEL.blit(ctx, SPRITES.animal(species, 1, frame, blink), theme.animal.x, theme.animal.y, 2, i === 1);
+        PIXEL.blit(ctx, SPRITES.animal(species, CONFIG.showcaseStage(species), frame, blink), theme.animal.x, theme.animal.y, 2, i === 1);
       }
 
       if (unlocked) {

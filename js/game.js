@@ -90,11 +90,16 @@ const Game = (() => {
       e.preventDefault();
       if (UFO.cinematicActive || Tornado.active) return;
       const p = toGame(e);
+      // an open panel takes the drag first (the upgrade list scrolls)
+      if (UI.drag(p.x, p.y)) return;
       if (scene === 'farm') farmScene.pointerMove(p.x, p.y);
     };
     const up = e => {
       e.preventDefault();
       if (UFO.cinematicActive || Tornado.active) return;
+      // a press inside a panel resolves here: a purchase if it didn't scroll
+      const p = toGame(e);
+      if (UI.release(p.x, p.y)) return;
       if (scene === 'farm') farmScene.pointerUp();
     };
     canvas.addEventListener('mousedown', down);
@@ -103,6 +108,9 @@ const Game = (() => {
     canvas.addEventListener('touchstart', down, { passive: false });
     canvas.addEventListener('touchmove', move, { passive: false });
     canvas.addEventListener('touchend', up, { passive: false });
+    canvas.addEventListener('wheel', e => {
+      if (UI.scrollBy(e.deltaY)) e.preventDefault();
+    }, { passive: false });
   }
 
   function start() {
@@ -242,7 +250,7 @@ const Game = (() => {
   function cheapestUpgradeCost() {
     const id = SaveManager.data.currentFarm;
     let min = Infinity;
-    for (const k of Upgrades.keys()) {
+    for (const k of Upgrades.keys(id)) {
       if (Upgrades.unlocked(id, k) && !Upgrades.isMaxed(id, k)) min = Math.min(min, Upgrades.cost(id, k));
     }
     return min;

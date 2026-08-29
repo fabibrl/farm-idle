@@ -68,6 +68,7 @@ class FarmScene {
         // the fence is up: escape logic is off for good
         a.escaping = false;
         a.escapeT = Infinity;
+        a.farewell = null;
         a.alpha = 1;
         a.arcY = 0;
         if (a.state === 'escape') a.setState('idle', U.rand(0.5, 2));
@@ -258,7 +259,7 @@ class FarmScene {
     for (const a of this.animals) {
       if (a === d || a.dead || a.state === 'merging' || a.state === 'spawning') continue;
       if (a.escaping) continue;   // on its way out: no longer matchable
-      // mutants (final stage) can still pair up — they become a MUTANT 2
+      // the chain's top stage can still pair up — it becomes the final form
       if (a.species !== d.species || a.stage !== d.stage) continue;
       const dist = U.dist(a.x, a.y, d.x, d.y);
       if (dist < bestDist) { best = a; bestDist = dist; }
@@ -288,9 +289,11 @@ class FarmScene {
     a.dead = b.dead = true;
     this.animals = this.animals.filter(an => !an.dead);
     AudioManager.play('merge');
-    // Mutant + Mutant: no separate stage — the pair permanently becomes a
-    // MUTANT 2 collected by the UFO (full cinematic first time, quick beam after)
-    if (newStage >= CONFIG.STAGE_NAMES.length) {
+    // Two of the chain's last board stage: the pair never lands as an animal
+    // — it permanently becomes the chain's final form (Farm 1: the Final
+    // Chicken), collected by the UFO (full cinematic first time, quick beam
+    // after). This is the only animal the UFO ever abducts.
+    if (newStage >= CONFIG.stageCount(species)) {
       VFXManager.burst(mx, my - 14, ['#7de87a', '#c4ffb8', '#a07cc0', '#ffffff'], 20, 120);
       VFXManager.sparkle(mx, my - 20, 12, 22);
       this.persist();
@@ -419,6 +422,9 @@ class FarmScene {
     const sorted = this.animals.slice().sort((a, b) => layer(a) - layer(b) || a.y - b.y);
     for (const a of sorted) a.draw(ctx);
 
+    // farewell bubbles of everything on its way out, above every animal
+    this.drawFarewells(ctx, sorted);
+
     // parked UFO / abduction cinematic (above the animals)
     UFO.draw(ctx);
 
@@ -429,6 +435,35 @@ class FarmScene {
     Tornado.draw(ctx);
 
     if (this.tutorial) this.drawTutorial(ctx);
+  }
+
+  /**
+   * Goodbye bubbles (see Animal.bubbleBox): drawn here, after every animal,
+   * so they always sit on top — and so several animals leaving at once can
+   * be de-overlapped against each other. Each bubble is lifted above any
+   * already-placed one it would collide with, never into an unreadable
+   * cluster; the tail keeps pointing at its own animal.
+   */
+  drawFarewells(ctx, sorted) {
+    const gap = CONFIG.ESCAPE.BUBBLE.GAP;
+    const placed = [];
+    for (const a of sorted) {
+      const box = a.bubbleBox();
+      if (!box) continue;
+      for (let pass = 0; pass < placed.length; pass++) {
+        let hit = false;
+        for (const p of placed) {
+          if (box.x < p.x + p.w + gap && p.x < box.x + box.w + gap &&
+              box.y < p.y + p.h + gap && p.y < box.y + box.h + gap) {
+            box.y = p.y - gap - box.h;
+            hit = true;
+          }
+        }
+        if (!hit) break;
+      }
+      placed.push(box);
+      a.drawSpeechBubble(ctx, box);
+    }
   }
 
   // ---------------- construction: in-scene call to action ----------------

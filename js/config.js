@@ -12,29 +12,28 @@ const CONFIG = {
 
   // Spawning
   SPAWN_INTERVAL: 3.0,     // seconds between automatic baby spawns
-  MAX_ANIMALS: 14,         // maximum simultaneous animals per farm
+  MAX_ANIMALS: 14,         // default max simultaneous animals per farm
+                           // (a farm may raise its own ceiling: FARMS[].maxAnimals)
   SPAWN_POP_TIME: 0.35,
 
   // ---------------- Economy ----------------
   // Poop is the primary income source. Per-animal passive rate (coins/sec)
-  // = coins-per-poop / (interval + jitter/2):
-  //   BABY 2/5s = 0.4    ADULT 4/5s = 0.8    ELDER 10/5s = 2.0    MUTANT 24/3.6s = 6.7
-  // Each merge tier roughly doubles per-poop value without going fully
-  // exponential (x2, x2.5, x2.4), and the animal cap means every merge
-  // frees a pen slot that a free spawn refills — so merging always grows
-  // the idle rate, and the idle rate is never zero.
-  INCOME_BY_STAGE: [2, 4, 10, 24],      // coins per poop for stage 1/2/3/4
-  POOP_INTERVAL: 4.0,                   // default seconds between poops per animal
-  POOP_INTERVAL_BY_STAGE: [4.0, 4.0, 4.0, 2.6],  // per-stage base poop interval (mutant poops fastest)
+  // = coins-per-poop / (interval + jitter/2). Every per-stage economy number
+  // now lives on that stage's entry in CHAINS below — one merge chain per
+  // species, each free to be as long as its farm needs. Each merge tier
+  // roughly doubles per-poop value without going fully exponential, and the
+  // animal cap means every merge frees a pen slot that a free spawn refills
+  // — so merging always grows the idle rate, and the idle rate is never zero.
+  POOP_INTERVAL: 4.0,                   // fallback seconds between poops per animal
   POOP_INTERVAL_JITTER: 2.0,     // random extra seconds
   POOP_TO_COIN_DELAY: 1.4,       // poop sits, then transforms
   COIN_FLY_SPEED: 620,           // px/sec toward HUD
   // Per-farm upgrade system (see js/upgrades.js). All values data-driven.
   //
   // Pacing targets (farm 1 baseline; later farms scale via costMult):
-  //   short-term  (30-90s): BABY level, SPAWN level, another merge
-  //   medium-term (3-8min): ADULT/ELDER levels, first ELDER, first MUTANT
-  //   long-term  (10-20m+): MUTANT levels, farm unlock, first alien
+  //   short-term  (30-90s): early-tier levels, SPAWN level, another merge
+  //   medium-term (3-8min): mid-tier levels, the next stage discovered
+  //   long-term  (10-20m+): top-tier levels, farm unlock, the first abduction
   // Each tier has its own cost growth (no single global curve): cheap tiers
   // grow slowest so there is always a small purchase within reach, while
   // rising income keeps time-to-next-upgrade roughly flat instead of
@@ -51,17 +50,97 @@ const CONFIG = {
         minInterval: 1.0,        // spawn interval floor
       },
     },
-    // One entry per evolution stage; each level improves poop speed AND coin value.
-    STAGES: [
-      { label: 'BABY',   baseCost: 30,   costGrowth: 1.16, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 1 },
-      { label: 'ADULT',  baseCost: 120,  costGrowth: 1.17, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 2 },
-      { label: 'ELDER',  baseCost: 500,  costGrowth: 1.18, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 4 },
-      { label: 'MUTANT', baseCost: 2500, costGrowth: 1.20, maxLevel: 30, poopStep: 0.25, minPoop: 0.8, coinStep: 8 },
-    ],
+    // Per-stage upgrade definitions now live on each stage in CHAINS (`up`).
   },
 
-  // Evolution stages (index 0-3). Stage count drives merging, sprites, save data.
-  STAGE_NAMES: ['BABY', 'ADULT', 'ELDER', 'MUTANT'],
+  // ---------------- Merge chains ----------------
+  // One chain per species — the single source of truth for that farm's whole
+  // evolution ladder: how many board stages it has, what each is called, what
+  // it earns, and what its upgrade costs. Chains are independent, so a farm
+  // can be deepened without touching any other farm.
+  //
+  //   stages[] — the animals that live in the pen. Merging two of stage i
+  //              produces stage i+1; merging two of the LAST board stage
+  //              produces `final` instead.
+  //   final    — the abducted form: it never walks the pen. The pair that
+  //              creates it is taken by the UFO on the spot (full cinematic
+  //              the first time, quick beam after) and from then on it pays a
+  //              passive drip. `up` gives it an upgrade row of its own; a
+  //              chain that omits `up` simply has no row for it.
+  //
+  // Per stage:
+  //   name       label in the upgrade panel / tornado popups
+  //   title      discovery-popup name (defaults to "<name> <SPECIES>")
+  //   income     coins per poop at level 0
+  //   poop       seconds between poops at level 0
+  //   flavor     discovery-popup one-liner
+  //   up         { baseCost, costGrowth, maxLevel, poopStep, minPoop, coinStep }
+  //              — one upgrade row; every level improves poop speed AND value.
+  //
+  // Cost curve: baseCost climbs by a steady ~2.6x per tier and costGrowth
+  // ramps gently (1.16 -> 1.19) instead of stepping at the top, so the ladder
+  // scales smoothly end to end and time-to-next-upgrade stays roughly flat.
+  CHAINS: {
+    // Farm 1 — the full seven-stage chicken chain: three stages of ordinary
+    // growing up (baby -> teen -> adult), then four of an experiment going
+    // progressively wrong (strange -> mutant -> mutant 2 -> final).
+    chicken: {
+      stages: [
+        { name: 'BABY',     income: 2,  poop: 4.0, flavor: 'A TINY PUFF OF FLUFF!',
+          up: { baseCost: 30,   costGrowth: 1.16, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 1 } },
+        { name: 'TEEN',     income: 4,  poop: 4.0, flavor: 'ALL LEGS AND ATTITUDE!',
+          up: { baseCost: 80,   costGrowth: 1.16, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 2 } },
+        { name: 'ADULT',    income: 8,  poop: 4.0, flavor: 'CLUCKS WITH GREAT PRIDE!',
+          up: { baseCost: 210,  costGrowth: 1.17, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 3 } },
+        { name: 'STRANGE',  income: 16, poop: 3.6, flavor: 'SOMETHING IS OFF HERE...',
+          up: { baseCost: 550,  costGrowth: 1.17, maxLevel: 30, poopStep: 0.2,  minPoop: 1.4, coinStep: 6 } },
+        { name: 'MUTANT',   income: 32, poop: 3.2, flavor: 'SCIENCE WENT TOO FAR!',
+          up: { baseCost: 1400, costGrowth: 1.18, maxLevel: 30, poopStep: 0.25, minPoop: 1.2, coinStep: 11 } },
+        { name: 'MUTANT 2', income: 64, poop: 2.6, flavor: 'TWO HEADS, ZERO ANSWERS!',
+          title: 'MUTANT CHICKEN 2',
+          up: { baseCost: 3600, costGrowth: 1.19, maxLevel: 30, poopStep: 0.25, minPoop: 0.8, coinStep: 20 } },
+      ],
+      // the stage that represents this farm outside the pen (map sign, unlock
+      // popup, loading screen): the ordinary adult, never a mutation
+      showcase: 2,
+      // Hyper mutation: the peak of the chain and the only chicken the UFO
+      // abducts. Its upgrade row raises what every collected one pays.
+      final: {
+        name: 'FINAL', title: 'FINAL CHICKEN', flavor: 'PEAK HYPER MUTATION!',
+        up: { baseCost: 9000, costGrowth: 1.20, maxLevel: 30, incomeStep: 10 },
+      },
+    },
+
+    // Farms 2 and 3 keep their original four-stage chains untouched.
+    sheep: {
+      stages: [
+        { name: 'BABY',   income: 2,  poop: 4.0, flavor: 'SOFT, SLEEPY AND SMALL.',
+          up: { baseCost: 30,   costGrowth: 1.16, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 1 } },
+        { name: 'ADULT',  income: 4,  poop: 4.0, flavor: 'WOOL FOR DAYS!',
+          up: { baseCost: 120,  costGrowth: 1.17, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 2 } },
+        { name: 'ELDER',  income: 10, poop: 4.0, flavor: 'ANCIENT FLUFF WISDOM.',
+          up: { baseCost: 500,  costGrowth: 1.18, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 4 } },
+        { name: 'MUTANT', income: 24, poop: 2.6, flavor: 'THE WOOL HAS AWAKENED!',
+          up: { baseCost: 2500, costGrowth: 1.20, maxLevel: 30, poopStep: 0.25, minPoop: 0.8, coinStep: 8 } },
+      ],
+      showcase: 1,
+      final: { name: 'MUTANT 2', title: 'MUTANT 2 SHEEP', flavor: 'ABDUCTED AND IMPROVED!' },
+    },
+    cow: {
+      stages: [
+        { name: 'BABY',   income: 2,  poop: 4.0, flavor: 'SMALL MOO, BIG DREAMS.',
+          up: { baseCost: 30,   costGrowth: 1.16, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 1 } },
+        { name: 'ADULT',  income: 4,  poop: 4.0, flavor: 'PRODUCES PREMIUM MOO.',
+          up: { baseCost: 120,  costGrowth: 1.17, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 2 } },
+        { name: 'ELDER',  income: 10, poop: 4.0, flavor: 'HORNS OF THE ANCIENTS.',
+          up: { baseCost: 500,  costGrowth: 1.18, maxLevel: 30, poopStep: 0.2,  minPoop: 1.5, coinStep: 4 } },
+        { name: 'MUTANT', income: 24, poop: 2.6, flavor: 'UDDERLY MUTATED!',
+          up: { baseCost: 2500, costGrowth: 1.20, maxLevel: 30, poopStep: 0.25, minPoop: 0.8, coinStep: 8 } },
+      ],
+      showcase: 1,
+      final: { name: 'MUTANT 2', title: 'MUTANT 2 COW', flavor: 'ABDUCTED AND IMPROVED!' },
+    },
+  },
 
   // Discovery celebration (first time a species+stage is created)
   DISCOVERY: {
@@ -70,35 +149,15 @@ const CONFIG = {
     FLASH_TIME: 0.45,        // bright flash duration (s)
     PRE_POPUP_TIME: 2.4,     // total sequence length before popup opens (s)
     SPARKLE_RATE: 0.12,      // seconds between golden sparkle bursts
-    // Flavor text per species per stage (shown on the celebration popup)
-    FLAVOR: {
-      chicken: [
-        'A TINY PUFF OF FLUFF!',
-        'CLUCKS WITH GREAT PRIDE!',
-        'WISE AND SLIGHTLY WEIRD.',
-        'SCIENCE WENT TOO FAR!',
-      ],
-      sheep: [
-        'SOFT, SLEEPY AND SMALL.',
-        'WOOL FOR DAYS!',
-        'ANCIENT FLUFF WISDOM.',
-        'THE WOOL HAS AWAKENED!',
-      ],
-      cow: [
-        'SMALL MOO, BIG DREAMS.',
-        'PRODUCES PREMIUM MOO.',
-        'HORNS OF THE ANCIENTS.',
-        'UDDERLY MUTATED!',
-      ],
-    },
+    // Flavor text lives on each stage in CHAINS (see `flavor`).
   },
 
-  // UFO Mutant 2 collection layer (end-game, see js/ufo.js).
-  // Mutant + Mutant merges feed MUTANT 2s (each farm's final, fully
-  // mutated animal form) to a permanently parked UFO. Internal ALIEN key
-  // names are kept for save compatibility.
+  // UFO final-form collection layer (end-game, see js/ufo.js).
+  // Merging two of a chain's LAST board stage produces that chain's `final`
+  // form (Farm 1: the Final Chicken) and feeds it straight to a permanently
+  // parked UFO. Internal ALIEN key names are kept for save compatibility.
   UFO: {
-    INCOME_PER_ALIEN: 25,      // coins per production drop, per collected Mutant 2
+    INCOME_PER_ALIEN: 25,      // coins per production drop, per collected final form
     INTERVAL: 5.0,             // seconds between automatic UFO coin drops
     QUICK_COLLECT_TIME: 0.7,   // fast tractor-beam collection after landing (s)
     CINEMATIC: {               // first-abduction cinematic phase durations (s)
@@ -157,10 +216,15 @@ const CONFIG = {
     TICK_INTERVAL: 5,        // seconds between background reconcile ticks
     MAP_STAGGER: 0.5,        // seconds between each farm's coin-collect burst on the map
     COINS_PER_COLLECT: 5,    // max flying coins used to deliver one pending balance
-    // offline spawning stops at this fraction of MAX_ANIMALS (default; each
-    // farm can override via its offlinePenFill) so the board comes back
-    // playable, never merged-locked at the 100% active-play cap
+    // offline spawning stops at this fraction of the farm's animal cap
+    // (default; each farm can override via its offlinePenFill) so the board
+    // comes back playable, never merged-locked at the 100% active-play cap
     OFFLINE_PEN_FILL: 0.65,
+    // ...but never below this many animals per stage in that farm's chain:
+    // a longer chain needs more raw material on the board to climb it, so
+    // the floor scales with chain depth instead of with the pen (see
+    // Idle.offlineFillCap). Still clamped to the farm's real capacity.
+    OFFLINE_PER_STAGE: 2,
     // welcome-back popup: summarizes offline earnings on launch with an
     // optional rewarded-ad 2x. Only shown after a real absence so quick
     // app switches don't trigger it.
@@ -348,13 +412,50 @@ const CONFIG = {
   // incomeMult multiplies every coin payout (poops, aliens) and costMult
   // multiplies every upgrade cost, so the curve keeps its early-game shape
   // while numbers, goals and ad rewards grow with the player.
-  // offlinePenFill: fraction of MAX_ANIMALS that offline spawning may fill
-  // (per-farm balance knob; falls back to IDLE.OFFLINE_PEN_FILL if omitted).
+  // offlinePenFill: fraction of the farm's animal cap that offline spawning
+  // may fill (per-farm balance knob; falls back to IDLE.OFFLINE_PEN_FILL).
+  // maxAnimals: that farm's own pen ceiling (falls back to MAX_ANIMALS) —
+  // a longer merge chain needs more raw material on the board to climb, so
+  // Farm 1's six-stage chicken chain runs a roomier pen than the four-stage
+  // farms; babies are the smallest sprites in the game, so the extra head-
+  // count still fits the same physical pen rect.
   // themedName is the map sign's title once the plot's house is bought (the
   // moment animals start spawning there); before that the sign shows `name`.
   FARMS: [
-    { id: 0, name: 'FARM 1', themedName: 'CHICKEN FARM', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.65 },
+    { id: 0, name: 'FARM 1', themedName: 'CHICKEN FARM', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.72, maxAnimals: 18 },
     { id: 1, name: 'FARM 2', themedName: 'SHEEP FARM',   species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4,  offlinePenFill: 0.65 },
     { id: 2, name: 'FARM 3', themedName: 'COW FARM',     species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12, offlinePenFill: 0.65 },
   ],
 };
+
+// ---------------- chain accessors ----------------
+// Every consumer reads a species' ladder through these, so nothing outside
+// this file needs to know how long any chain is.
+Object.assign(CONFIG, {
+  /** The whole chain definition for a species. */
+  chain(species) { return CONFIG.CHAINS[species]; },
+  /** Board stages only (the animals that live in the pen). */
+  stages(species) { return CONFIG.CHAINS[species].stages; },
+  /** How many board stages this species has (merging tops out one below). */
+  stageCount(species) { return CONFIG.CHAINS[species].stages.length; },
+  /** Index of the last board stage — merging two of these feeds the UFO. */
+  topStage(species) { return CONFIG.CHAINS[species].stages.length - 1; },
+  stage(species, i) { return CONFIG.CHAINS[species].stages[i]; },
+  /** Upgrade-panel label of one board stage, e.g. 'MUTANT 2'. */
+  stageName(species, i) {
+    const s = CONFIG.CHAINS[species].stages[i];
+    return s ? s.name : '';
+  },
+  /** The stage that represents a farm outside the pen (map, popups, loading). */
+  showcaseStage(species) { return CONFIG.CHAINS[species].showcase ?? 1; },
+  /** The abducted final form (never on the board). */
+  finalStage(species) { return CONFIG.CHAINS[species].final; },
+  /** Chain entry by upgrade key: a stage index, or 'et' for the final form. */
+  entry(species, key) {
+    return key === 'et' ? CONFIG.finalStage(species) : CONFIG.stage(species, key);
+  },
+  /** This farm's hard animal cap before construction/fence limits apply. */
+  farmMaxAnimals(farmId) {
+    return CONFIG.FARMS[farmId].maxAnimals ?? CONFIG.MAX_ANIMALS;
+  },
+});

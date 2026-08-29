@@ -1,62 +1,76 @@
 /**
  * Upgrades — per-farm, data-driven upgrade system.
- * Levels live in SaveManager.data.upgrades[farmId] = { spawn, stages:[s0,s1,s2] }.
- * All numbers come from CONFIG.UPGRADES / CONFIG base values; nothing hardcoded here.
+ * Levels live in SaveManager.data.upgrades[farmId] = { spawn, stages:[...], et }.
+ * All numbers come from the farm's chain (CONFIG.CHAINS) and CONFIG.UPGRADES;
+ * nothing is hardcoded here, and no chain length is assumed — a farm's rows
+ * are exactly as many as its species has stages.
  *
- * Keys used throughout: 'spawn' for the farm spawn-speed upgrade,
- * a stage index (0..CONFIG.STAGE_NAMES.length-1) for the animal upgrades,
- * or 'et' for the ET mutant (MUTANT 2).
+ * Keys used throughout: 'spawn' for the farm spawn-speed upgrade, a board
+ * stage index for the animal upgrades, or 'et' for the chain's final,
+ * UFO-abducted form (Farm 1: the Final Chicken).
  *
- * On constructed farms every upgrade is gated behind discovery — see
- * unlocked() — so the menu fills in as the player merges their way up.
+ * Every upgrade is gated behind discovery — see unlocked() — so the menu
+ * fills in one row at a time as the player merges their way up the chain.
  */
 const Upgrades = (() => {
   const CU = () => CONFIG.UPGRADES;
+  const species = farmId => CONFIG.FARMS[farmId].species;
 
   function farmData(farmId) {
     return SaveManager.data.upgrades[farmId];
   }
 
+  /** The upgrade definition behind a key, or null if the chain has no row for it. */
+  function def(farmId, key) {
+    if (key === 'spawn') return CU().FARM.SPAWN;
+    const entry = CONFIG.entry(species(farmId), key);
+    return (entry && entry.up) || null;
+  }
+
   function level(farmId, key) {
     const d = farmData(farmId);
-    return key === 'spawn' ? d.spawn : d.stages[key];
+    return key === 'spawn' ? d.spawn : key === 'et' ? (d.et || 0) : d.stages[key];
   }
 
   function cost(farmId, key) {
-    const def = key === 'spawn' ? CU().FARM.SPAWN : CU().STAGES[key];
-    const growth = def.costGrowth || CU().COST_GROWTH;
-    return Math.round(def.baseCost * Math.pow(growth, level(farmId, key)) * CONFIG.FARMS[farmId].costMult);
+    const u = def(farmId, key);
+    if (!u) return 0;
+    const growth = u.costGrowth || CU().COST_GROWTH;
+    return Math.round(u.baseCost * Math.pow(growth, level(farmId, key)) * CONFIG.FARMS[farmId].costMult);
   }
 
-  function maxLevel(key) {
-    return key === 'spawn' ? CU().FARM.SPAWN.maxLevel : CU().STAGES[key].maxLevel;
+  function maxLevel(farmId, key) {
+    const u = def(farmId, key);
+    return u ? u.maxLevel : 0;
   }
 
   function isMaxed(farmId, key) {
-    return level(farmId, key) >= maxLevel(key);
+    return level(farmId, key) >= maxLevel(farmId, key);
   }
 
   /**
-   * Discovery gating. On a constructed farm (Farm 2, Farm 3) an upgrade is
-   * not offered up front: it unlocks only once the player has discovered the
-   * animal it improves on that farm — the farm has spawned it and they have
-   * matched their way up to it. Discovery is per species (so per farm) and
-   * permanent, so an unlocked upgrade stays unlocked across sessions.
+   * Discovery gating, on every farm. An upgrade is not offered up front: it
+   * unlocks only once the player has discovered the animal it improves on
+   * that farm — the farm has spawned it and they have matched their way up to
+   * it. Until then the row does not exist in the panel at all, so a long
+   * chain never spoils its own ending. Discovery is per species (so per farm)
+   * and permanent, so an unlocked upgrade stays unlocked across sessions.
    * The spawn-speed upgrade rides on the baby: the farm has to have produced
-   * one before its spawn rate can be tuned. The ET mutant follows the same
-   * rule via its own discovery record. Farm 1 is never gated.
+   * one before its spawn rate can be tuned. The final abducted form follows
+   * the same rule via its own discovery record.
    */
   function unlocked(farmId, key) {
-    if (!Construction.required(farmId)) return true;
+    if (!def(farmId, key)) return false;   // this chain has no such row
     if (key === 'et') return Discovery.isEtDiscovered(farmId);
     const stage = key === 'spawn' ? 0 : key;
-    return Discovery.isDiscovered(CONFIG.FARMS[farmId].species, stage);
+    return Discovery.isDiscovered(species(farmId), stage);
   }
 
   /** What the player has to find before this upgrade exists. */
-  function unlockHint(key) {
-    const stage = key === 'et' ? null : key === 'spawn' ? 0 : key;
-    return 'DISCOVER THE ' + (stage === null ? 'ET MUTANT' : CONFIG.STAGE_NAMES[stage]);
+  function unlockHint(farmId, key) {
+    const sp = species(farmId);
+    const stage = key === 'spawn' ? 0 : key;
+    return 'DISCOVER THE ' + (key === 'et' ? CONFIG.finalStage(sp).name : CONFIG.stageName(sp, stage));
   }
 
   /**
@@ -68,9 +82,8 @@ const Upgrades = (() => {
    * The record is per farm and saved, so it survives a session.
    */
   function takeUnrevealed(farmId) {
-    if (!Construction.required(farmId)) return [];   // Farm 1: nothing is gated
     const seen = SaveManager.data.upgradesRevealed[farmId];
-    const fresh = keys().filter(k => unlocked(farmId, k) && !seen.includes(String(k)));
+    const fresh = keys(farmId).filter(k => unlocked(farmId, k) && !seen.includes(String(k)));
     if (fresh.length) {
       for (const k of fresh) seen.push(String(k));
       SaveManager.save();
@@ -86,20 +99,25 @@ const Upgrades = (() => {
 
   /** Seconds between poops for one animal of this stage on this farm. */
   function poopInterval(farmId, stage, lv = level(farmId, stage)) {
-    const u = CU().STAGES[stage];
-    const base = (CONFIG.POOP_INTERVAL_BY_STAGE || [])[stage] ?? CONFIG.POOP_INTERVAL;
-    return Math.max(u.minPoop, base - lv * u.poopStep);
+    const s = CONFIG.stage(species(farmId), stage);
+    const u = s.up;
+    return Math.max(u.minPoop, (s.poop ?? CONFIG.POOP_INTERVAL) - lv * u.poopStep);
   }
 
   /** Coins granted when a poop of this stage transforms on this farm. */
   function coinValue(farmId, stage, lv = level(farmId, stage)) {
-    return Math.round((CONFIG.INCOME_BY_STAGE[stage] + lv * CU().STAGES[stage].coinStep)
-                      * CONFIG.FARMS[farmId].incomeMult);
+    const s = CONFIG.stage(species(farmId), stage);
+    return Math.round((s.income + lv * s.up.coinStep) * CONFIG.FARMS[farmId].incomeMult);
   }
 
-  /** Coins one UFO alien pays out per production drop on this farm. */
-  function alienValue(farmId) {
-    return Math.round(CONFIG.UFO.INCOME_PER_ALIEN * CONFIG.FARMS[farmId].incomeMult);
+  /**
+   * Coins one collected final form pays out per UFO production drop on this
+   * farm, including its own upgrade levels where the chain offers that row.
+   */
+  function alienValue(farmId, lv = level(farmId, 'et')) {
+    const u = def(farmId, 'et');
+    const step = u ? lv * u.incomeStep : 0;
+    return Math.round((CONFIG.UFO.INCOME_PER_ALIEN + step) * CONFIG.FARMS[farmId].incomeMult);
   }
 
   /**
@@ -122,21 +140,29 @@ const Upgrades = (() => {
 
   /** Attempt a purchase. Returns {ok} or {ok:false, reason}. */
   function buy(farmId, key) {
-    if (!unlocked(farmId, key)) return { ok: false, reason: unlockHint(key) + '!' };
+    if (!unlocked(farmId, key)) return { ok: false, reason: unlockHint(farmId, key) + '!' };
     if (isMaxed(farmId, key)) return { ok: false, reason: 'MAX LEVEL!' };
     const c = cost(farmId, key);
     if (SaveManager.data.coins < c) return { ok: false, reason: 'NOT ENOUGH COINS!' };
     SaveManager.data.coins -= c;
     const d = farmData(farmId);
-    if (key === 'spawn') d.spawn++; else d.stages[key]++;
+    if (key === 'spawn') d.spawn++;
+    else if (key === 'et') d.et = (d.et || 0) + 1;
+    else d.stages[key]++;
     SaveManager.save();
     return { ok: true };
   }
 
-  /** Every upgrade key this farm's panel lists, in panel order. */
-  function keys() {
+  /**
+   * Every upgrade key this farm's panel could list, in panel order: the farm
+   * row, then one row per board stage of its chain, then the abducted final
+   * form last — that one only where the chain defines an upgrade for it.
+   */
+  function keys(farmId) {
+    const sp = species(farmId);
     const k = ['spawn'];
-    for (let s = 0; s < CU().STAGES.length; s++) k.push(s);
+    for (let s = 0; s < CONFIG.stageCount(sp); s++) k.push(s);
+    if (CONFIG.finalStage(sp).up) k.push('et');
     return k;
   }
 
@@ -145,8 +171,8 @@ const Upgrades = (() => {
    * this farm — a locked upgrade never badges, it isn't buyable yet.
    */
   function anyAffordable(farmId) {
-    return keys().some(k => unlocked(farmId, k) && !isMaxed(farmId, k) &&
-                            SaveManager.data.coins >= cost(farmId, k));
+    return keys(farmId).some(k => unlocked(farmId, k) && !isMaxed(farmId, k) &&
+                                  SaveManager.data.coins >= cost(farmId, k));
   }
 
   /**
@@ -161,9 +187,10 @@ const Upgrades = (() => {
       // an undiscovered upgrade has no row in the panel at all, so this is
       // only a guard: no label, and no cost — price is never evaluated while
       // an upgrade is locked
-      return { key, locked: true, label: '???', hint: unlockHint(key),
+      return { key, locked: true, label: '???', hint: unlockHint(farmId, key),
                level: 0, maxed: false, cost: 0, stats: [] };
     }
+    const sp = species(farmId);
     const lv = level(farmId, key);
     const maxed = isMaxed(farmId, key);
     const fmtS = v => v.toFixed(1) + 'S';
@@ -172,8 +199,16 @@ const Upgrades = (() => {
       label = CU().FARM.SPAWN.label;
       stats = [{ name: 'EVERY', cur: fmtS(spawnInterval(farmId, lv)),
                  next: maxed ? null : fmtS(spawnInterval(farmId, lv + 1)) }];
+    } else if (key === 'et') {
+      // the abducted form never poops: its row buys UFO drip instead
+      label = CONFIG.finalStage(sp).name;
+      stats = [
+        { name: 'EVERY', cur: CONFIG.UFO.INTERVAL.toFixed(1) + 'S', next: null },
+        { name: 'COINS', cur: String(alienValue(farmId, lv)),
+          next: maxed ? null : String(alienValue(farmId, lv + 1)) },
+      ];
     } else {
-      label = CU().STAGES[key].label;
+      label = CONFIG.stageName(sp, key);
       stats = [
         { name: 'POOP', cur: fmtS(poopInterval(farmId, key, lv)),
           next: maxed ? null : fmtS(poopInterval(farmId, key, lv + 1)) },

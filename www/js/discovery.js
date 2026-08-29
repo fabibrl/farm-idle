@@ -26,10 +26,10 @@ const Discovery = (() => {
   }
 
   /**
-   * The ET mutant (MUTANT 2) — the farm's final, fully mutated form. It is
-   * discovered by matching two Mutants on that farm, which is exactly what
-   * starts its UFO layer, so the farm's saved UFO state IS the discovery
-   * record (landed, or a Mutant 2 already collected / in transit).
+   * The chain's final, abducted form (Farm 1: the Final Chicken). It is
+   * discovered by matching two of the last board stage on that farm, which is
+   * exactly what starts its UFO layer, so the farm's saved UFO state IS the
+   * discovery record (landed, or one already collected / in transit).
    */
   function isEtDiscovered(farmId) {
     const u = SaveManager.data.ufo[farmId];
@@ -41,21 +41,26 @@ const Discovery = (() => {
     return CONFIG.FARMS.map(f => ({
       species: f.species,
       label: f.label,
-      stages: CONFIG.STAGE_NAMES.map((name, i) => ({
-        name,
+      stages: CONFIG.stages(f.species).map((s, i) => ({
+        name: s.name,
         discovered: isDiscovered(f.species, i),
       })),
     }));
   }
 
-  /** Display name, e.g. "MUTANT CHICKEN". */
+  /**
+   * Display name for the celebration popup, e.g. "STRANGE CHICKEN". A stage
+   * whose name doesn't read well in front of the species (the chain's
+   * "MUTANT 2" wants to be "MUTANT CHICKEN 2") carries its own `title`.
+   */
   function displayName(species, stage) {
-    return CONFIG.STAGE_NAMES[stage] + ' ' + species.toUpperCase();
+    const s = CONFIG.stage(species, stage);
+    return s.title || (s.name + ' ' + species.toUpperCase());
   }
 
   function flavor(species, stage) {
-    const f = CONFIG.DISCOVERY.FLAVOR[species];
-    return (f && f[stage]) || '';
+    const s = CONFIG.stage(species, stage);
+    return (s && s.flavor) || '';
   }
 
   return { isDiscovered, isEtDiscovered, mark, collection, displayName, flavor };

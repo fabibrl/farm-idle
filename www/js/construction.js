@@ -57,7 +57,7 @@ const Construction = (() => {
    * the unfenced cap (they escape anyway). Fenced: the tier's capacity.
    */
   function capacity(farmId) {
-    if (!required(farmId)) return CONFIG.MAX_ANIMALS;
+    if (!required(farmId)) return CONFIG.farmMaxAnimals(farmId);
     if (!houseBuilt(farmId)) return 0;
     const def = levelDef(farmId);
     return def ? def.capacity : plan(farmId).UNFENCED_CAPACITY;

@@ -26,7 +26,11 @@ const SPRITES = (() => {
     // shared
     eyeWhite: '#ffffff', pupil: '#241a12', blush: '#e8a9a0',
     purple: '#7e5a9e', purpleHi: '#a07cc0', purpleDk: '#5c3f78',
-    // mutant (stage 4) accents
+    // chicken mutation line (stages 4-6): the plumage drifts off-color first,
+    // long before any limb goes wrong — a sickly pale yellow-green that still
+    // reads as feathers next to the healthy hen white above
+    strangeBody: '#dfe6a2', strangeShade: '#b2ba72', strangeLight: '#f2f7cc',
+    // mutant accents
     glow: '#7de87a', glowHi: '#c4ffb8', glowDk: '#3f9c48',
     tentacle: '#9a6ec0', tentacleHi: '#c09ae0', tentacleDk: '#6a4a90',
     // Mutant 2 abductee skins (final abducted form ONLY — see mutant2();
@@ -77,8 +81,30 @@ const SPRITES = (() => {
     if (blink) { s.px(x, y, P.glowDk); return; }
     s.px(x, y, P.glowHi); s.px(x + 1, y, P.glow);
   }
+  /** Bulging oversized eye: the first thing that goes wrong on a chicken. */
+  function bigEye(s, x, y, blink) {
+    if (blink) { s.rect(x + 1, y + 2, 3, 1, P.pupil); return; }
+    s.ellipse(x + 1.5, y + 1.5, 2, 2, P.eyeWhite);
+    s.rect(x + 2, y + 1, 2, 2, P.pupil);
+    s.px(x + 1, y + 1, P.eyeWhite);
+  }
 
   // ----------------- CHICKEN -----------------
+  /**
+   * Farm 1's six board stages, one continuous lineage:
+   *   0 BABY     round yellow puff
+   *   1 TEEN     the same chick grown gangly — long legs, oversized feet,
+   *              half-grown feathers coming in white over the yellow
+   *   2 ADULT    the standard farm hen the teen was heading towards
+   *   3 STRANGE  that hen, subtly wrong: bulging eyes, a giraffe neck,
+   *              mismatched legs, plumage drifted off-color
+   *   4 MUTANT   openly mutated: eyes budding where they shouldn't, an extra
+   *              wing, a toothy grin, discolored patches, warped proportions
+   *   5 MUTANT 2 chaos: a second head, four spindly legs, duplicated wings,
+   *              tumor growths, the first glowing details
+   * Every stage keeps the one before it readable inside it — comb, beak,
+   * wattle and wing never leave, they only warp.
+   */
   function drawChicken(s, stage, frame, blink) {
     const walk = frame === 'walk', peck = frame === 'peck';
     if (stage === 0) {
@@ -102,6 +128,32 @@ const SPRITES = (() => {
       eye(s, 11, 5 + hy, blink);
       s.px(13, 8 + hy, P.blush);
     } else if (stage === 1) {
+      // TEEN 21x19 — the chick stretched out: gangly legs, oversized feet,
+      // a small comb starting and white adult feathers patching in
+      const hy = peck ? 3 : 0;
+      // long thin legs with big clumsy feet
+      s.line(8, 12, 8, 16, P.leg); s.line(13 + (walk ? 1 : 0), 12, 13 + (walk ? 1 : 0), 16, P.leg);
+      s.rect(6, 17, 4, 1, P.leg); s.rect(12 + (walk ? 1 : 0), 17, 4, 1, P.leg);
+      // stray half-grown tail feathers
+      s.px(3, 7, P.henShade); s.px(2, 6, P.henBody); s.px(3, 9, P.chickShade);
+      // body — chick yellow with adult white coming in unevenly
+      s.ellipse(9, 9, 5.5, 5, P.chickBody);
+      s.shadeEllipse(9, 9, 5.5, 5, P.chickShade, 1, 0.38);
+      s.ellipse(7, 7, 2.2, 1.8, P.henBody);
+      s.px(11, 11, P.henBody); s.px(10, 12, P.henLight);
+      // stubby wing, half feathered
+      s.ellipse(8, 11, 2.6, 2, P.chickShade);
+      s.px(9, 10, P.henBody);
+      // head on a thin new neck
+      s.rect(12, 7 + hy, 3, 3, P.chickBody);
+      s.ellipse(14, 5 + hy, 3.2, 3, P.chickBody);
+      s.ellipse(13, 4 + hy, 1.4, 1.2, P.chickLight);
+      // the comb, only just started
+      s.px(13, 1 + hy, P.comb); s.px(14, 1 + hy, P.comb); s.px(14, 2 + hy, P.combShade);
+      // beak
+      s.rect(17, 5 + hy, 2, 1, P.beak); s.px(17, 6 + hy, P.beakShade);
+      eye(s, 15, 4 + hy, blink);
+    } else if (stage === 2) {
       // ADULT HEN 24x22 — white body, red comb, tail feathers
       const hy = peck ? 3 : 0;
       s.line(9, 18, 9, 21, P.leg); s.line(14 + (walk ? 1 : 0), 18, 14 + (walk ? 1 : 0), 21, P.leg);
@@ -126,83 +178,132 @@ const SPRITES = (() => {
       s.rect(21, 6 + hy, 2, 1, P.beak); s.px(21, 7 + hy, P.beakShade);
       s.px(20, 8 + hy, P.comb); s.px(20, 9 + hy, P.combShade);
       eye(s, 18, 4 + hy, blink);
-    } else if (stage === 2) {
-      // ELDER 30x28 — plump, purple crest, THREE eyes, twin wattles
-      const hy = peck ? 3 : 0;
-      s.line(12, 23, 12, 27, P.leg); s.line(18 + (walk ? 1 : 0), 23, 18 + (walk ? 1 : 0), 27, P.leg);
-      s.rect(11, 27, 3, 1, P.leg); s.rect(17 + (walk ? 1 : 0), 27, 3, 1, P.leg);
-      // tail plume
-      s.ellipse(5, 12, 4, 5, P.henShade);
-      s.ellipse(4, 9, 2.5, 3, P.purple);
-      s.ellipse(4, 8, 1.5, 1.8, P.purpleHi);
+    } else if (stage === 3) {
+      // STRANGE 28x26 — still plainly the adult hen, but every proportion is
+      // slightly wrong: an absurd neck, mismatched legs, bulging eyes and
+      // plumage that has drifted off-color. Nothing is duplicated yet.
+      const hy = peck ? 4 : 0;
+      // mismatched legs: one long and thin, one short and thick
+      s.line(10, 19, 10, 24, P.leg); s.rect(9, 25, 3, 1, P.leg);
+      s.rect(15 + (walk ? 1 : 0), 21, 2, 4, P.leg); s.rect(15 + (walk ? 1 : 0), 25, 3, 1, P.leg);
+      // limp off-color tail plume, clear of the body behind it
+      s.ellipse(3, 14, 3, 4, P.strangeShade);
+      s.ellipse(2, 11, 2, 2.4, P.strangeBody);
       // body
-      s.ellipse(14, 17, 9, 8, P.henBody);
-      s.shadeEllipse(14, 17, 9, 8, P.henShade, 1, 0.36);
-      // head (big)
-      s.ellipse(21, 8 + hy, 6, 6, P.henBody);
-      s.ellipse(18.5, 5.5 + hy, 2.5, 2, P.henLight);
-      s.rect(17, 12 + hy, 8, 5, P.henBody);
+      s.ellipse(11, 17, 7, 6, P.strangeBody);
+      s.shadeEllipse(11, 17, 7, 6, P.strangeShade, 1, 0.36);
       // wing
-      s.ellipse(12, 18, 5, 4, P.henShade);
-      s.ellipse(12, 17, 4, 3, P.henBody);
-      // purple mutant crest
+      s.ellipse(10, 18, 4, 3, P.strangeShade);
+      s.ellipse(10, 17, 3, 2, P.strangeBody);
+      // giraffe neck
+      s.rect(15, 5 + hy, 4, 12 - hy, P.strangeBody);
+      s.rect(18, 5 + hy, 1, 12 - hy, P.strangeShade);
+      // small head perched on top of it
+      s.ellipse(19, 5 + hy, 4, 3.5, P.strangeBody);
+      s.ellipse(18, 3.5 + hy, 1.6, 1.2, P.strangeLight);
+      // comb, beak, wattle — all still the hen's
+      s.px(15, 1 + hy, P.comb); s.px(16, 0 + hy, P.comb); s.px(17, 1 + hy, P.comb);
+      s.rect(15, 2 + hy, 3, 1, P.comb); s.px(16, 2 + hy, P.combShade);
+      s.rect(23, 5 + hy, 3, 1, P.beak); s.px(23, 6 + hy, P.beakShade);
+      s.px(22, 7 + hy, P.comb); s.px(22, 8 + hy, P.combShade);
+      // one enormous bulging eye, swollen straight out of the head
+      bigEye(s, 19, 1 + hy, blink);
+    } else if (stage === 4) {
+      // MUTANT 32x30 — openly wrong: eyes budding off the head, an extra
+      // wing sprouting over the back, a toothy grin under the beak and
+      // discolored patches across warped proportions. Still one head.
+      const hy = peck ? 4 : 0;
+      // legs, still mismatched — the short one has thickened further
+      s.line(11, 22, 11, 28, P.leg); s.rect(10, 29, 3, 1, P.leg);
+      s.rect(17 + (walk ? 1 : 0), 24, 3, 5, P.leg); s.rect(17 + (walk ? 1 : 0), 29, 3, 1, P.leg);
+      // tail plume behind the body, with the first purple growth on it
+      s.ellipse(3, 16, 3.5, 4.5, P.strangeShade);
+      s.ellipse(2, 11, 2.2, 2.6, P.purple);
+      s.px(2, 9, P.purpleHi);
+      // body, patchy and discolored
+      s.ellipse(13, 20, 8, 7, P.strangeBody);
+      s.shadeEllipse(13, 20, 8, 7, P.strangeShade, 1, 0.34);
+      s.ellipse(15, 22, 2.6, 2, P.purpleDk);
+      s.ellipse(10, 18, 2, 1.6, P.henBody);
+      // the EXTRA wing, sprouted over the back, above the normal one
+      s.ellipse(16, 16, 3.4, 2.6, P.strangeShade);
+      s.ellipse(16, 15.5, 2.6, 1.8, P.strangeBody);
+      s.ellipse(11, 21, 4.5, 3.4, P.strangeShade);
+      s.ellipse(11, 20, 3.6, 2.6, P.strangeBody);
+      // thick warped neck
+      s.rect(18, 7 + hy, 5, 12 - hy, P.strangeBody);
+      s.rect(22, 7 + hy, 1, 12 - hy, P.strangeShade);
+      // oversized head
+      s.ellipse(22, 7 + hy, 5, 4.5, P.strangeBody);
+      s.ellipse(20.5, 5 + hy, 2, 1.5, P.strangeLight);
+      // the comb has gone purple
       s.px(18, 1 + hy, P.purple); s.px(20, 0 + hy, P.purple); s.px(22, 1 + hy, P.purple);
-      s.rect(18, 2 + hy, 6, 2, P.purple);
+      s.rect(18, 2 + hy, 5, 2, P.purple);
       s.px(19, 2 + hy, P.purpleHi); s.px(21, 2 + hy, P.purpleHi);
-      s.rect(19, 4 + hy, 4, 1, P.purpleDk);
-      // beak + twin wattles
-      s.rect(26, 8 + hy, 3, 2, P.beak); s.rect(26, 10 + hy, 2, 1, P.beakShade);
-      s.px(24, 12 + hy, P.comb); s.px(24, 13 + hy, P.combShade);
-      s.px(26, 12 + hy, P.comb); s.px(26, 13 + hy, P.combShade);
-      // THREE eyes
-      eye(s, 22, 6 + hy, blink);
-      eye(s, 18, 6 + hy, blink);
-      smallEye(s, 21, 10 + hy, blink);
+      s.rect(19, 4 + hy, 3, 1, P.purpleDk);
+      // beak, and an unsettling grin under it
+      s.rect(27, 7 + hy, 3, 2, P.beak); s.px(27, 9 + hy, P.beakShade);
+      s.rect(23, 10 + hy, 5, 1, P.combShade);
+      s.px(24, 11 + hy, P.eyeWhite); s.px(26, 11 + hy, P.eyeWhite);
+      // eyes in the wrong places: bulging off the head, then one down the
+      // neck and one budding on the back
+      bigEye(s, 23, 2 + hy, blink);
+      eye(s, 19, 8 + hy, blink);
+      eye(s, 18, 13 + hy, blink);
+      smallEye(s, 12, 17, blink);
     } else {
-      // MUTANT 36x34 — TWO heads, THREE legs, glowing eyes, tentacle tail
-      const hy = peck ? 3 : 0;
-      // three legs
-      s.line(12, 29, 12, 33, P.leg); s.line(18 + (walk ? 1 : 0), 29, 18 + (walk ? 1 : 0), 33, P.leg);
-      s.line(24, 29, 24, 33, P.leg);
-      s.rect(11, 33, 3, 1, P.leg); s.rect(17 + (walk ? 1 : 0), 33, 3, 1, P.leg); s.rect(23, 33, 3, 1, P.leg);
-      // tentacle tail — three curling purple stalks
-      s.line(7, 20, 4, 14, P.tentacle); s.line(4, 14, 5, 10, P.tentacle);
-      s.px(5, 9, P.tentacleHi); s.px(4, 13, P.tentacleDk);
-      s.line(8, 18, 3, 17, P.tentacle); s.px(2, 16, P.tentacleHi);
-      s.line(8, 22, 4, 22, P.tentacleDk); s.px(3, 21, P.tentacle);
-      // plump body
-      s.ellipse(17, 22, 10, 9, P.henBody);
-      s.shadeEllipse(17, 22, 10, 9, P.henShade, 1, 0.34);
-      // wing
-      s.ellipse(14, 23, 5, 4, P.henShade);
-      s.ellipse(14, 22, 4, 3, P.henBody);
+      // MUTANT 2 36x34 — chaos: a SECOND head on its own crooked neck, FOUR
+      // spindly legs (one already a tentacle), duplicated wings, tumor
+      // growths and the first bioluminescence. Every feature of the stage
+      // before it is still here, just doubled or distorted.
+      const hy = peck ? 4 : 0;
+      // four spindly legs, no two alike
+      s.line(9, 25, 9, 32, P.leg); s.rect(8, 33, 3, 1, P.leg);
+      s.line(14, 27, 14, 32, P.leg); s.rect(13, 33, 3, 1, P.leg);
+      s.line(19 + (walk ? 1 : 0), 24, 19 + (walk ? 1 : 0), 32, P.leg);
+      s.rect(18 + (walk ? 1 : 0), 33, 3, 1, P.leg);
+      s.line(23, 27, 24, 32, P.tentacle); s.px(25, 33, P.tentacleHi);
+      // tail plume behind the body, now lumpy
+      s.ellipse(3, 19, 3.5, 4.5, P.strangeShade);
+      s.ellipse(2, 14, 2.4, 2.8, P.purple); s.px(2, 12, P.purpleHi);
+      s.ellipse(6, 24, 2, 1.8, P.purpleDk);
+      // asymmetric body with tumor patches
+      s.ellipse(14, 22, 9, 8, P.strangeBody);
+      s.shadeEllipse(14, 22, 9, 8, P.strangeShade, 1, 0.34);
+      s.ellipse(17, 25, 3, 2.2, P.purpleDk);
+      s.ellipse(9, 19, 2.4, 1.8, P.henBody);
       // glowing chest blotch
-      s.ellipse(20, 26, 2.4, 1.8, P.glowDk);
-      s.px(20, 25, P.glow);
-      // SECOND (rear) head — small, faces backwards
-      s.ellipse(9, 10, 4, 4, P.henBody);
-      s.ellipse(8, 8.5, 1.6, 1.4, P.henLight);
-      s.rect(8, 13, 5, 4, P.henBody);
-      s.px(4, 10, P.beak); s.px(3, 10, P.beak); s.px(4, 11, P.beakShade); // beak points left
-      s.px(8, 4, P.purple); s.px(10, 3, P.purple); s.rect(8, 5, 4, 1, P.purpleDk);
-      glowEye(s, 7, 8, blink);
-      // MAIN head (big)
-      s.ellipse(25, 9 + hy, 6.5, 6, P.henBody);
-      s.ellipse(22.5, 6 + hy, 2.5, 2, P.henLight);
-      s.rect(20, 13 + hy, 9, 6, P.henBody);
+      s.ellipse(17, 27, 2.4, 1.8, P.glowDk);
+      s.px(17, 26, P.glow);
+      // THREE wings where there should be one
+      s.ellipse(11, 23, 4.6, 3.4, P.strangeShade); s.ellipse(11, 22, 3.6, 2.6, P.strangeBody);
+      s.ellipse(16, 24, 3.4, 2.6, P.strangeShade); s.ellipse(16, 23.5, 2.6, 1.8, P.strangeBody);
+      s.ellipse(17, 17, 3.4, 2.4, P.strangeShade); s.ellipse(17, 16.5, 2.6, 1.6, P.strangeBody);
+      // SECOND head — smaller, crooked neck, beak pointing backwards
+      s.rect(8, 12, 3, 6, P.strangeBody);
+      s.ellipse(8, 10, 3.4, 3, P.strangeBody);
+      s.px(4, 10, P.beak); s.px(3, 10, P.beak); s.px(4, 11, P.beakShade);
+      s.px(7, 6, P.purple); s.px(9, 5, P.purple); s.rect(7, 7, 3, 1, P.purpleDk);
+      glowEye(s, 6, 9, blink);
+      // MAIN head, on the long neck
+      s.rect(20, 8 + hy, 5, 12 - hy, P.strangeBody);
+      s.rect(24, 8 + hy, 1, 12 - hy, P.strangeShade);
+      s.ellipse(24, 8 + hy, 5.5, 5, P.strangeBody);
+      s.ellipse(22, 5.5 + hy, 2, 1.6, P.strangeLight);
       // tall purple crest
-      s.px(22, 1 + hy, P.purple); s.px(24, 0 + hy, P.purple); s.px(26, 1 + hy, P.purple); s.px(28, 2 + hy, P.purple);
-      s.rect(22, 2 + hy, 7, 2, P.purple);
-      s.px(23, 2 + hy, P.purpleHi); s.px(25, 2 + hy, P.purpleHi); s.px(27, 3 + hy, P.purpleHi);
-      s.rect(23, 4 + hy, 5, 1, P.purpleDk);
-      // big beak + twin wattles
-      s.rect(31, 9 + hy, 3, 2, P.beak); s.rect(31, 11 + hy, 2, 1, P.beakShade);
-      s.px(29, 13 + hy, P.comb); s.px(29, 14 + hy, P.combShade);
-      s.px(31, 13 + hy, P.comb); s.px(31, 14 + hy, P.combShade);
-      // THREE glowing eyes
-      glowEye(s, 26, 7 + hy, blink);
-      glowEye(s, 22, 7 + hy, blink);
-      smallGlowEye(s, 24, 11 + hy, blink);
+      s.px(22, 1 + hy, P.purple); s.px(24, 0 + hy, P.purple); s.px(26, 1 + hy, P.purple);
+      s.rect(22, 2 + hy, 6, 2, P.purple);
+      s.px(23, 2 + hy, P.purpleHi); s.px(25, 2 + hy, P.purpleHi);
+      s.rect(23, 4 + hy, 4, 1, P.purpleDk);
+      // beak + the grin, both grown
+      s.rect(29, 8 + hy, 3, 2, P.beak); s.px(29, 10 + hy, P.beakShade);
+      s.rect(25, 11 + hy, 5, 1, P.combShade);
+      s.px(26, 12 + hy, P.eyeWhite); s.px(28, 12 + hy, P.eyeWhite);
+      // glowing eyes, on and off the head
+      glowEye(s, 25, 5 + hy, blink);
+      glowEye(s, 21, 8 + hy, blink);
+      glowEye(s, 20, 14 + hy, blink);
+      smallGlowEye(s, 12, 18, blink);
     }
   }
 
@@ -437,14 +538,17 @@ const SPRITES = (() => {
     }
   }
 
+  // One entry per BOARD stage of that species' chain (CONFIG.CHAINS), growing
+  // steadily so each merge reads as a step up. The abducted final form is not
+  // here — it has its own sprite (see mutant2()).
   const ANIMAL_SIZES = {
-    chicken: [[18, 16], [24, 22], [30, 28], [36, 34]],
+    chicken: [[18, 16], [21, 19], [24, 22], [28, 26], [32, 30], [36, 34]],
     sheep:   [[18, 16], [24, 20], [30, 26], [36, 32]],
     cow:     [[18, 16], [26, 22], [32, 28], [40, 34]],
   };
   const DRAWERS = { chicken: drawChicken, sheep: drawSheep, cow: drawCow };
 
-  /** Get animal sprite canvas: species, stage 0-3, frame, blink. */
+  /** Get animal sprite canvas: species, board stage index, frame, blink. */
   function animal(species, stage, frame = 'idle', blink = false) {
     const [w, h] = ANIMAL_SIZES[species][stage];
     return PIXEL.sprite(`a:${species}:${stage}:${frame}:${blink ? 1 : 0}`, w + 2, h + 2, s => {
@@ -499,9 +603,10 @@ const SPRITES = (() => {
   // ============================================================
 
   /**
-   * MUTANT 2 — the final match stage, born from a Mutant + Mutant merge.
-   * Built from scratch, sharing no silhouette, pose, or feature set with
-   * the stage-4 Mutant: the escalation is structural chaos — extra heads,
+   * The chain's FINAL form — born from merging two of the last board stage
+   * (Farm 1: the Final Chicken, hyper mutation). Built from scratch, sharing
+   * no silhouette, pose, or feature set with the board stage below it: the
+   * escalation is structural chaos — extra heads,
    * extra legs, eyes budding where they shouldn't, duplicated and
    * mismatched anatomy — while each still reads as the farm's animal.
    * On top of the chaos, the abduction changed them: every species swaps

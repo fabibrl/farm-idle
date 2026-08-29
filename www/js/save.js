@@ -4,7 +4,10 @@
 const SaveManager = (() => {
   let data = null;
 
-  const STAGE_COUNT = () => CONFIG.STAGE_NAMES.length;
+  // Chains are per species and each has its own length (Farm 1's chicken
+  // chain is the long one), so every sized array is measured per farm.
+  const STAGE_COUNT = species => CONFIG.stageCount(species);
+  const UPGRADE_SLOTS = farmId => CONFIG.stageCount(CONFIG.FARMS[farmId].species);
 
   function defaults() {
     return {
@@ -13,7 +16,7 @@ const SaveManager = (() => {
       currentFarm: 0,
       settings: { music: true, sfx: true },
       // per-farm upgrade levels: { spawn, stages:[one level per evolution stage] }
-      upgrades: CONFIG.FARMS.map(() => ({ spawn: 0, stages: CONFIG.STAGE_NAMES.map(() => 0) })),
+      upgrades: CONFIG.FARMS.map(f => ({ spawn: 0, stages: CONFIG.stages(f.species).map(() => 0), et: 0 })),
       // per-farm animal snapshot: [{stage}...]
       animals: [[], [], []],
       // discovery collection: species -> [bool per stage], permanent once true
@@ -41,21 +44,28 @@ const SaveManager = (() => {
       // per-farm step-by-step build state (only meaningful for farms with a
       // CONFIG.CONSTRUCTION entry): land bought, house built, fence tier
       construction: CONFIG.FARMS.map(() => ({ land: false, house: false, fence: 0 })),
+      // one-time flag: upgradesRevealed has been back-filled from an older
+      // save's discoveries (see migrate) — a new save needs no back-fill
+      revealSeeded: true,
       firstRun: true,
     };
   }
 
   function discoveredDefaults() {
     const d = {};
-    for (const f of CONFIG.FARMS) d[f.species] = CONFIG.STAGE_NAMES.map(() => false);
+    for (const f of CONFIG.FARMS) d[f.species] = CONFIG.stages(f.species).map(() => false);
     return d;
   }
 
   /** Bring older saves up to the current schema (extra stages, discovery data). */
   function migrate(d) {
-    for (const u of d.upgrades) {
-      while (u.stages.length < STAGE_COUNT()) u.stages.push(0);
-    }
+    // a chain that has grown (Farm 1 went from four stages to six) simply
+    // gains fresh level-0 slots; the old levels stay on the stages they were
+    // bought for, so nothing a player paid for is lost or shifted
+    d.upgrades.forEach((u, farmId) => {
+      while (u.stages.length < UPGRADE_SLOTS(farmId)) u.stages.push(0);
+      if (u.et === undefined) u.et = 0;
+    });
     if (!d.discovered) d.discovered = discoveredDefaults();
     if (!d.ufo) d.ufo = CONFIG.FARMS.map(() => ({ landed: false, aliens: 0, pending: 0 }));
     // old saves had one global UFO: it becomes Farm 1's UFO, others start locked
@@ -95,33 +105,50 @@ const SaveManager = (() => {
       d.upgradeTutorialDone = d.upgrades.some(u => u.spawn > 0 || u.stages.some(s => s > 0));
     }
     for (const f of CONFIG.FARMS) {
-      if (!d.discovered[f.species]) d.discovered[f.species] = CONFIG.STAGE_NAMES.map(() => false);
-      while (d.discovered[f.species].length < STAGE_COUNT()) d.discovered[f.species].push(false);
+      const n = STAGE_COUNT(f.species);
+      if (!d.discovered[f.species]) d.discovered[f.species] = CONFIG.stages(f.species).map(() => false);
+      while (d.discovered[f.species].length < n) d.discovered[f.species].push(false);
       // animals the player already owns don't need a (re)celebration
       for (const a of d.animals[f.id] || []) {
-        if (a.stage < STAGE_COUNT()) d.discovered[f.species][a.stage] = true;
+        if (a.stage < n) d.discovered[f.species][a.stage] = true;
+      }
+      // a save from before the chicken chain was deepened can hold animals
+      // past the new top stage only if the chain ever shrinks — clamp so a
+      // stale index can never index past the sprite table
+      d.animals[f.id] = (d.animals[f.id] || []).map(a => ({ stage: Math.min(a.stage, n - 1) }));
+    }
+    // Existing saves: every upgrade the player can already see counts as
+    // revealed, so opening the panel doesn't replay entry animations for rows
+    // that have always been there. Seeded exactly once per save — Farm 1's
+    // rows used to be ungated, so without this the whole panel would animate
+    // in the first time it is opened now that the discovery gate applies
+    // there too. Rows for stages the player has NOT reached stay unseeded, so
+    // each still animates in on its own discovery, this session or a later one.
+    if (!d.upgradesRevealed) d.upgradesRevealed = CONFIG.FARMS.map(() => []);
+    while (d.upgradesRevealed.length < CONFIG.FARMS.length) d.upgradesRevealed.push([]);
+    if (!d.revealSeeded) {
+      d.revealSeeded = true;
+      for (const f of CONFIG.FARMS) {
+        const disc = d.discovered[f.species] || [];
+        const seen = d.upgradesRevealed[f.id];
+        const mark = k => { if (!seen.includes(k)) seen.push(k); };
+        disc.forEach((v, s) => { if (v) mark(String(s)); });
+        if (disc[0]) mark('spawn');
+        if (d.ufo[f.id] && d.ufo[f.id].landed) mark('et');
       }
     }
-    // existing saves: every upgrade the player can already see counts as
-    // revealed, so opening the panel doesn't replay entry animations for rows
-    // that have always been there
-    if (!d.upgradesRevealed) {
-      d.upgradesRevealed = CONFIG.FARMS.map(f => {
-        const disc = d.discovered[f.species] || [];
-        const seen = disc.flatMap((v, s) => (v ? [String(s)] : []));
-        if (disc[0]) seen.push('spawn');
-        if (d.ufo[f.id] && d.ufo[f.id].landed) seen.push('et');
-        return seen;
-      });
-    }
-    while (d.upgradesRevealed.length < CONFIG.FARMS.length) d.upgradesRevealed.push([]);
     return d;
   }
 
   function load() {
     try {
       const raw = localStorage.getItem(CONFIG.SAVE_KEY);
-      data = raw ? migrate(Object.assign(defaults(), JSON.parse(raw))) : defaults();
+      const parsed = raw ? JSON.parse(raw) : null;
+      // revealSeeded is forced from the stored value: a save written before
+      // the flag existed must read as unseeded, not inherit the default's true
+      data = parsed
+        ? migrate(Object.assign(defaults(), parsed, { revealSeeded: !!parsed.revealSeeded }))
+        : defaults();
     } catch (e) { data = defaults(); }
     return data;
   }

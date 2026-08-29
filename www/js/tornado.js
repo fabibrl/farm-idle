@@ -15,7 +15,7 @@
  * at every level — e.g. 4 babies -> 2 adults -> 1 elder). Animals are
  * pooled and merged strictly per species, never across species, matching
  * the manual drag-merge rule. Odd leftovers survive unchanged, and
- * max-level Mutants only pair off into MUTANT 2s on farms where the UFO
+ * top-stage animals only pair off into the chain's final form on farms where the UFO
  * has already been unlocked — otherwise they are never even collected.
  * The evolved survivors are tossed back onto the farm and the tornado
  * leaves. Ignoring the icon loses the offer until the next cycle.
@@ -55,7 +55,7 @@ const Tornado = (() => {
     const scene = Game.farm;
     if (!scene || scene.tutorial) return false;
     if (scene.animals.length < C().MIN_ANIMALS) return false;
-    const top = CONFIG.STAGE_NAMES.length - 1;
+    const top = CONFIG.topStage(CONFIG.FARMS[SaveManager.data.currentFarm].species);
     const landed = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
     const counts = {};
     for (const a of scene.animals) {
@@ -164,7 +164,7 @@ const Tornado = (() => {
    * Max-level Mutants only pair off where the UFO has been unlocked.
    */
   function mergePlan() {
-    const top = CONFIG.STAGE_NAMES.length - 1;
+    const top = CONFIG.topStage(CONFIG.FARMS[run.scene.farmId].species);
     const landed = SaveManager.data.ufo[run.scene.farmId].landed;
     const pools = {};
     const add = (sp, st) => {
@@ -255,13 +255,13 @@ const Tornado = (() => {
    * Per species (never across species), from the lowest level up:
    * 2 x level N -> 1 x level N+1, newly created animals feeding straight
    * into the next level, until fewer than 2 remain at every level. Odd
-   * leftovers survive unchanged. Max-level Mutant pairs become MUTANT 2s
+   * leftovers survive unchanged. Top-stage pairs become the final form
    * only where the UFO is unlocked; otherwise Mutants pass through as-is.
    * The survivors replace the funnel contents for the eject phase.
    */
   function resolvePool() {
     const r = run;
-    const top = CONFIG.STAGE_NAMES.length - 1;
+    const top = CONFIG.topStage(CONFIG.FARMS[r.scene.farmId].species);
     const landed = SaveManager.data.ufo[r.scene.farmId].landed;
     const pools = {};
     for (const h of r.held) {
@@ -281,7 +281,7 @@ const Tornado = (() => {
             c -= pairs * 2;
             // discoveries still count (no celebration mid-storm)
             Discovery.mark(sp, s + 1);
-            VFXManager.floatText(r.x, ty, pairs + 'X ' + CONFIG.STAGE_NAMES[s + 1] + '!');
+            VFXManager.floatText(r.x, ty, pairs + 'X ' + CONFIG.stageName(sp, s + 1) + '!');
             ty -= 14;
           }
         } else if (landed) {
@@ -299,7 +299,8 @@ const Tornado = (() => {
     VFXManager.sparkle(r.x, r.y - 50, 16, 26);
     if (aliens > 0) {
       VFXManager.burst(r.x, r.y - 44, ['#7de87a', '#c4ffb8', '#a07cc0'], 14, 110);
-      VFXManager.floatText(r.x, ty, aliens + 'X MUTANT 2!', '#c4ffb8');
+      VFXManager.floatText(r.x, ty,
+        aliens + 'X ' + CONFIG.finalStage(CONFIG.FARMS[r.scene.farmId].species).name + '!', '#c4ffb8');
       for (let i = 0; i < aliens; i++) UFO.collect(r.x + U.rand(-10, 10), r.y - 40);
     }
     // survivors keep spinning in the funnel until ejected one by one

@@ -1,24 +1,27 @@
 /**
- * UFOManager — end-game MUTANT 2 collection layer.
+ * UFOManager — end-game final-form collection layer.
  *
- * Every farm unlocks its own UFO independently. The first Mutant + Mutant
- * merge on a farm plays the full abduction cinematic (gameplay paused,
- * input blocked): the pair becomes a MUTANT 2 (the final, fully mutated
- * form of the farm's animal), a UFO flies in, beams it up, then parks
- * permanently beside the farmhouse in the upper-right corner of the scene,
- * outside the pen. Every later Mutant + Mutant merge there is a sub-second
- * quick collect straight into the parked UFO.
+ * Every farm unlocks its own UFO independently. The first time two of a
+ * chain's LAST board stage are merged on a farm, the full abduction
+ * cinematic plays (gameplay paused, input blocked): the pair becomes that
+ * chain's final form — on Farm 1 the Final Chicken, the hyper mutation at
+ * the peak of the seven-stage chain, and the only animal the UFO ever takes
+ * — a UFO flies in, beams it up, then parks permanently beside the farmhouse
+ * in the upper-right corner of the scene, outside the pen. Every later
+ * top-stage merge there is a sub-second quick collect into the parked UFO.
  *
- * Each collected Mutant 2 permanently raises the UFO's passive coin
- * drip (aliens * INCOME_PER_ALIEN coins every INTERVAL seconds — the
- * internal `aliens` counter/config names are kept for save compatibility).
+ * Each collected final form permanently raises the UFO's passive coin drip
+ * (aliens * Upgrades.alienValue coins every INTERVAL seconds — the internal
+ * `aliens` counter/config names are kept for save compatibility).
  */
 const UFO = (() => {
   const C = () => CONFIG.UFO;
   // each farm has its own UFO: always operate on the current farm's slot
   const data = () => SaveManager.data.ufo[SaveManager.data.currentFarm];
-  // the collected Mutant 2 is the current farm's own species
+  // the collected final form is the current farm's own species
   const species = () => CONFIG.FARMS[SaveManager.data.currentFarm].species;
+  // its display name comes from that chain (Farm 1: 'FINAL')
+  const finalName = () => CONFIG.finalStage(species()).name;
 
   let cine = null;       // first-time cinematic {phase, t, x, y, ufoX, ufoY, alien:{y, s}, fromX, fromY}
   let collects = [];     // quick collect anims: {x, y, t}
@@ -49,9 +52,9 @@ const UFO = (() => {
     };
   }
 
-  /** Entry point from FarmScene.merge for a Mutant + Mutant pair. */
+  /** Entry point from FarmScene.merge for a top-stage pair. */
   function collect(x, y) {
-    // record the Mutant 2 as in-transit so a reload mid-animation can't lose it
+    // record the final form as in-transit so a reload mid-animation can't lose it
     data().pending = (data().pending || 0) + 1;
     SaveManager.save();
     if (!data().landed) {
@@ -67,7 +70,7 @@ const UFO = (() => {
     }
   }
 
-  /** A Mutant 2 reached the UFO: bump the collection + production for good. */
+  /** One reached the UFO: bump the collection + production for good. */
   function addAlien() {
     const p = spot();
     data().aliens++;
@@ -76,7 +79,7 @@ const UFO = (() => {
     AudioManager.play('alien');
     VFXManager.burst(p.x, p.y - 24, ['#7de87a', '#c4ffb8', '#ffe98a', '#ffffff'], 20, 120);
     VFXManager.sparkle(p.x, p.y - 26, 14, 26);
-    VFXManager.floatText(p.x, p.y - 52, '+1 MUTANT 2', '#c4ffb8');
+    VFXManager.floatText(p.x, p.y - 52, '+1 ' + finalName(), '#c4ffb8');
     VFXManager.floatText(p.x, p.y - 38, '+' + Upgrades.alienValue(SaveManager.data.currentFarm) + '/' + C().INTERVAL.toFixed(0) + 'S');
     flashT = 0.3;
   }
@@ -87,7 +90,7 @@ const UFO = (() => {
     if (flashT > 0) flashT -= dt;
     if (cine) { updateCinematic(dt); return; }
 
-    // recover Mutant 2s stranded by a reload mid-animation
+    // recover final forms stranded by a reload mid-animation
     const stranded = (data().pending || 0) - collects.length;
     if (stranded > 0) {
       if (!data().landed) {
@@ -131,18 +134,18 @@ const UFO = (() => {
     const c = cine, D = C().CINEMATIC;
     c.t += dt;
     if (c.phase === 'spawn') {
-      // the merged pair materializes as a MUTANT 2
+      // the merged pair materializes as the final form
       c.alien.s = U.easeOutBack(Math.min(c.t / 0.5, 1));
       if (Math.random() < 0.3) VFXManager.sparkle(c.x, c.y - 12, 3, 14);
       if (c.t >= D.SPAWN) { c.phase = 'arrive'; c.t = 0; AudioManager.play('ufo'); }
     } else if (c.phase === 'arrive') {
-      // UFO descends from the sky to hover over the Mutant 2
+      // UFO descends from the sky to hover over the final form
       const t = smooth(c.t / D.ARRIVE);
       c.ufoX = c.x + Math.sin(t * Math.PI * 3) * 12 * (1 - t);
       c.ufoY = U.lerp(-30, c.y - 92, t);
       if (c.t >= D.ARRIVE) { c.phase = 'beam'; c.t = 0; AudioManager.play('beam'); }
     } else if (c.phase === 'beam') {
-      // tractor beam pulls the Mutant 2 up into the saucer
+      // tractor beam pulls the final form up into the saucer
       const t = U.clamp(c.t / D.BEAM, 0, 1);
       c.alien.y = U.lerp(c.y, c.ufoY + 14, t * t);
       c.alien.s = 1 - t * 0.7;
@@ -207,7 +210,7 @@ const UFO = (() => {
     // arrival flash: short tractor beam under the parked saucer
     if (flashT > 0) drawBeam(ctx, p.x, p.y - 6 + bob, p.y + 8, Math.min(1, flashT * 4));
 
-    // Mutant 2s being beamed in (quick collect)
+    // final forms being beamed in (quick collect)
     for (const c of collects) {
       const t = U.clamp(c.t / C().QUICK_COLLECT_TIME, 0, 1);
       const pop = U.easeOutBack(Math.min(c.t / 0.15, 1));

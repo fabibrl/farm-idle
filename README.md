@@ -18,14 +18,21 @@ Any static file server works — there are no build steps and no dependencies.
 
 ## Gameplay
 
-- **Merge**: drag two identical animals (same species + stage) together to evolve them
-  (Baby → Adult → Elder mutant). A golden ring highlights valid merge targets.
+- **Merge**: drag two identical animals (same species + stage) together to evolve them.
+  A golden ring highlights valid merge targets. Each farm has its own chain
+  (`CONFIG.CHAINS`) and they can differ in length: Farm 1 runs the full seven-stage
+  chicken chain — Baby → Teen → Adult → Strange → Mutant → Mutant 2 → **Final Chicken**
+  (three stages of growing up, then four of an experiment going wrong) — while Farms 2
+  and 3 keep their four-stage chains.
 - **Economy**: every animal periodically drops a poop that transforms into a coin
   (stage 1/2/3 → 2/5/12 coins) which flies to the HUD counter.
 - **Spawning**: each farm auto-spawns a baby every 3 s (capped); the **UPGRADE** button
   buys an extra baby with escalating cost.
-- **UFO alien collection (end-game)**: merging Mutant + Mutant creates an alien
-  instead of a bigger animal. The first one plays a full abduction cinematic and
+- **Upgrades**: one row per stage, plus farm spawn speed and the final form's UFO
+  drip. Every row stays hidden until that animal is discovered, then animates in.
+- **UFO collection (end-game)**: merging two of a chain's last board stage creates
+  its final form (Farm 1: the Final Chicken) instead of a bigger animal — the only
+  animal the UFO abducts. The first one plays a full abduction cinematic and
   parks a UFO in the corner of the farm for good; later pairs are beamed up in
   under a second. Each collected alien permanently raises the UFO's passive coin
   drip (aliens x 25 coins every 5 s).
@@ -40,7 +47,7 @@ Any static file server works — there are no build steps and no dependencies.
 | GameManager | `js/game.js` | canvas, main loop, scenes, unlock flow, autosave |
 | CONFIG | `js/config.js` | every tunable value (spawn rate, income, costs, timings) |
 | PIXEL | `js/pixel.js` | pixel-art engine: surfaces, auto-outline, sprite cache, blit |
-| SPRITES | `js/sprites.js` | all animals (3 species × 3 stages × frames), props, buildings, icons |
+| SPRITES | `js/sprites.js` | all animals (one drawer per species, every stage of its chain × frames), props, buildings, icons |
 | ENVIRONMENT | `js/environment.js` | pre-rendered farm pens + world map backgrounds |
 | FarmScene | `js/farm.js` | spawn manager, merge manager, poop→coin economy, input |
 | Animal | `js/animal.js` | per-animal state machine: idle/walk/peck, blink, breathe, bounce |
@@ -58,5 +65,9 @@ Any static file server works — there are no build steps and no dependencies.
 
 ## Tuning
 
-Open `js/config.js` — spawn interval, max animals, income table, unlock costs,
-animation durations, coin fly speed, walk speeds and audio volumes are all there.
+Open `js/config.js` — spawn interval, max animals, unlock costs, animation
+durations, coin fly speed, walk speeds and audio volumes are all there.
+`CONFIG.CHAINS` holds each species' whole merge ladder: stage names, per-poop
+income, poop interval, flavor text and the upgrade cost curve. Adding, removing
+or repricing a stage there is all it takes — nothing else in the codebase
+assumes how long a chain is (sprites aside, which need art per stage).

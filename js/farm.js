@@ -259,7 +259,7 @@ class FarmScene {
     for (const a of this.animals) {
       if (a === d || a.dead || a.state === 'merging' || a.state === 'spawning') continue;
       if (a.escaping) continue;   // on its way out: no longer matchable
-      // mutants (final stage) can still pair up — they become a MUTANT 2
+      // the chain's top stage can still pair up — it becomes the final form
       if (a.species !== d.species || a.stage !== d.stage) continue;
       const dist = U.dist(a.x, a.y, d.x, d.y);
       if (dist < bestDist) { best = a; bestDist = dist; }
@@ -289,9 +289,11 @@ class FarmScene {
     a.dead = b.dead = true;
     this.animals = this.animals.filter(an => !an.dead);
     AudioManager.play('merge');
-    // Mutant + Mutant: no separate stage — the pair permanently becomes a
-    // MUTANT 2 collected by the UFO (full cinematic first time, quick beam after)
-    if (newStage >= CONFIG.STAGE_NAMES.length) {
+    // Two of the chain's last board stage: the pair never lands as an animal
+    // — it permanently becomes the chain's final form (Farm 1: the Final
+    // Chicken), collected by the UFO (full cinematic first time, quick beam
+    // after). This is the only animal the UFO ever abducts.
+    if (newStage >= CONFIG.stageCount(species)) {
       VFXManager.burst(mx, my - 14, ['#7de87a', '#c4ffb8', '#a07cc0', '#ffffff'], 20, 120);
       VFXManager.sparkle(mx, my - 20, 12, 22);
       this.persist();

@@ -17,6 +17,25 @@ const Idle = (() => {
   }
 
   /**
+   * How many animals offline spawning may leave on the board.
+   *
+   * The base threshold is a percentage of the farm's CURRENT animal cap (the
+   * fence tier's capacity on construction farms), so it rescales with every
+   * fence upgrade instead of being a fixed absolute number. On top of that it
+   * never returns fewer than two babies per stage in that farm's chain: a
+   * longer chain needs proportionally more raw material to climb, so Farm 1's
+   * six-stage chicken chain comes back with a workable board instead of the
+   * handful that was plenty for a four-stage one. Both terms stay clamped to
+   * the farm's real capacity — offline play can never overfill the pen.
+   */
+  function offlineFillCap(farmId) {
+    const cap = Construction.capacity(farmId);
+    const pct = Math.floor(cap * (CONFIG.FARMS[farmId].offlinePenFill ?? CONFIG.IDLE.OFFLINE_PEN_FILL));
+    const perChain = CONFIG.stageCount(CONFIG.FARMS[farmId].species) * CONFIG.IDLE.OFFLINE_PER_STAGE;
+    return Math.min(cap, Math.max(pct, perChain));
+  }
+
+  /**
    * Advance one farm's clock to `now`. When `live` (the farm is being
    * simulated on-screen) only the timestamp is stamped; otherwise the
    * elapsed time (capped) becomes spawned babies + pending coins.
@@ -42,16 +61,11 @@ const Idle = (() => {
 
     // babies keep spawning on the farm's interval, but only up to the
     // offline pen-fill threshold (a partial fill so the board comes back
-    // playable — active play can still reach MAX_ANIMALS as usual);
+    // playable — active play can still reach the farm's full cap as usual);
     // the timer remainder carries across ticks so short ticks don't slow it
     const int = Upgrades.spawnInterval(farmId);
     const t = elapsed + (r.carry || 0);
-    // the threshold is a percentage of the farm's CURRENT animal cap (the
-    // fence tier's capacity on construction farms), so it rescales with
-    // every fence upgrade instead of being a fixed absolute number
-    const fillCap = Math.floor(Construction.capacity(farmId) *
-      (CONFIG.FARMS[farmId].offlinePenFill ?? CONFIG.IDLE.OFFLINE_PEN_FILL));
-    const free = Math.max(0, fillCap - animals.length);
+    const free = Math.max(0, offlineFillCap(farmId) - animals.length);
     const spawns = Math.min(free, Math.floor(t / int));
     r.carry = t % int;
     for (let i = 1; i <= spawns; i++) {
