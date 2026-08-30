@@ -154,6 +154,8 @@ const Upgrades = (() => {
     else if (key === 'et') d.et = (d.et || 0) + 1;
     else d.stages[key]++;
     SaveManager.save();
+    // a purchase that empties the wallet is a poop-rain trigger (js/events.js)
+    Events.onPurchase(farmId);
     return { ok: true };
   }
 

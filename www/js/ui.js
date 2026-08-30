@@ -1467,6 +1467,10 @@ const UI = (() => {
       }
       if (inRect(x, y, popup.closeRect)) {
         if (Game.upgradeTutorialActive) return true; // tutorial: must buy before closing
+        // walking away from a reward offer counts as a dismissal: it extends
+        // that event's cooldown (see js/events.js)
+        if (popup.type === 'pigeonAd') Events.dismissed('pigeon');
+        else if (popup.type === 'tornadoAd') Events.dismissed('tornado');
         AudioManager.play('click'); beginClose(); return true;
       }
       if (popup.type === 'upgrades') {
@@ -1498,6 +1502,7 @@ const UI = (() => {
           popup = { type: 'adPlaying', t: 0, dur: Tornado.info().adDur, onDone: Tornado.adCompleted };
         } else if (inRect(x, y, popup.cancelRect)) {
           AudioManager.play('click');
+          Events.dismissed('tornado');
           popup = null;
         }
         return true;
@@ -1597,6 +1602,9 @@ const UI = (() => {
         p.scroll = 0;
         p.maxScroll = 0;
         p.userScrolled = false;
+        // a panel where every row is disabled is the player looking straight
+        // at their shortage — a poop-rain trigger (js/events.js)
+        Events.onUpgradesOpened(p.farmId, p.group);
       }
       if (p.origin) {
         // opening over a panel that is still leaving resumes from the

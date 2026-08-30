@@ -317,6 +317,7 @@ class FarmScene {
   merge(a, b) {
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     const species = a.species, newStage = a.stage + 1;
+    Events.onManualMerge();   // a long grind of these is a tornado trigger
     // remove both source animals immediately
     a.dead = b.dead = true;
     this.animals = this.animals.filter(an => !an.dead);

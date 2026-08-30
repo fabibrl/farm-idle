@@ -71,6 +71,7 @@ Any static file server works — there are no build steps and no dependencies.
 | MapScene | `js/map.js` | world map nodes, locks, pins, golden unlock path |
 | UIManager | `js/ui.js` | bitmap pixel font, wooden panels/buttons, HUD, popups |
 | Crate | `js/crate.js` | parachute surprise box: drop, contents roll, reward grant |
+| Events | `js/events.js` | reward-event director: need-based triggers (empty wallet → pigeon, crowded pen → tornado), frequency caps, appearance log |
 | VFXManager | `js/vfx.js` | pooled particles, flying coins, floating numbers, sparkles |
 | AudioManager | `js/audio.js` | WebAudio-synthesized SFX, ambient birds, background tune |
 | SaveManager | `js/save.js` | localStorage persistence (coins, farms, animals, settings) |

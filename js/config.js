@@ -169,15 +169,62 @@ const CONFIG = {
     },
   },
 
-  // Pigeon reward-ad event (see js/pigeon.js). Every value here is a
-  // Remote Config default: override at runtime via
-  // window.RemoteConfig = { PIGEON: { SPAWN_INTERVAL: 30, ... } }.
+  // Need-based reward-event director (see js/events.js). The pigeon and the
+  // tornado do not run on timers: each is released at the moment it actually
+  // helps — an emptied wallet for the cash boost, a crowded pen for the
+  // auto-merge — under frequency limits counted separately per feature so
+  // neither can turn into spam. Every value here is a Remote Config default:
+  // override at runtime via window.RemoteConfig = { EVENTS: { ... } }.
+  EVENTS: {
+    ENABLED: true,              // director on/off (kill switch for both events)
+    LOG: true,                  // console-log every appearance and its outcome
+    LOG_MAX: 30,                // appearance records kept in the save
+    NEW_GAME_GRACE: 240,        // seconds of active play before any event may fire
+    CONDITION_TTL: 20,          // seconds a one-shot trigger waits for a free screen
+
+    // Frequency limits, applied independently to each feature.
+    LIMITS: {
+      WINDOW_MINUTES: 120,          // rolling window the cap is measured over
+      MAX_PER_WINDOW: 5,            // appearances allowed inside that window
+      MIN_INTERVAL_MINUTES: 12,     // minimum gap between two appearances
+      DISMISS_COOLDOWN_MINUTES: 10, // added to that gap per dismissal this session
+      DISMISS_SUPPRESS: 3,          // dismissals that shelve the feature for the session
+    },
+
+    // Poop rain triggers — a depleted wallet (see Events.pigeonCondition).
+    PIGEON: {
+      SAMPLE_INTERVAL: 0.5,   // seconds between wallet samples
+      SPEND_WINDOW: 180,      // seconds the spending burst is measured over
+      SPEND_FRACTION: 0.7,    // 70%+ of the wallet gone inside that window
+      MIN_PEAK_COSTS: 1,      // ...off a wallet worth at least this many cheapest upgrades
+      BROKE_TIME: 15,         // seconds below the cheapest upgrade before offering
+      STALL_TIME: 150,        // seconds unable to afford anything = a real stall
+      EMPTY_FRACTION: 0.5,    // post-purchase wallet under half the next cheapest = emptied
+    },
+
+    // Tornado triggers — a crowded pen (see Events.tornadoCondition).
+    TORNADO: {
+      FILL_PCT: 0.75,         // pen at 75%+ of its capacity
+      MIN_PAIRS: 2,           // ...with this many merges waiting
+      NEAR_CAP_SLOTS: 1,      // free slots left = spawning about to be blocked
+      JUMP_WARN: 0.6,         // fence-jump pressure ratio that makes it a rescue
+      MERGE_WINDOW: 300,      // seconds manual merges are counted over
+      MERGE_GRIND: 6,         // manual merges in that window = real effort saved
+      RETURN_AWAY: 900,       // seconds away that make a filled pen a welcome-back case
+      RETURN_WINDOW: 300,     // seconds that case stays live after returning
+      RETURN_FILL_PCT: 0.6,   // ...and the pen came back at least this full
+    },
+  },
+
+  // Pigeon reward-ad event (see js/pigeon.js). Timing is not here: the
+  // director in js/events.js decides WHEN a pigeon visits (CONFIG.EVENTS).
+  // Every value here is a Remote Config default: override at runtime via
+  // window.RemoteConfig = { PIGEON: { STAY_TIME: 30, ... } }.
   // Reward = REWARD_MINUTES of the farm's CURRENT passive income, split
   // across the rain — the ad scales with the player's economy forever
   // (meaningful acceleration, never mandatory, never game-breaking).
   PIGEON: {
     ENABLED: true,         // reward ad offer on/off (kill switch)
-    SPAWN_INTERVAL: 75,    // seconds between pigeon visits (offers stay occasional)
     STAY_TIME: 120,        // seconds the pigeon waits on the fence
     FLY_TIME: 2.6,         // fly-across-and-land duration (s)
     LEAVE_TIME: 1.6,       // fly-away duration when ignored (s)
@@ -190,18 +237,14 @@ const CONFIG = {
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
   },
 
-  // Tornado Auto Merge reward-ad event (see js/tornado.js). Every value
-  // here is a Remote Config default: override at runtime via
-  // window.RemoteConfig = { TORNADO: { SPAWN_INTERVAL: 30, ... } }.
-  // The offer waits for a moment where it saves real work: it only appears
-  // once the countdown has elapsed AND the pen is crowded with several
-  // merges pending ("here's a boost if you want it", never a nag).
+  // Tornado Auto Merge reward-ad event (see js/tornado.js). Timing is not
+  // here: the director in js/events.js decides WHEN the offer appears — a
+  // pen crowded enough that the sweep saves real work (CONFIG.EVENTS).
+  // Every value here is a Remote Config default: override at runtime via
+  // window.RemoteConfig = { TORNADO: { STAY_TIME: 30, ... } }.
   TORNADO: {
     ENABLED: true,         // reward ad offer on/off (kill switch)
-    SPAWN_INTERVAL: 150,   // seconds between tornado offers (minimum)
     STAY_TIME: 60,         // seconds the icon stays available once it appears
-    MIN_ANIMALS: 8,        // pen crowding required before the offer appears
-    MIN_PAIRS: 2,          // pending merge pairs required before the offer appears
     TRAVEL_SPEED: 1.0,     // tornado animation speed multiplier
     MERGE_INTERVAL: 0.12,  // seconds between survivors tossed back out after the merge blast
     REWARD_COOLDOWN: 0,    // extra seconds before the next offer after a claim

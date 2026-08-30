@@ -1,10 +1,13 @@
 /**
  * PigeonManager — reward-ad event layer (Pigeon & Poop Rain).
  *
- * Every SPAWN_INTERVAL seconds a pigeon flies across the screen and lands
- * on the back fence of the current farm, where it perches for STAY_TIME
- * seconds playing idle animations (blinking, looking around, the odd wing
- * flap). Tapping it opens the reward-ad popup; completing the ad removes
+ * A pigeon flies across the screen and lands on the back fence of the
+ * current farm, where it perches for STAY_TIME seconds playing idle
+ * animations (blinking, looking around, the odd wing flap). It visits when
+ * the player is short on cash and stalled — the director in js/events.js
+ * owns that decision and the frequency limits behind it, so the offer lands
+ * as relief rather than on a timer.
+ * Tapping it opens the reward-ad popup; completing the ad removes
  * the pigeon and triggers a Poop Rain: poops (the same asset the animals
  * produce) fall over the pen and each one auto-collects into coins. The
  * whole rain is worth REWARD_MINUTES of the farm's current passive income
@@ -12,9 +15,8 @@
  * Ignoring the pigeon for STAY_TIME loses the opportunity until the next
  * visit.
  *
- * Per-farm state (spawn countdown + remaining perch time) lives in
- * SaveManager.data.pigeon, so every farm runs its own independent event
- * and a pigeon left perched on one farm is restored when returning to it.
+ * Per-farm state (remaining perch time) lives in SaveManager.data.pigeon,
+ * so a pigeon left perched on one farm is restored when returning to it.
  * Only one pigeon can exist at a time on a farm, and it never appears
  * during the merge tutorial, the upgrade tutorial, celebrations or the
  * UFO cinematic (Game only ticks this manager during normal gameplay).
@@ -64,7 +66,7 @@ const Pigeon = (() => {
     return Math.max(cfg.MIN_PER_POOP, Math.round(rate * cfg.REWARD_MINUTES * 60 / cfg.POOP_COUNT));
   }
 
-  function spawn(restore) {
+  function spawn(restore, cond) {
     const p = perchSpot();
     const dir = Math.random() < 0.5 ? 1 : -1;   // 1 = enters from the left
     bird = {
@@ -82,6 +84,7 @@ const Pigeon = (() => {
       bird.x = bird.fromX; bird.y = bird.fromY;
       data().remaining = C().STAY_TIME;
       SaveManager.save();
+      Events.shown('pigeon', cond);   // consumes quota, logs the trigger
       AudioManager.play('flap');
     }
   }
@@ -96,10 +99,11 @@ const Pigeon = (() => {
     // restore a pigeon that was left perched on this farm
     if (!bird && enabled && d.remaining > 0 && !tutorialActive) spawn(true);
 
-    // spawn countdown: one pigeon at a time, never during the tutorial
+    // a new visit is entirely the director's call: it fires the moment the
+    // player is short on money and stalled, within the frequency limits
     if (!bird && enabled && d.remaining <= 0 && !tutorialActive) {
-      d.next -= dt;
-      if (d.next <= 0) spawn(false);
+      const cond = Events.request('pigeon');
+      if (cond) spawn(false, cond);
     }
 
     if (bird) updateBird(dt);
@@ -127,10 +131,11 @@ const Pigeon = (() => {
       if (!frozen) {
         d.remaining -= dt;
         if (d.remaining <= 0) {
-          // ignored: the opportunity is lost until the next visit
+          // ignored: the opportunity is lost, and the miss extends the
+          // cooldown before the next one (see Events.dismissed)
           d.remaining = 0;
-          d.next = C().SPAWN_INTERVAL;
           SaveManager.save();
+          Events.dismissed('pigeon');
           b.state = 'leave'; b.t = 0;
           b.fromX = b.x; b.fromY = b.y;
           b.dir = b.x < CONFIG.VIEW_W / 2 ? -1 : 1;
@@ -218,8 +223,8 @@ const Pigeon = (() => {
   function adCompleted() {
     const d = data();
     d.remaining = 0;
-    d.next = C().SPAWN_INTERVAL + C().REWARD_COOLDOWN;
     SaveManager.save();
+    Events.accepted('pigeon');   // applies REWARD_COOLDOWN on top of the gap
     if (bird) {
       VFXManager.burst(bird.x, bird.y - 12, ['#ffe98a', '#fff6d0', '#c6cfd8', '#ffffff'], 14, 100);
       VFXManager.sparkle(bird.x, bird.y - 16, 8, 14);
@@ -301,5 +306,9 @@ const Pigeon = (() => {
     bird = null; poops = []; rain = null; shakeT = 0;
   }
 
-  return { update, draw, tap, adCompleted, shakeOffset, info, reset };
+  return {
+    update, draw, tap, adCompleted, shakeOffset, info, reset,
+    /** Anything of this event on screen — a bird, or a rain still falling. */
+    get present() { return !!bird || !!rain || poops.length > 0; },
+  };
 })();
