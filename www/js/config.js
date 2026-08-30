@@ -421,8 +421,13 @@ const CONFIG = {
   // count still fits the same physical pen rect.
   // themedName is the map sign's title once the plot's house is bought (the
   // moment animals start spawning there); before that the sign shows `name`.
+  //
+  // splitUpgrades splits the farm's upgrade menu across two entry points —
+  // the farmhouse opens the FARM rows, a dedicated on-screen button opens the
+  // animal chain (see CONFIG.splitUpgrades and js/upgrades.js `keyGroup`).
+  // A farm without the flag keeps the single UPGRADE button holding both.
   FARMS: [
-    { id: 0, name: 'FARM 1', themedName: 'CHICKEN FARM', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.72, maxAnimals: 18 },
+    { id: 0, name: 'FARM 1', themedName: 'CHICKEN FARM', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.72, maxAnimals: 18, splitUpgrades: true },
     { id: 1, name: 'FARM 2', themedName: 'SHEEP FARM',   species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4,  offlinePenFill: 0.65 },
     { id: 2, name: 'FARM 3', themedName: 'COW FARM',     species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12, offlinePenFill: 0.65 },
   ],
@@ -458,4 +463,10 @@ Object.assign(CONFIG, {
   farmMaxAnimals(farmId) {
     return CONFIG.FARMS[farmId].maxAnimals ?? CONFIG.MAX_ANIMALS;
   },
+  /**
+   * Does this farm split its upgrade entry points? House = farm upgrades,
+   * dedicated button = animal upgrades. Off means one UPGRADE button holds
+   * the whole menu — flip the flag in FARMS to enable it on another farm.
+   */
+  splitUpgrades(farmId) { return !!CONFIG.FARMS[farmId].splitUpgrades; },
 });

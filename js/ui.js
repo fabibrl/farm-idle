@@ -312,7 +312,7 @@ const UI = (() => {
   function upgradeLayout(popup) {
     const rows = [];
     let dy = 32, first = true, stageSection = false;
-    for (const key of Upgrades.keys(popup.farmId)) {
+    for (const key of Upgrades.keys(popup.farmId, popup.group)) {
       if (!Upgrades.unlocked(popup.farmId, key)) continue;
       const spawn = key === 'spawn';
       const p = easeOut(revealP(popup, key));
@@ -339,8 +339,12 @@ const UI = (() => {
    * are registered as hit rects — a row scrolled out of sight can't be
    * tapped through the panel frame.
    */
+  // A split farm opens this panel through two entry points, each showing only
+  // its own rows — the title says which one the player is in.
+  const UPGRADE_TITLE = { farm: 'FARM UPGRADES', animals: 'ANIMAL UPGRADES' };
+
   function drawUpgrades(ctx, px, py, pw, ph) {
-    popupTitle(ctx, 'UPGRADES!', px, py, pw, { tall: true });
+    popupTitle(ctx, UPGRADE_TITLE[popup.group] || 'UPGRADES!', px, py, pw, { tall: true });
     popup.cards = [];
     const { rows, ch } = upgradeLayout(popup);
     const view = { x: px + 4, y: py + 24, w: pw - 8, h: ph - 32 };
@@ -554,11 +558,34 @@ const UI = (() => {
     return { x: M, y: top, w: W - M * 2, h: Math.max(0, bottom - top) };
   }
 
+  /**
+   * The bottom action row is anchored to the stage's bottom edge, and the
+   * whole 360x640 stage is letterboxed to fit the device, so these rects hold
+   * at every resolution, aspect ratio and safe-area inset. The left slot in
+   * that row holds ONE of two entry points, decided by config:
+   *   - a farm WITHOUT CONFIG.splitUpgrades: the single UPGRADE button that
+   *     opens the whole menu;
+   *   - a farm WITH it (Farm 1): the animal-upgrades button, since the
+   *     farmhouse has taken over farm upgrades. That one is icon-only — a
+   *     square left-anchored button whose 44px icon has to carry the meaning
+   *     with no label under it, so it is sized to stay legible when the whole
+   *     360x640 stage is letterboxed down to the smallest supported screen.
+   * The two never coexist, and both sit on the same bottom edge, so the row's
+   * shape, the safe area below it and everything anchored through it are the
+   * same either way — and the button is clear of the pen, the house, the
+   * UFO's parking spot and the HUD by construction.
+   */
   function makeButtons() {
     // rects and icon/label placement from Figma E03 (14:29), Figma px / 2
+    const split = () => CONFIG.splitUpgrades(SaveManager.data.currentFarm);
+    const species = () => CONFIG.FARMS[SaveManager.data.currentFarm].species;
     buttons = [
       { id: 'upgrade', color: 'green', x: 75, y: 586, w: 100, h: 40, label: 'UPGRADE', icon: () => SPRITES.arrowUp(), scene: 'farm',
-        layout: { iconX: 5, iconY: 8, iconW: 24, iconH: 24, labelX: 30.5, labelY: 17, labelPx: 10 } },
+        layout: { iconX: 5, iconY: 8, iconW: 24, iconH: 24, labelX: 30.5, labelY: 17, labelPx: 10 },
+        show: () => !split() },
+      { id: 'animals', color: 'green', x: 75, y: 570, w: 56, h: 56, icon: () => SPRITES.animalUp(species()), scene: 'farm',
+        layout: { iconX: 8, iconY: 6, iconW: 44, iconH: 44 },
+        show: () => split() },
       { id: 'map', color: 'red', x: 185, y: 586, w: 100, h: 40, label: 'MAP', icon: () => SPRITES.mapPin(), scene: 'farm',
         layout: { iconX: 11.5, iconY: 7, iconW: 24, iconH: 30, labelX: 48, labelY: 15, labelPx: 12 } },
       { id: 'settings', color: 'wood', x: 314, y: 12, w: 34, h: 32, icon: () => SPRITES.gear(), scene: 'both',
@@ -566,6 +593,12 @@ const UI = (() => {
     ];
   }
   makeButtons();
+
+  /** Is this button on screen in the given scene right now? */
+  function visible(b, scene) {
+    if (b.scene !== 'both' && b.scene !== scene) return false;
+    return !b.show || b.show();
+  }
 
   /** Red notification badge with a white "!", centered at (cx, cy). */
   function drawBadge(ctx, cx, cy) {
@@ -610,12 +643,15 @@ const UI = (() => {
 
     // buttons for this scene
     for (const b of buttons) {
-      if (b.scene !== 'both' && b.scene !== scene) continue;
+      if (!visible(b, scene)) continue;
       drawButton(ctx, b);
-      // red "!" badge on UPGRADE while an upgrade is affordable
-      // (only after the first-upgrade tutorial has been completed)
-      if (b.id === 'upgrade' && SaveManager.data.upgradeTutorialDone &&
-          Upgrades.anyAffordable(SaveManager.data.currentFarm)) {
+      // red "!" badge while an upgrade this button opens is affordable (only
+      // after the first-upgrade tutorial has been completed). Each entry
+      // point badges for its own rows: the ANIMALS button only for the chain,
+      // the farmhouse only for the farm rows (see FarmScene.drawHouseCTA).
+      if (b.id !== 'upgrade' && b.id !== 'animals') continue;
+      if (SaveManager.data.upgradeTutorialDone &&
+          Upgrades.anyAffordable(SaveManager.data.currentFarm, b.id === 'animals' ? 'animals' : null)) {
         drawBadge(ctx, b.x + b.w - 2, b.y - 2);
       }
     }
@@ -841,6 +877,86 @@ const UI = (() => {
     drawText(ctx, value, px + pw - 34, y, 6.5, col, 'right');
   }
 
+  // ---------------- popup open/close transition ----------------
+  /**
+   * A panel that knows where it came from (popup.origin — the button that
+   * opened it) grows out of that point and shrinks back into it, so the
+   * origin of the screen is never ambiguous. The dimmed backdrop fades on the
+   * same curve, and the panel's whole content is composed offscreen and
+   * blitted as one piece, so nothing inside it pops in late or fades on its
+   * own schedule.
+   *
+   * The transition is non-blocking: taps are still handled while it plays
+   * (see tap/closing), a close can start mid-open, and reopening picks up the
+   * progress already on screen instead of restarting from zero — so an
+   * interrupted panel never stacks or flickers.
+   *
+   * Panels without an origin (settings, discovery, ads, ...) are unchanged:
+   * they appear and disappear the way they always did.
+   */
+  const POPUP_FX = {
+    IN: 0.28,        // seconds, ease-out with a small settle overshoot
+    OUT: 0.2,        // seconds, ease-in (slower to leave the rest, then away)
+    FROM: 0.85,      // scale the panel grows out of / collapses back into
+  };
+
+  /** Ease-out with a restrained settle bounce (peaks ~2% over full size). */
+  function settle(p) {
+    const q = p - 1;
+    return 1 + 3 * q * q * q + 2 * q * q;
+  }
+
+  let fxLayer = null;   // offscreen canvas the transitioning panel composes into
+
+  /** Is the current panel on its way out? While it is, it swallows nothing. */
+  function closing() { return !!(popup && popup.anim && popup.anim.dir === 'out'); }
+
+  /**
+   * Advance the transition one frame. Returns {scale, alpha} while one is
+   * running, or null once the panel is settled — a finished close clears the
+   * popup, so callers must re-check `popup` afterwards.
+   */
+  function advancePopupFx() {
+    const a = popup.anim;
+    if (!a) return null;
+    if (a.dir === 'in') {
+      a.p = Math.min(1, a.p + Game.dt / POPUP_FX.IN);
+      if (a.p >= 1) { popup.anim = null; startPendingReveal(); return null; }
+    } else {
+      a.p = Math.max(0, a.p - Game.dt / POPUP_FX.OUT);
+      if (a.p <= 0) { popup = null; panelFx = []; return null; }
+    }
+    // scale — in: ease-out with the settle overshoot; out: ease-in as it goes
+    const e = a.dir === 'in' ? settle(a.p) : 1 - (1 - a.p) * (1 - a.p);
+    // the fade never overshoots, and spans the whole transition rather than
+    // finishing in its first third, so panel and backdrop read as one motion
+    const f = 1 - (1 - a.p) * (1 - a.p);
+    return { scale: POPUP_FX.FROM + (1 - POPUP_FX.FROM) * e, alpha: U.clamp(f, 0, 1) };
+  }
+
+  /**
+   * The rows discovered since this panel was last open are held back until
+   * the panel has finished opening, so their entry animation plays on a
+   * settled panel instead of fighting the transition (and so the panel's
+   * height doesn't grow twice on the way in).
+   */
+  function startPendingReveal() {
+    const fresh = popup.pendingReveal;
+    popup.pendingReveal = null;
+    if (!fresh || !fresh.length) return;
+    popup.reveal = {};
+    fresh.forEach((k, i) => { popup.reveal[k] = i * REVEAL.STAGGER; });
+    popup.revealT = 0;
+  }
+
+  /** Begin the leave transition, or close outright when there is none. */
+  function beginClose() {
+    if (!popup) return;
+    if (!popup.origin) { popup = null; panelFx = []; return; }
+    popup.press = null;   // an armed purchase does not survive the exit
+    popup.anim = { dir: 'out', p: popup.anim ? popup.anim.p : 1 };
+  }
+
   // ---------------- popups ----------------
   function drawPopup(ctx) {
     if (!popup) return;
@@ -869,9 +985,44 @@ const UI = (() => {
       return;
     }
 
-    ctx.fillStyle = popup.type === 'discovery' ? 'rgba(16,10,6,0.75)' : 'rgba(16,10,6,0.55)';
+    const fx = advancePopupFx();
+    if (!popup) return;                      // the leave transition just ended
+    const dim = popup.type === 'discovery' ? 'rgba(16,10,6,0.75)' : 'rgba(16,10,6,0.55)';
+    if (!fx) {
+      ctx.fillStyle = dim;
+      ctx.fillRect(0, 0, W, H);
+      drawPopupBody(ctx);
+      return;
+    }
+    // mid-transition: the backdrop fades unscaled while the panel — frame,
+    // rows, buttons and all — is composed offscreen and blitted scaled about
+    // its origin, so the whole screen moves and fades as one element
+    if (!fxLayer) {
+      fxLayer = document.createElement('canvas');
+      fxLayer.width = W; fxLayer.height = H;
+    }
+    const g = fxLayer.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, W, H);
+    g.imageSmoothingEnabled = false;
+    drawPopupBody(g);
+    ctx.save();
+    ctx.globalAlpha = fx.alpha;
+    ctx.fillStyle = dim;
     ctx.fillRect(0, 0, W, H);
+    // smoothing only for this blit: nearest-neighbour would drop rows and
+    // shimmer across the 0.85 -> 1 sweep
+    ctx.imageSmoothingEnabled = true;
+    ctx.translate(popup.origin.x, popup.origin.y);
+    ctx.scale(fx.scale, fx.scale);
+    ctx.translate(-popup.origin.x, -popup.origin.y);
+    ctx.drawImage(fxLayer, 0, 0);
+    ctx.restore();
+  }
 
+  /** The panel itself, drawn at its resting rect (see drawPopup for the
+   *  backdrop and the open/close transition that composes this). */
+  function drawPopupBody(ctx) {
     // the upgrade panel's entry animations advance before its height is
     // measured, so the frame and the rows inside it are always in step
     if (popup.type === 'upgrades') popup.revealT = (popup.revealT || 0) + Game.dt;
@@ -1059,7 +1210,7 @@ const UI = (() => {
 
   /** Mouse wheel / trackpad over an open upgrade panel. */
   function scrollBy(dy) {
-    if (!popup || popup.type !== 'upgrades') return false;
+    if (!popup || popup.type !== 'upgrades' || closing()) return false;
     popup.userScrolled = true;
     popup.scroll = U.clamp((popup.scroll || 0) + dy, 0, popup.maxScroll || 0);
     return true;
@@ -1080,15 +1231,45 @@ const UI = (() => {
   }
 
   /**
+   * Which entry point the first-upgrade tutorial points at while no panel is
+   * open, as {id, target, label}. With one UPGRADE button that is always the
+   * button; on a split farm it is whichever entry point owns the cheapest
+   * upgrade the player can currently afford — the farmhouse for a farm row,
+   * the ANIMALS button for a chain row. Gameplay is frozen for the duration,
+   * so the answer can't drift under the player mid-tutorial.
+   */
+  function tutorialEntry() {
+    const id = SaveManager.data.currentFarm;
+    if (!CONFIG.splitUpgrades(id)) {
+      return { id: 'upgrade', target: buttons.find(b => b.id === 'upgrade'), label: 'UPGRADE YOUR FARM!' };
+    }
+    const best = Upgrades.cheapestAffordable(id);
+    if (!best) return null;
+    if (best.group === 'farm') {
+      const hr = ENVIRONMENT.houseRect(id);
+      return { id: 'house', target: { x: hr.x, y: hr.y, w: hr.w, h: hr.h }, label: 'TAP THE HOUSE!' };
+    }
+    return { id: 'animals', target: buttons.find(b => b.id === 'animals'), label: 'UPGRADE YOUR ANIMALS!' };
+  }
+
+  /** 'upgrade' | 'animals' | 'house' | null — the entry point the tutorial wants tapped. */
+  function tutorialEntryId() {
+    const e = tutorialEntry();
+    return e ? e.id : null;
+  }
+
+  /**
    * Spotlight for the first-upgrade tutorial: pulsing glow + hand + label on
-   * the UPGRADE button, then on the cheapest affordable BUY button inside
-   * the upgrade panel. Drawn above HUD and popup.
+   * the entry point (see tutorialEntry), then on the cheapest affordable BUY
+   * button inside the upgrade panel. Drawn above HUD and popup.
    */
   function drawUpgradeTutorial(ctx, t) {
     let target = null, label = null;
     if (!popup) {
-      target = buttons.find(b => b.id === 'upgrade');
-      label = 'UPGRADE YOUR FARM!';
+      const entry = tutorialEntry();
+      if (!entry) return;
+      target = entry.target;
+      label = entry.label;
     } else if (popup.type === 'upgrades') {
       let best = Infinity;
       for (const c of popup.cards || []) {
@@ -1118,15 +1299,22 @@ const UI = (() => {
     // bobbing hand pointing at the target
     drawHand(ctx, target.x + target.w / 2 + 10, target.y + target.h / 2 + 8 + Math.sin(t * 4) * 4);
 
-    // instruction label (kept fully on screen)
+    // instruction label, kept fully on screen: above the target normally, but
+    // below it when there is no room (the farmhouse sits right under the HUD
+    // bar, and the label must not read as part of the top bar)
     const lw = measure(label, SIZE.BUTTON);
     const lx = U.clamp(target.x + target.w / 2, lw / 2 + 6, W - lw / 2 - 6);
-    drawText(ctx, label, lx, target.y - g - 22, SIZE.BUTTON, '#ffe98a', 'center', true, false, W - 12);
+    const safe = safeArea();
+    const above = target.y - g - 22;
+    drawText(ctx, label, lx, above >= safe.y ? above : target.y + target.h + g + 8,
+             SIZE.BUTTON, '#ffe98a', 'center', true, false, W - 12);
   }
 
   /** Returns true if the tap was consumed by UI. */
   function tap(x, y) {
-    if (popup) {
+    // a panel on its way out swallows nothing: the tap goes to whatever is
+    // behind it, so tapping the button again reopens it mid-exit
+    if (popup && !closing()) {
       if (popup.type === 'welcomeBack') {
         // every way out pays at least the base amount (claim is idempotent)
         if (inRect(x, y, popup.closeRect) || inRect(x, y, popup.okRect)) {
@@ -1141,7 +1329,7 @@ const UI = (() => {
       }
       if (inRect(x, y, popup.closeRect)) {
         if (Game.upgradeTutorialActive) return true; // tutorial: must buy before closing
-        AudioManager.play('click'); popup = null; panelFx = []; return true;
+        AudioManager.play('click'); beginClose(); return true;
       }
       if (popup.type === 'upgrades') {
         // the list scrolls, so a press only ARMS a purchase: it goes through
@@ -1207,8 +1395,9 @@ const UI = (() => {
       return true; // modal swallows all taps
     }
     for (const b of buttons) {
-      if (b.scene !== 'both' && b.scene !== Game.scene) continue;
-      if (Game.upgradeTutorialActive && b.id !== 'upgrade') continue; // tutorial: only UPGRADE works
+      if (!visible(b, Game.scene)) continue;
+      // tutorial: only the entry point it spotlights is tappable
+      if (Game.upgradeTutorialActive && b.id !== tutorialEntryId()) continue;
       if (inRect(x, y, b)) {
         AudioManager.play('click');
         Game.onButton(b.id);
@@ -1236,22 +1425,37 @@ const UI = (() => {
 
   return {
     SIZE, drawText, measure, woodPanel, woodSign, drawButton, drawHUD, drawPopup, drawLoading,
-    drawHand, drawUpgradeTutorial, drawBadge, safeArea,
+    drawHand, drawUpgradeTutorial, drawBadge, safeArea, tutorialEntryId,
+    /** Center of an on-screen button — the point a panel grows out of. */
+    buttonCenter(id) {
+      const b = buttons.find(bt => bt.id === id);
+      return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : null;
+    },
     tap, drag, release, scrollBy, coinTarget,
     pulseCoin() { coinPulse = 1; },
     showToast(text) { toast = { text, t: 1.6 }; },
     openPopup(p) {
       if (p.type === 'upgrades') {
         // rows discovered since this panel was last open animate in, one
-        // after the other rather than all at once
+        // after the other rather than all at once — held until the panel has
+        // finished opening (see startPendingReveal)
         p.reveal = {};
-        Upgrades.takeUnrevealed(p.farmId).forEach((k, i) => { p.reveal[k] = i * REVEAL.STAGGER; });
         p.revealT = 0;
+        p.pendingReveal = Upgrades.takeUnrevealed(p.farmId, p.group);
         p.scroll = 0;
         p.maxScroll = 0;
         p.userScrolled = false;
       }
+      if (p.origin) {
+        // opening over a panel that is still leaving resumes from the
+        // progress already on screen, so an interrupt never flickers
+        p.anim = { dir: 'in', p: popup && popup.origin ? (popup.anim ? popup.anim.p : 1) : 0 };
+      }
       popup = p;
+      // no transition to wait for (or one that starts already settled):
+      // the fresh rows animate in right away, as they always did
+      if (p.anim && p.anim.p >= 1) p.anim = null;
+      if (!p.anim) startPendingReveal();
     },
     closePopup() { popup = null; panelFx = []; },
     /** A live press was interrupted (scene change, cinematic): drop it. */

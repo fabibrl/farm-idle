@@ -215,16 +215,23 @@ class FarmScene {
     }
   }
 
+  /**
+   * Tap the farmhouse — the farm's build / farm-upgrade menu (see drawHouse
+   * for the hit rect). Split out from pointerDown so the first-upgrade
+   * tutorial can allow this one tap while the rest of the scene is frozen.
+   */
+  tapHouse(x, y) {
+    const hit = this.ghosts.some(gh => x >= gh.x && x <= gh.x + gh.w && y >= gh.y && y <= gh.y + gh.h);
+    if (!hit) return false;
+    AudioManager.play('click');
+    Game.openBuild(this.farmId);
+    return true;
+  }
+
   // ---------------- MergeManager: input ----------------
   pointerDown(x, y) {
-    // the farmhouse is the entry point for the build/upgrade menu
-    for (const gh of this.ghosts) {
-      if (x >= gh.x && x <= gh.x + gh.w && y >= gh.y && y <= gh.y + gh.h) {
-        AudioManager.play('click');
-        Game.openBuild(this.farmId);
-        return true;
-      }
-    }
+    // the farmhouse is the entry point for the build/farm-upgrade menu
+    if (this.tapHouse(x, y)) return true;
     // topmost animal under pointer — an animal that has started leaving is
     // locked out of interaction (the tell shows the player why)
     for (let i = this.animals.length - 1; i >= 0; i--) {
@@ -468,19 +475,21 @@ class FarmScene {
 
   // ---------------- construction: in-scene call to action ----------------
   /**
-   * The farmhouse is the farm's single entry point: tapping it opens the
-   * build/upgrade menu (Game.openBuild). There are no loose in-scene build
-   * buttons — this draws the house layer only:
+   * The farmhouse is the farm's build / farm-upgrade entry point: tapping it
+   * opens that menu (Game.openBuild). There are no loose in-scene build or
+   * farm-upgrade buttons — this draws the house layer only:
    *   - the ghosted placeholder while the house itself is unbuilt (the built
    *     house is baked into the background, see ENVIRONMENT.farm)
    *   - the ghosted fence footprint, so "you need a fence" still reads in
    *     the scene (a hint, not a button — it is not tappable)
    *   - the call-to-action indicator when a purchase is actually affordable
-   * Registers the house's hit rect on this.ghosts.
+   * Registers the house's hit rect on this.ghosts. A farm that neither builds
+   * (Construction.required) nor splits its upgrade menu
+   * (CONFIG.splitUpgrades) has no house menu at all, so nothing is registered.
    */
   drawHouse(ctx) {
     this.ghosts = [];
-    if (!Construction.required(this.farmId)) return;
+    if (!Construction.required(this.farmId) && !CONFIG.splitUpgrades(this.farmId)) return;
     const stage = Construction.stage(this.farmId);
     const hr = ENVIRONMENT.houseRect(this.farmId);
     const pulse = 0.55 + Math.sin(performance.now() / 380) * 0.2;
@@ -506,7 +515,10 @@ class FarmScene {
       ctx.globalAlpha = 1;
     }
 
-    this.ghosts.push({ id: 'house', x: hr.x - 8, y: hr.y - 8, w: hr.w + 16, h: hr.h + 16 });
+    // hit rect: the sprite plus a finger-friendly margin, kept out of the HUD
+    // bar above it so the top bar's own controls always win a tap
+    const top = Math.max(hr.y - 8, UI.safeArea().y);
+    this.ghosts.push({ id: 'house', x: hr.x - 8, y: top, w: hr.w + 16, h: hr.y + hr.h + 8 - top });
     this.drawHouseCTA(ctx, hr);
   }
 
@@ -514,14 +526,17 @@ class FarmScene {
    * Is there a purchase the player can actually afford right now? While the
    * farm is still going up that means the next build step; once everything
    * is built the house is the way into the upgrade menu instead, so it
-   * badges for an affordable upgrade. An undiscovered (locked) upgrade never
-   * counts — the badge only ever signals a purchase that can be made (see
+   * badges for an affordable upgrade — and only for the rows it actually
+   * opens, which on a split farm is the FARM group (the animal rows badge on
+   * their own button). An undiscovered (locked) upgrade never counts — the
+   * badge only ever signals a purchase that can be made (see
    * Upgrades.anyAffordable).
    */
   buildActionReady() {
-    if (!Construction.required(this.farmId)) return false;
+    if (!Construction.required(this.farmId) && !CONFIG.splitUpgrades(this.farmId)) return false;
     if (Construction.stage(this.farmId) === 'max') {
-      return SaveManager.data.upgradeTutorialDone && Upgrades.anyAffordable(this.farmId);
+      const group = CONFIG.splitUpgrades(this.farmId) ? 'farm' : null;
+      return SaveManager.data.upgradeTutorialDone && Upgrades.anyAffordable(this.farmId, group);
     }
     const inf = Construction.info(this.farmId);
     return !inf.maxed && SaveManager.data.coins >= inf.cost;

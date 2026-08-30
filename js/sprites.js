@@ -1301,6 +1301,29 @@ const SPRITES = (() => {
     });
   }
 
+  /**
+   * Animal-upgrades button icon: the farm's own animal under a gold
+   * up-chevron. That button carries no label, so the icon has to say both
+   * things on its own — the animal says WHICH menu (a gear or a bare arrow
+   * would be indistinguishable from the farmhouse's farm-upgrade menu), the
+   * chevron says "upgrade". It is built from the species' showcase sprite,
+   * so enabling the split menu on another farm shows that farm's animal
+   * without any new art.
+   */
+  function animalUp(species) {
+    const img = animal(species, CONFIG.showcaseStage(species), 'idle', false);
+    return PIXEL.sprite('animalUp:' + species, 32, 32, s => {
+      // chevron centered in the clear band above the animal
+      const gold = '#ffe98a';
+      s.rect(14, 1, 4, 2, gold);
+      s.rect(11, 3, 3, 2, gold); s.rect(18, 3, 3, 2, gold);
+      s.rect(8, 5, 3, 2, gold);  s.rect(21, 5, 3, 2, gold);
+      // outlines the chevron only — the animal sprite brings its own
+      s.outline();
+      s.g.drawImage(img, Math.round((32 - img.width) / 2), 32 - img.height);
+    });
+  }
+
   function xIcon() {
     return PIXEL.sprite('xIcon', 12, 12, s => {
       for (let i = 0; i < 9; i++) {
@@ -1326,7 +1349,7 @@ const SPRITES = (() => {
     tree, bush, flower, rock, barrel, crate, haystack, sign, fenceH,
     farmhouse, barn, shed,
     coop, nest, cottage, windmillTower, windmillBlades, silo, milkCan, woolBale,
-    mapPin, lock, gear, arrowUp, xIcon, adPlay,
+    mapPin, lock, gear, arrowUp, animalUp, xIcon, adPlay,
     P,
   };
 })();

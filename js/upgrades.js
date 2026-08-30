@@ -80,10 +80,14 @@ const Upgrades = (() => {
    * while the panel is closed still animates the next time it is opened, and
    * a player who closes the panel mid-animation does not see it replayed.
    * The record is per farm and saved, so it survives a session.
+   *
+   * `group` scopes this to one entry point's rows: opening the farm menu
+   * must not consume the animal menu's pending reveals, so each panel plays
+   * the entry animation for exactly the rows it actually shows.
    */
-  function takeUnrevealed(farmId) {
+  function takeUnrevealed(farmId, group) {
     const seen = SaveManager.data.upgradesRevealed[farmId];
-    const fresh = keys(farmId).filter(k => unlocked(farmId, k) && !seen.includes(String(k)));
+    const fresh = keys(farmId, group).filter(k => unlocked(farmId, k) && !seen.includes(String(k)));
     if (fresh.length) {
       for (const k of fresh) seen.push(String(k));
       SaveManager.save();
@@ -154,25 +158,57 @@ const Upgrades = (() => {
   }
 
   /**
+   * Which entry point owns a row. A farm with CONFIG.splitUpgrades shows its
+   * upgrades through two entry points — the farmhouse for 'farm' rows, the
+   * animal button for the chain — so every key belongs to exactly one group.
+   * Farms without the flag list both groups in one panel, so grouping only
+   * ever narrows an existing list; it never changes a row, cost or effect.
+   */
+  function keyGroup(key) { return key === 'spawn' ? 'farm' : 'animals'; }
+
+  /**
    * Every upgrade key this farm's panel could list, in panel order: the farm
    * row, then one row per board stage of its chain, then the abducted final
    * form last — that one only where the chain defines an upgrade for it.
+   * `group` ('farm' | 'animals') narrows the list to one entry point's rows;
+   * omit it for the whole menu.
    */
-  function keys(farmId) {
+  function keys(farmId, group) {
     const sp = species(farmId);
     const k = ['spawn'];
     for (let s = 0; s < CONFIG.stageCount(sp); s++) k.push(s);
     if (CONFIG.finalStage(sp).up) k.push('et');
-    return k;
+    return group ? k.filter(key => keyGroup(key) === group) : k;
+  }
+
+  /** Is this upgrade unlocked, not maxed, and affordable right now? */
+  function affordable(farmId, key) {
+    return unlocked(farmId, key) && !isMaxed(farmId, key) &&
+           SaveManager.data.coins >= cost(farmId, key);
   }
 
   /**
    * True if the player can afford at least one unlocked, non-maxed upgrade on
-   * this farm — a locked upgrade never badges, it isn't buyable yet.
+   * this farm — a locked upgrade never badges, it isn't buyable yet. Pass a
+   * group to badge one entry point only (each carries its own badge).
    */
-  function anyAffordable(farmId) {
-    return keys(farmId).some(k => unlocked(farmId, k) && !isMaxed(farmId, k) &&
-                                  SaveManager.data.coins >= cost(farmId, k));
+  function anyAffordable(farmId, group) {
+    return keys(farmId, group).some(k => affordable(farmId, k));
+  }
+
+  /**
+   * The cheapest upgrade the player can afford right now, as
+   * {key, cost, group}, or null. The first-upgrade tutorial uses it to decide
+   * which entry point to spotlight on a farm whose menu is split.
+   */
+  function cheapestAffordable(farmId, group) {
+    let best = null;
+    for (const k of keys(farmId, group)) {
+      if (!affordable(farmId, k)) continue;
+      const c = cost(farmId, k);
+      if (!best || c < best.cost) best = { key: k, cost: c, group: keyGroup(k) };
+    }
+    return best;
   }
 
   /**
@@ -219,6 +255,6 @@ const Upgrades = (() => {
     return { key, locked: false, label, level: lv, maxed, cost: maxed ? 0 : cost(farmId, key), stats };
   }
 
-  return { level, cost, isMaxed, unlocked, keys, takeUnrevealed, spawnInterval, poopInterval, coinValue,
-           alienValue, incomeRate, buy, info, anyAffordable };
+  return { level, cost, isMaxed, unlocked, keys, keyGroup, takeUnrevealed, spawnInterval, poopInterval,
+           coinValue, alienValue, incomeRate, buy, info, affordable, anyAffordable, cheapestAffordable };
 })();

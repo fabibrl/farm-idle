@@ -77,7 +77,12 @@ const Game = (() => {
       if (celebration && !celebration.popupOpen) return; // sequence plays untouched
       if (UI.tap(p.x, p.y)) return;
       if (celebration) return;                           // popup swallows farm taps
-      if (upgradeTutorial) return;                       // tutorial: only the upgrade flow is tappable
+      if (upgradeTutorial) {
+        // tutorial: only the entry point it spotlights is tappable — the
+        // buttons are handled by UI.tap above, the farmhouse here
+        if (scene === 'farm' && UI.tutorialEntryId() === 'house') farmScene.tapHouse(p.x, p.y);
+        return;
+      }
       if (scene === 'farm' && Tornado.tap(p.x, p.y)) return;
       if (scene === 'farm' && Pigeon.tap(p.x, p.y)) return;
       if (scene === 'farm') farmScene.pointerDown(p.x, p.y);
@@ -288,17 +293,25 @@ const Game = (() => {
 
   // ---------------- buttons ----------------
   /**
-   * Open the house menu of a construction farm: the build panel while there
-   * is still something to build, the upgrade panel once the farm is finished
-   * (the house is that farm's single entry point, so it must never open a
-   * dead-end "nothing left to build" panel).
+   * Open the farmhouse menu: the build panel while there is still something
+   * to build, the upgrade panel once the farm is finished (the house must
+   * never open a dead-end "nothing left to build" panel). On a farm with
+   * CONFIG.splitUpgrades the house owns the FARM rows only — the animal chain
+   * has its own button (UI 'animals' -> onButton) — and the panel grows out
+   * of the house that opened it (`origin`, see UI's popup transition).
    */
   function openBuild(farmId) {
-    if (Construction.stage(farmId) === 'max') {
-      UI.openPopup({ type: 'upgrades', farmId, fx: {} });
+    if (Construction.stage(farmId) !== 'max') {
+      UI.openPopup({ type: 'build', farmId, fx: 0 });
       return;
     }
-    UI.openPopup({ type: 'build', farmId, fx: 0 });
+    const split = CONFIG.splitUpgrades(farmId);
+    const hr = ENVIRONMENT.houseRect(farmId);
+    UI.openPopup({
+      type: 'upgrades', farmId, fx: {},
+      group: split ? 'farm' : null,
+      origin: split ? { x: hr.x + hr.w / 2, y: hr.y + hr.h / 2 } : null,
+    });
   }
 
   /**
@@ -315,6 +328,11 @@ const Game = (() => {
       UI.openPopup({ type: 'settings' });
     } else if (id === 'upgrade') {
       UI.openPopup({ type: 'upgrades', farmId: SaveManager.data.currentFarm, fx: {} });
+    } else if (id === 'animals') {
+      // split farm: this button owns the chain, the farmhouse owns the rest,
+      // and the panel grows out of the button that was tapped
+      UI.openPopup({ type: 'upgrades', farmId: SaveManager.data.currentFarm, group: 'animals', fx: {},
+        origin: UI.buttonCenter('animals') });
     } else if (id === 'map') {
       goToMap();
     }
