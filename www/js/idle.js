@@ -54,6 +54,10 @@ const Idle = (() => {
     // farm's first-merge tutorial is done, exactly like the live scene
     if (!d.unlocked[farmId] || !Construction.isComplete(farmId) || !d.tutorialDone[farmId]) return;
 
+    // the parachute crate's cooldown runs while the game is closed too,
+    // under this same capped window (see js/crate.js)
+    Crate.offlineTick(farmId, elapsed);
+
     // existing animals poop the whole time
     const animals = d.animals[farmId] || (d.animals[farmId] = []);
     let coins = 0;

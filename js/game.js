@@ -85,6 +85,7 @@ const Game = (() => {
       }
       if (scene === 'farm' && Tornado.tap(p.x, p.y)) return;
       if (scene === 'farm' && Pigeon.tap(p.x, p.y)) return;
+      if (scene === 'farm' && Crate.tap(p.x, p.y)) return;
       if (scene === 'farm') farmScene.pointerDown(p.x, p.y);
       else if (scene === 'map' && !mapScene.unlockAnim) {
         const id = mapScene.tappedFarm(p.x, p.y);
@@ -346,6 +347,7 @@ const Game = (() => {
       Idle.tick(); // reconcile so the board matches what accumulated offscreen
       Pigeon.reset(); // pays out any rain still falling, keeps saved perch state
       Tornado.reset();
+      Crate.reset();
       SaveManager.data.currentFarm = id;
       SaveManager.save();
       UFO.reset();
@@ -385,6 +387,7 @@ const Game = (() => {
       UFO.reset();
       Pigeon.reset();
       Tornado.reset();
+      Crate.reset();
       farmScene = new FarmScene(farmId);
       scene = 'farm';
       AudioManager.play('pop');
@@ -402,6 +405,7 @@ const Game = (() => {
   function resetAll() {
     Pigeon.reset(true); // discard any in-flight rain, no payout into the fresh save
     Tornado.reset();
+    Crate.reset();
     SaveManager.reset();
     celebration = null;
     upgradeTutorial = null;
@@ -452,6 +456,7 @@ const Game = (() => {
           farmScene.update(dt); UFO.update(dt);
           Pigeon.update(dt, paused);
           Tornado.update(dt, paused);
+          Crate.update(dt, paused);
         }
       }
     }

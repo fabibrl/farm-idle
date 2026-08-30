@@ -805,6 +805,141 @@ const UI = (() => {
     drawText(ctx, U.fmt(total * 2), px + 104, py + 219, 10, '#fff6e8', 'left', false, false, 64);
   }
 
+  // ---------------- parachute surprise box: reveal popup ----------------
+  /**
+   * The crate's reveal (see js/crate.js). It opens on a short animation —
+   * the box rattles, the lid bursts off on a beam of light, the animal rises
+   * out of it — and then settles into the actual choice: the two possible
+   * outcomes shown SIDE BY SIDE, so the upgrade the ad buys is obvious
+   * before the player commits to watching it.
+   *
+   *   left  — COLLECT: the animal as rolled, free, placed straight in the pen
+   *   right — REWARD AD: the next evolution up instead
+   *
+   * Neither button exists until the reveal has finished playing, so the
+   * animation can't be tapped through into a choice; the close X is always
+   * live and leaves the crate on the ground, still tappable.
+   */
+  // where the crate sits, and where the animal it contained comes to rest —
+  // one and the same spot, so the reveal lands the animal exactly where the
+  // settled popup shows it and nothing jumps when the animation ends
+  const CRATE_ART_Y = 150;
+  const CRATE_POP = 0.42;      // the moment the lid lets go
+
+  function drawCrateReveal(ctx, px, py, pw, ph) {
+    const cfg = Object.assign({}, CONFIG.CRATE, (window.RemoteConfig || {}).CRATE);
+    popup.fxT += Game.dt;
+    const t = popup.fxT;
+    const cx = px + pw / 2, groundY = py + CRATE_ART_Y;
+    const species = CONFIG.FARMS[popup.farmId].species;
+    popup.ready = t >= cfg.REVEAL_TIME;
+
+    popupTitle(ctx, 'SURPRISE BOX!', px, py, pw, { size: 10, top: py - 2 });
+    drawCrateBurst(ctx, cx, groundY, t, species);
+
+    // name and buttons fade in as the burst settles
+    const uiA = U.clamp((t - (cfg.REVEAL_TIME - 0.3)) / 0.3, 0, 1);
+    if (uiA <= 0) { popup.okRect = popup.adRect = null; return; }
+    ctx.save();
+    ctx.globalAlpha = uiA;
+    drawText(ctx, Discovery.displayName(species, popup.stage), cx, py + 164, 12,
+             '#ffe98a', 'center', false, false, pw - 28);
+
+    // COLLECT takes it as it is; EVOLVE trades a rewarded video for the next
+    // stage — which is never previewed here, only revealed after the ad
+    popup.okRect = { x: px + 30, y: py + 190, w: pw - 60, h: 40 };
+    popup.adRect = { x: px + 30, y: py + 238, w: pw - 60, h: 36 };
+    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'COLLECT',
+      layout: { labelY: 19, labelPx: 10, center: true } });
+    // the ad button greys out the instant it is pressed, so one ad view can
+    // never be started twice (the grant itself is idempotent as well)
+    if (popup.adLoading) {
+      drawStateButton(ctx, { ...popup.adRect, state: 'loading' });
+    } else {
+      drawButton(ctx, { ...popup.adRect, color: 'wood' });
+      ctx.drawImage(SPRITES.adPlay(), popup.adRect.x + 26, popup.adRect.y + 7, 28, 21);
+      drawText(ctx, 'EVOLVE', popup.adRect.x + 62, popup.adRect.y + 12, 10, '#fff6e8', 'left', false, false, 80);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The opening beat: the box rattles, its lid blows off on a shaft of
+   * light, sparks fly and the animal hops out — landing on the exact spot
+   * the settled popup keeps it. Purely presentational: it runs on the
+   * popup's own clock and grants nothing. The crate fades away behind the
+   * animal, so the finished state is just the animal on the panel.
+   */
+  function drawCrateBurst(ctx, cx, groundY, t, species) {
+    const pop = CRATE_POP;
+    ctx.save();
+
+    if (t >= pop) {
+      // shaft of light out of the open box, widening as it brightens
+      const bt = U.clamp((t - pop) / 0.45, 0, 1);
+      // the beam is part of the reveal only: it is fully gone by the time the
+      // popup settles, leaving just the animal on the panel
+      ctx.globalAlpha = (0.55 - bt * 0.15) * U.clamp(1 - (t - pop) / 0.7, 0, 1);
+      ctx.fillStyle = '#fff6d0';
+      const topW = 24 + bt * 70, botW = 18, h = 60 + bt * 60;
+      ctx.beginPath();
+      ctx.moveTo(cx - botW / 2, groundY - 24);
+      ctx.lineTo(cx - topW / 2, groundY - 24 - h);
+      ctx.lineTo(cx + topW / 2, groundY - 24 - h);
+      ctx.lineTo(cx + botW / 2, groundY - 24);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // the box: rattling while shut, open once the lid is gone, then gone
+    const crateA = t < pop ? 1 : U.clamp(1 - (t - pop - 0.25) / 0.35, 0, 1);
+    if (crateA > 0) {
+      const shake = t < pop ? Math.sin(t * 46) * (1 + t * 4) : 0;
+      const squash = t < pop ? 1 + Math.sin(t * 24) * 0.05 : 1;
+      ctx.globalAlpha = crateA;
+      PIXEL.blit(ctx, SPRITES.giftCrate(t >= pop), cx + shake, groundY, 3, false, squash, 2 - squash);
+      ctx.globalAlpha = 1;
+    }
+
+    if (t >= pop) {
+      // lid tumbling up and away
+      const lt = t - pop;
+      ctx.save();
+      ctx.globalAlpha = U.clamp(1 - lt / 0.7, 0, 1);
+      ctx.translate(cx + lt * 34, groundY - 52 - lt * 130 + lt * lt * 190);
+      ctx.rotate(lt * 7);
+      PIXEL.blit(ctx, SPRITES.crateLid(), 0, 0, 3);
+      ctx.restore();
+      // one-shot spark ring
+      if (!popup.sparks.length) {
+        for (let i = 0; i < 22; i++) {
+          const a = (i / 22) * Math.PI * 2 + Math.random();
+          const f = U.rand(60, 150);
+          popup.sparks.push({ x: cx, y: groundY - 26, vx: Math.cos(a) * f, vy: Math.sin(a) * f - 60,
+            col: U.pick(['#ffe98a', '#f4c437', '#fff6d0', '#ffffff']), s: U.randInt(2, 4), life: 0 });
+        }
+        AudioManager.play('unlock');
+      }
+    }
+
+    // the animal itself: pops out of the box, arcs up and settles at groundY
+    const at = U.clamp((t - pop - 0.1) / 0.45, 0, 1);
+    if (at > 0) {
+      const img = SPRITES.animal(species, popup.stage, 'idle', false);
+      const sc = Math.min(3, 108 / img.height) * Math.min(1, U.easeOutBack(at));
+      PIXEL.blit(ctx, img, cx, groundY - Math.sin(at * Math.PI) * 16, sc);
+    }
+
+    for (const s of popup.sparks) {
+      s.life += Game.dt;
+      s.x += s.vx * Game.dt; s.y += s.vy * Game.dt; s.vy += 220 * Game.dt;
+      ctx.globalAlpha = U.clamp(1 - s.life / 0.9, 0, 1);
+      ctx.fillStyle = s.col;
+      ctx.fillRect(Math.round(s.x), Math.round(s.y), s.s, s.s);
+    }
+    ctx.restore();
+  }
+
   // ---------------- build / fence-upgrade panel ----------------
   /**
    * Construction panel for a staged farm (see js/construction.js): where the
@@ -1035,6 +1170,7 @@ const UI = (() => {
              : popup.type === 'build' ? 258
              : popup.type === 'pigeonAd' ? 254
              : popup.type === 'tornadoAd' ? 270.5
+             : popup.type === 'crateReveal' ? 294
              : popup.type === 'welcomeBack' ? welcomeMetrics(popup.rep).ph : 190;
     // the upgrades panel is pinned to the top it has at full height: it grows
     // downwards as rows unlock, so no row ever shifts under the player;
@@ -1142,6 +1278,8 @@ const UI = (() => {
       popup.cancelRect = null;
       drawButton(ctx, { ...popup.okRect, color: 'green', icon: () => SPRITES.adPlay(), label: 'REWARD AD',
         layout: { iconX: 13, iconY: 10, iconW: 32, iconH: 24, labelX: 53, labelY: 17, labelPx: 10 } });
+    } else if (popup.type === 'crateReveal') {
+      drawCrateReveal(ctx, px, py, pw, ph);
     } else if (popup.type === 'welcomeBack') {
       drawWelcome(ctx, px, py, pw);
     } else if (popup.type === 'settings') {
@@ -1361,6 +1499,20 @@ const UI = (() => {
         } else if (inRect(x, y, popup.cancelRect)) {
           AudioManager.play('click');
           popup = null;
+        }
+        return true;
+      }
+      if (popup.type === 'crateReveal') {
+        // both buttons only exist once the reveal has finished playing, so
+        // the animation can never be tapped through into a choice
+        if (inRect(x, y, popup.okRect)) {
+          AudioManager.play('click');
+          popup = null;
+          Crate.claim(false);
+        } else if (inRect(x, y, popup.adRect) && !popup.adLoading) {
+          popup.adLoading = true;
+          AudioManager.play('click');
+          popup = { type: 'adPlaying', t: 0, dur: Crate.info().adDur, onDone: Crate.adCompleted };
         }
         return true;
       }

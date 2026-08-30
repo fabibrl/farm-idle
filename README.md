@@ -36,6 +36,23 @@ Any static file server works — there are no build steps and no dependencies.
   parks a UFO in the corner of the farm for good; later pairs are beamed up in
   under a second. Each collected alien permanently raises the UFO's passive coin
   drip (aliens x 25 coins every 5 s).
+- **Parachute surprise box** (Farm 1, end-game): unlocked only once the farm's
+  **entire** chain has been discovered — all seven chicken stages through the Final
+  Chicken. Until then the feature is completely dormant: no crates, no cooldown,
+  nothing hinted at in the UI. After that, every cooldown a crate drifts down under
+  a parachute and lands on a free slot in the pen. It never expires — it waits until
+  tapped, then reveals the animal inside: **COLLECT** takes it as-is, **EVOLVE**
+  trades a rewarded video for the next stage instead (never previewed — the upgrade
+  is only revealed once the ad has played). Either way the popup closes and the crate
+  bursts open **in the pen**: the animal hops out, lands with a squash-and-stretch
+  bounce and settles, while the remnants shrink away (~0.85s, ~1.1s with an extra
+  light-and-energy flourish for the ad reveal). The sequence is non-blocking — the
+  farm stays fully playable — and its pen slot is reserved before it starts, so a
+  spawn can never steal the spot. The pool is derived from the chain rather
+  than hardcoded (`CONFIG.cratePool` drops the first entry and the last two), so it
+  can never hand out a baby and the ad can never reach the Final Chicken. The
+  cooldown starts on collection, runs while the game is closed under the same 2-hour
+  cap, and other farms opt in with one flag in `CONFIG.CRATE.ENABLED_FARMS`.
 - **Progression**: unlock Farm 2 (Sheep, 10,000) and Farm 3 (Cows, 250,000) from the
   world map or the **UNLOCK** button — with a rewarding golden-path unlock animation.
 - **EXIT** returns to the world map; tap any unlocked pin to switch farms.
@@ -53,6 +70,7 @@ Any static file server works — there are no build steps and no dependencies.
 | Animal | `js/animal.js` | per-animal state machine: idle/walk/peck, blink, breathe, bounce |
 | MapScene | `js/map.js` | world map nodes, locks, pins, golden unlock path |
 | UIManager | `js/ui.js` | bitmap pixel font, wooden panels/buttons, HUD, popups |
+| Crate | `js/crate.js` | parachute surprise box: drop, contents roll, reward grant |
 | VFXManager | `js/vfx.js` | pooled particles, flying coins, floating numbers, sparkles |
 | AudioManager | `js/audio.js` | WebAudio-synthesized SFX, ambient birds, background tune |
 | SaveManager | `js/save.js` | localStorage persistence (coins, farms, animals, settings) |

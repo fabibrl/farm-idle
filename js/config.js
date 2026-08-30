@@ -208,6 +208,63 @@ const CONFIG = {
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
   },
 
+  // Parachute surprise box (see js/crate.js). Every COOLDOWN seconds a crate
+  // drifts down under a parachute and lands on a free slot in the pen. It
+  // rests there until tapped — it never expires — and tapping it opens a
+  // reveal popup offering the animal inside, or (rewarded ad) the next
+  // evolution up. Every value here is a Remote Config default: override at
+  // runtime via window.RemoteConfig = { CRATE: { COOLDOWN: 60, ... } }.
+  //
+  // The contents pool is derived from the farm's own chain, never hardcoded:
+  // see CONFIG.cratePool — index 0 and the last two entries of the chain
+  // (board stages + the final form) are excluded, so the box can never hand
+  // out a baby, and the ad upgrade can never reach the final form. On Farm
+  // 1's seven-entry chicken chain that leaves TEEN, ADULT, STRANGE and
+  // MUTANT, whose ad upgrade tops out at MUTANT 2. Enabling another farm is
+  // one flag in ENABLED_FARMS — its pool follows from its own chain.
+  CRATE: {
+    ENABLED: true,               // reward event on/off (kill switch)
+    ENABLED_FARMS: [true, false, false],  // per-farm opt-in, index = farm id
+    COOLDOWN: 300,               // seconds between crates; the timer starts
+                                 // when the previous crate is COLLECTED, so
+                                 // ignoring one never queues up more
+    SKIP_FIRST: 1,               // chain entries excluded from the front (the baby)
+    SKIP_LAST: 2,                // ...and from the back (final form + the one below it)
+    // Relative draw weights over the eligible pool, lowest tier first. Extra
+    // entries are ignored; a pool longer than this list reuses the last
+    // weight. Mid-tier animals are the common outcome, top-tier the rare one.
+    WEIGHTS: [8, 5, 3, 2],
+    DROP_TIME: 4.0,              // parachute descent duration (s)
+    DROP_SWAY: 16,               // horizontal drift amplitude while falling (px)
+    BOUNCE_TIME: 0.45,           // landing squash + settle (s)
+    CHUTE_FADE: 0.8,             // parachute collapse/fade after touchdown (s)
+    SPARKLE_RATE: 2.4,           // seconds between attention sparkles while resting
+    TAP_RADIUS: 26,              // tap hit radius around the resting crate (px)
+    CLEAR_RADIUS: 34,            // keep the landing spot this far from animals (px)
+    RETRY_INTERVAL: 0.5,         // seconds between landing-spot retries when the pen is full
+    REVEAL_TIME: 1.15,           // popup crate-burst animation before the choices appear (s)
+    AD_DURATION: 3.0,            // simulated reward-ad length (s)
+
+    // In-scene opening sequence, played after the popup closes: the crate
+    // bursts open in the pen and the animal hops out of it. Non-blocking —
+    // the farm keeps running and stays fully interactive throughout — and
+    // its pen slot is reserved before it starts, so a spawn can never take
+    // the spot out from under it. Offsets are seconds from the start.
+    OPEN: {
+      DURATION: 0.85,            // total sequence length after COLLECT (s)
+      EVOLVE_DURATION: 1.10,     // ...after an ad: same beats, longer hold at the end
+      POP: 0.12,                 // anticipation squash, then the lid lets go
+      EMERGE: 0.20,              // the animal starts coming out
+      LAND: 0.55,                // it touches down
+      BOUNCE: 0.22,              // squash-and-stretch settle after landing
+      HOP_H: 34,                 // peak of its arc above the ground (px) — low
+                                 // enough that a crate resting against the
+                                 // back fence still hops entirely inside the pen
+      CRATE_FADE: 0.38,          // remnants shrink away over this, from POP (s)
+      EVOLVE_RING: 0.45,         // expanding energy ring on an evolved landing (s)
+    },
+  },
+
   // Background / offline production (see js/idle.js). Every unlocked farm
   // keeps spawning animals and earning coins while the player is elsewhere
   // (another farm, the map, or with the game closed).
@@ -458,6 +515,29 @@ Object.assign(CONFIG, {
   /** Chain entry by upgrade key: a stage index, or 'et' for the final form. */
   entry(species, key) {
     return key === 'et' ? CONFIG.finalStage(species) : CONFIG.stage(species, key);
+  },
+  /**
+   * Board stages a parachute surprise box may contain, for one species.
+   *
+   * The exclusion is a RULE, not a list, so it stays correct if a chain is
+   * ever extended or shortened and applies automatically to any farm that
+   * enables the feature. It is measured against the WHOLE chain — the board
+   * stages plus the final, abducted form — and drops CRATE.SKIP_FIRST
+   * entries from the front and CRATE.SKIP_LAST from the back:
+   *
+   *   chicken (6 board stages + final = 7): 1..4 -> TEEN, ADULT, STRANGE, MUTANT
+   *   sheep / cow (4 + final = 5):          1..2 -> ADULT, ELDER
+   *
+   * Because the last two entries are always excluded, the highest possible
+   * roll is one below the top board stage — so the ad upgrade (roll + 1) can
+   * reach the top board stage at most, and NEVER the final form.
+   */
+  cratePool(species) {
+    const len = CONFIG.stageCount(species) + 1;   // board stages + the final form
+    const last = len - 1 - CONFIG.CRATE.SKIP_LAST;
+    const out = [];
+    for (let i = CONFIG.CRATE.SKIP_FIRST; i <= last; i++) out.push(i);
+    return out;
   },
   /** This farm's hard animal cap before construction/fence limits apply. */
   farmMaxAnimals(farmId) {
