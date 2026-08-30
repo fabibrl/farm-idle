@@ -222,15 +222,62 @@ const CONFIG = {
     },
   },
 
-  // Pigeon reward-ad event (see js/pigeon.js). Every value here is a
-  // Remote Config default: override at runtime via
-  // window.RemoteConfig = { PIGEON: { SPAWN_INTERVAL: 30, ... } }.
+  // Need-based reward-event director (see js/events.js). The pigeon and the
+  // tornado do not run on timers: each is released at the moment it actually
+  // helps — an emptied wallet for the cash boost, a crowded pen for the
+  // auto-merge — under frequency limits counted separately per feature so
+  // neither can turn into spam. Every value here is a Remote Config default:
+  // override at runtime via window.RemoteConfig = { EVENTS: { ... } }.
+  EVENTS: {
+    ENABLED: true,              // director on/off (kill switch for both events)
+    LOG: true,                  // console-log every appearance and its outcome
+    LOG_MAX: 30,                // appearance records kept in the save
+    NEW_GAME_GRACE: 240,        // seconds of active play before any event may fire
+    CONDITION_TTL: 20,          // seconds a one-shot trigger waits for a free screen
+
+    // Frequency limits, applied independently to each feature.
+    LIMITS: {
+      WINDOW_MINUTES: 120,          // rolling window the cap is measured over
+      MAX_PER_WINDOW: 5,            // appearances allowed inside that window
+      MIN_INTERVAL_MINUTES: 12,     // minimum gap between two appearances
+      DISMISS_COOLDOWN_MINUTES: 10, // added to that gap per dismissal this session
+      DISMISS_SUPPRESS: 3,          // dismissals that shelve the feature for the session
+    },
+
+    // Poop rain triggers — a depleted wallet (see Events.pigeonCondition).
+    PIGEON: {
+      SAMPLE_INTERVAL: 0.5,   // seconds between wallet samples
+      SPEND_WINDOW: 180,      // seconds the spending burst is measured over
+      SPEND_FRACTION: 0.7,    // 70%+ of the wallet gone inside that window
+      MIN_PEAK_COSTS: 1,      // ...off a wallet worth at least this many cheapest upgrades
+      BROKE_TIME: 15,         // seconds below the cheapest upgrade before offering
+      STALL_TIME: 150,        // seconds unable to afford anything = a real stall
+      EMPTY_FRACTION: 0.5,    // post-purchase wallet under half the next cheapest = emptied
+    },
+
+    // Tornado triggers — a crowded pen (see Events.tornadoCondition).
+    TORNADO: {
+      FILL_PCT: 0.75,         // pen at 75%+ of its capacity
+      MIN_PAIRS: 2,           // ...with this many merges waiting
+      NEAR_CAP_SLOTS: 1,      // free slots left = spawning about to be blocked
+      JUMP_WARN: 0.6,         // fence-jump pressure ratio that makes it a rescue
+      MERGE_WINDOW: 300,      // seconds manual merges are counted over
+      MERGE_GRIND: 6,         // manual merges in that window = real effort saved
+      RETURN_AWAY: 900,       // seconds away that make a filled pen a welcome-back case
+      RETURN_WINDOW: 300,     // seconds that case stays live after returning
+      RETURN_FILL_PCT: 0.6,   // ...and the pen came back at least this full
+    },
+  },
+
+  // Pigeon reward-ad event (see js/pigeon.js). Timing is not here: the
+  // director in js/events.js decides WHEN a pigeon visits (CONFIG.EVENTS).
+  // Every value here is a Remote Config default: override at runtime via
+  // window.RemoteConfig = { PIGEON: { STAY_TIME: 30, ... } }.
   // Reward = REWARD_MINUTES of the farm's CURRENT passive income, split
   // across the rain — the ad scales with the player's economy forever
   // (meaningful acceleration, never mandatory, never game-breaking).
   PIGEON: {
     ENABLED: true,         // reward ad offer on/off (kill switch)
-    SPAWN_INTERVAL: 75,    // seconds between pigeon visits (offers stay occasional)
     STAY_TIME: 120,        // seconds the pigeon waits on the fence
     FLY_TIME: 2.6,         // fly-across-and-land duration (s)
     LEAVE_TIME: 1.6,       // fly-away duration when ignored (s)
@@ -243,22 +290,75 @@ const CONFIG = {
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
   },
 
-  // Tornado Auto Merge reward-ad event (see js/tornado.js). Every value
-  // here is a Remote Config default: override at runtime via
-  // window.RemoteConfig = { TORNADO: { SPAWN_INTERVAL: 30, ... } }.
-  // The offer waits for a moment where it saves real work: it only appears
-  // once the countdown has elapsed AND the pen is crowded with several
-  // merges pending ("here's a boost if you want it", never a nag).
+  // Tornado Auto Merge reward-ad event (see js/tornado.js). Timing is not
+  // here: the director in js/events.js decides WHEN the offer appears — a
+  // pen crowded enough that the sweep saves real work (CONFIG.EVENTS).
+  // Every value here is a Remote Config default: override at runtime via
+  // window.RemoteConfig = { TORNADO: { STAY_TIME: 30, ... } }.
   TORNADO: {
     ENABLED: true,         // reward ad offer on/off (kill switch)
-    SPAWN_INTERVAL: 150,   // seconds between tornado offers (minimum)
     STAY_TIME: 60,         // seconds the icon stays available once it appears
-    MIN_ANIMALS: 8,        // pen crowding required before the offer appears
-    MIN_PAIRS: 2,          // pending merge pairs required before the offer appears
     TRAVEL_SPEED: 1.0,     // tornado animation speed multiplier
     MERGE_INTERVAL: 0.12,  // seconds between survivors tossed back out after the merge blast
     REWARD_COOLDOWN: 0,    // extra seconds before the next offer after a claim
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
+  },
+
+  // Parachute surprise box (see js/crate.js). Every COOLDOWN seconds a crate
+  // drifts down under a parachute and lands on a free slot in the pen. It
+  // rests there until tapped — it never expires — and tapping it opens a
+  // reveal popup offering the animal inside, or (rewarded ad) the next
+  // evolution up. Every value here is a Remote Config default: override at
+  // runtime via window.RemoteConfig = { CRATE: { COOLDOWN: 60, ... } }.
+  //
+  // The contents pool is derived from the farm's own chain, never hardcoded:
+  // see CONFIG.cratePool — index 0 and the last two entries of the chain
+  // (board stages + the final form) are excluded, so the box can never hand
+  // out a baby, and the ad upgrade can never reach the final form. On Farm
+  // 1's seven-entry chicken chain that leaves TEEN, ADULT, STRANGE and
+  // MUTANT, whose ad upgrade tops out at MUTANT 2. Enabling another farm is
+  // one flag in ENABLED_FARMS — its pool follows from its own chain.
+  CRATE: {
+    ENABLED: true,               // reward event on/off (kill switch)
+    ENABLED_FARMS: [true, false, false],  // per-farm opt-in, index = farm id
+    COOLDOWN: 300,               // seconds between crates; the timer starts
+                                 // when the previous crate is COLLECTED, so
+                                 // ignoring one never queues up more
+    SKIP_FIRST: 1,               // chain entries excluded from the front (the baby)
+    SKIP_LAST: 2,                // ...and from the back (final form + the one below it)
+    // Relative draw weights over the eligible pool, lowest tier first. Extra
+    // entries are ignored; a pool longer than this list reuses the last
+    // weight. Mid-tier animals are the common outcome, top-tier the rare one.
+    WEIGHTS: [8, 5, 3, 2],
+    DROP_TIME: 4.0,              // parachute descent duration (s)
+    DROP_SWAY: 16,               // horizontal drift amplitude while falling (px)
+    BOUNCE_TIME: 0.45,           // landing squash + settle (s)
+    CHUTE_FADE: 0.8,             // parachute collapse/fade after touchdown (s)
+    SPARKLE_RATE: 2.4,           // seconds between attention sparkles while resting
+    TAP_RADIUS: 26,              // tap hit radius around the resting crate (px)
+    CLEAR_RADIUS: 34,            // keep the landing spot this far from animals (px)
+    RETRY_INTERVAL: 0.5,         // seconds between landing-spot retries when the pen is full
+    REVEAL_TIME: 1.15,           // popup crate-burst animation before the choices appear (s)
+    AD_DURATION: 3.0,            // simulated reward-ad length (s)
+
+    // In-scene opening sequence, played after the popup closes: the crate
+    // bursts open in the pen and the animal hops out of it. Non-blocking —
+    // the farm keeps running and stays fully interactive throughout — and
+    // its pen slot is reserved before it starts, so a spawn can never take
+    // the spot out from under it. Offsets are seconds from the start.
+    OPEN: {
+      DURATION: 0.85,            // total sequence length after COLLECT (s)
+      EVOLVE_DURATION: 1.10,     // ...after an ad: same beats, longer hold at the end
+      POP: 0.12,                 // anticipation squash, then the lid lets go
+      EMERGE: 0.20,              // the animal starts coming out
+      LAND: 0.55,                // it touches down
+      BOUNCE: 0.22,              // squash-and-stretch settle after landing
+      HOP_H: 34,                 // peak of its arc above the ground (px) — low
+                                 // enough that a crate resting against the
+                                 // back fence still hops entirely inside the pen
+      CRATE_FADE: 0.38,          // remnants shrink away over this, from POP (s)
+      EVOLVE_RING: 0.45,         // expanding energy ring on an evolved landing (s)
+    },
   },
 
   // Background / offline production (see js/idle.js). Every unlocked farm
@@ -511,6 +611,29 @@ Object.assign(CONFIG, {
   /** Chain entry by upgrade key: a stage index, or 'et' for the final form. */
   entry(species, key) {
     return key === 'et' ? CONFIG.finalStage(species) : CONFIG.stage(species, key);
+  },
+  /**
+   * Board stages a parachute surprise box may contain, for one species.
+   *
+   * The exclusion is a RULE, not a list, so it stays correct if a chain is
+   * ever extended or shortened and applies automatically to any farm that
+   * enables the feature. It is measured against the WHOLE chain — the board
+   * stages plus the final, abducted form — and drops CRATE.SKIP_FIRST
+   * entries from the front and CRATE.SKIP_LAST from the back:
+   *
+   *   chicken (6 board stages + final = 7): 1..4 -> TEEN, ADULT, STRANGE, MUTANT
+   *   sheep / cow (4 + final = 5):          1..2 -> ADULT, ELDER
+   *
+   * Because the last two entries are always excluded, the highest possible
+   * roll is one below the top board stage — so the ad upgrade (roll + 1) can
+   * reach the top board stage at most, and NEVER the final form.
+   */
+  cratePool(species) {
+    const len = CONFIG.stageCount(species) + 1;   // board stages + the final form
+    const last = len - 1 - CONFIG.CRATE.SKIP_LAST;
+    const out = [];
+    for (let i = CONFIG.CRATE.SKIP_FIRST; i <= last; i++) out.push(i);
+    return out;
   },
   /** This farm's hard animal cap before construction/fence limits apply. */
   farmMaxAnimals(farmId) {
@@ -1805,6 +1928,86 @@ const SPRITES = (() => {
     });
   }
 
+  // ---------- parachute surprise box (see js/crate.js) ----------
+  // A bigger, gift-wrapped cousin of the decorative crate() above: golden
+  // ribbon, a bow on the lid, and a lid that comes off as its own sprite so
+  // the reveal can pop it into the air.
+
+  /** Crate body. `open` swaps the lid for a dark, glowing interior. */
+  function giftCrate(open = false) {
+    return PIXEL.sprite(`gift:${open ? 1 : 0}`, 22, 20, s => {
+      // body
+      s.rect(3, 7, 16, 11, P.wood);
+      s.rect(3, 7, 16, 2, P.woodHi);
+      s.rect(3, 16, 16, 2, P.woodDk);
+      // plank seams + corner braces
+      s.rect(3, 12, 16, 1, P.woodDk);
+      s.rect(3, 7, 2, 11, P.woodHi);
+      s.rect(17, 7, 2, 11, P.woodDk);
+      // golden ribbon down the front
+      s.rect(9, 7, 4, 11, P.gold);
+      s.rect(9, 7, 1, 11, P.goldHi);
+      s.rect(12, 7, 1, 11, P.goldDk);
+      if (open) {
+        // lid gone: dark interior with a bright rim where the light escapes
+        s.rect(3, 5, 16, 4, P.woodDkr);
+        s.rect(4, 6, 14, 2, '#2a1c12');
+        s.rect(4, 5, 14, 1, P.goldHi);
+      } else {
+        // lid + ribbon crossing it, topped with a small bow
+        s.rect(2, 2, 18, 5, P.wood);
+        s.rect(2, 2, 18, 2, P.woodHi);
+        s.rect(2, 6, 18, 1, P.woodDk);
+        s.rect(9, 2, 4, 5, P.gold);
+        s.rect(9, 2, 1, 5, P.goldHi);
+        s.rect(7, 1, 3, 2, P.goldHi);
+        s.rect(12, 1, 3, 2, P.gold);
+        s.px(11, 1, P.goldDk);
+      }
+      s.outline();
+    });
+  }
+
+  /** The lid on its own, so the reveal can burst it off the box. */
+  function crateLid() {
+    return PIXEL.sprite('crateLid', 22, 8, s => {
+      s.rect(2, 2, 18, 5, P.wood);
+      s.rect(2, 2, 18, 2, P.woodHi);
+      s.rect(2, 6, 18, 1, P.woodDk);
+      s.rect(9, 2, 4, 5, P.gold);
+      s.rect(9, 2, 1, 5, P.goldHi);
+      s.rect(7, 1, 3, 2, P.goldHi);
+      s.rect(12, 1, 3, 2, P.gold);
+      s.outline();
+    });
+  }
+
+  /**
+   * Parachute canopy, bottom-anchored like every other sprite. The dome is
+   * an ellipse whose lower half falls off the surface, so it reads as a
+   * half-dome; the cords from its rim down to the crate are drawn live by
+   * the manager (they stretch with the sway).
+   */
+  function parachute() {
+    return PIXEL.sprite('parachute', 36, 20, s => {
+      const cx = 18, cy = 19, rx = 17.5, ry = 15.5;
+      for (let y = 3; y <= 19; y++) {
+        const k = 1 - Math.pow((y + 0.5 - cy) / ry, 2);
+        if (k <= 0) continue;
+        const half = Math.sqrt(k) * rx;
+        const x0 = Math.round(cx - half), x1 = Math.round(cx + half);
+        for (let x = x0; x <= x1; x++) {
+          // five radial panels (red / cream / red / cream / red), so the
+          // seams fan out from the apex instead of running straight down
+          const u = (x + 0.5 - (cx - half)) / (half * 2);
+          s.px(x, y, y >= 18 ? P.redDk : (Math.min(4, Math.floor(u * 5)) % 2 ? '#f2e6c8' : P.red));
+        }
+      }
+      s.ellipse(13, 8, 2, 1.5, P.redHi);
+      s.outline();
+    });
+  }
+
   function haystack() {
     return PIXEL.sprite('hay', 20, 16, s => {
       s.ellipse(10, 11, 9, 4.5, P.hay);
@@ -2166,7 +2369,8 @@ const SPRITES = (() => {
 
   return {
     animal, ANIMAL_SIZES, poop, coin, mutant2, ufo, pigeon, tornado,
-    tree, bush, flower, rock, barrel, crate, haystack, sign, fenceH,
+    tree, bush, flower, rock, barrel, crate, giftCrate, crateLid, parachute,
+    haystack, sign, fenceH,
     farmhouse, barn, shed,
     coop, nest, cottage, windmillTower, windmillBlades, silo, milkCan, woolBale,
     mapPin, lock, gear, arrowUp, animalUp, xIcon, adPlay,
@@ -2839,12 +3043,26 @@ const SaveManager = (() => {
       // per-farm UFO alien-collection layer: each farm unlocks its own UFO
       // with the first Mutant+Mutant merge on that farm
       ufo: CONFIG.FARMS.map(() => ({ landed: false, aliens: 0, pending: 0 })),
-      // per-farm pigeon reward-ad event: independent spawn countdown +
-      // remaining perch time (so a pigeon survives leaving the farm)
-      pigeon: CONFIG.FARMS.map(() => ({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 })),
-      // per-farm tornado auto-merge reward-ad event: independent offer
-      // countdown + remaining availability window
-      tornado: CONFIG.FARMS.map(() => ({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 })),
+      // per-farm pigeon reward-ad event: remaining perch time, so a pigeon
+      // left on a farm is still there when the player comes back to it
+      pigeon: CONFIG.FARMS.map(() => ({ remaining: 0 })),
+      // per-farm tornado auto-merge reward-ad event: remaining availability
+      // window of an offer already on screen
+      tornado: CONFIG.FARMS.map(() => ({ remaining: 0 })),
+      // reward-event director (see js/events.js): lifetime active play (the
+      // new-game grace), the appearance log, and per-feature appearance
+      // timestamps driving the rolling frequency cap. Player-level, not
+      // per-farm: the quota follows the player across their farms.
+      events: eventsDefault(),
+      // per-farm parachute surprise box: cooldown remaining, whether a crate
+      // is currently resting in the pen (it persists until tapped), the
+      // stage rolled inside it, and a granted animal still waiting for a
+      // free slot (-1 = none)
+      crate: CONFIG.FARMS.map(() => crateDefault()),
+      // per-farm latch: this farm's whole chain has been discovered, which is
+      // what switches the surprise box on. Latched once and kept, so the
+      // feature never turns itself back off (see js/crate.js `unlocked`).
+      crateUnlocked: CONFIG.FARMS.map(() => false),
       // per-farm background production: last reconcile timestamp (ms epoch),
       // uncollected coin balance, and the carried spawn-timer remainder
       idle: CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 })),
@@ -2856,6 +3074,17 @@ const SaveManager = (() => {
       revealSeeded: true,
       firstRun: true,
     };
+  }
+
+  /** Frequency-limit slot for one reward event (timestamps in ms epoch). */
+  function eventSlot() { return { shown: [], last: 0, extra: 0 }; }
+
+  function eventsDefault() {
+    return { play: 0, log: [], pigeon: eventSlot(), tornado: eventSlot() };
+  }
+
+  function crateDefault() {
+    return { next: CONFIG.CRATE.COOLDOWN, active: 0, stage: -1, pending: -1 };
   }
 
   function discoveredDefaults() {
@@ -2883,10 +3112,35 @@ const SaveManager = (() => {
         : { landed: false, aliens: 0, pending: 0 });
     }
     while (d.ufo.length < CONFIG.FARMS.length) d.ufo.push({ landed: false, aliens: 0, pending: 0 });
-    if (!d.pigeon) d.pigeon = CONFIG.FARMS.map(() => ({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 }));
-    while (d.pigeon.length < CONFIG.FARMS.length) d.pigeon.push({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 });
-    if (!d.tornado) d.tornado = CONFIG.FARMS.map(() => ({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 }));
-    while (d.tornado.length < CONFIG.FARMS.length) d.tornado.push({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 });
+    // the old `next` countdown on these slots is obsolete (js/events.js owns
+    // timing now) — an older save simply carries a field nothing reads
+    if (!d.pigeon) d.pigeon = CONFIG.FARMS.map(() => ({ remaining: 0 }));
+    while (d.pigeon.length < CONFIG.FARMS.length) d.pigeon.push({ remaining: 0 });
+    if (!d.tornado) d.tornado = CONFIG.FARMS.map(() => ({ remaining: 0 }));
+    while (d.tornado.length < CONFIG.FARMS.length) d.tornado.push({ remaining: 0 });
+    // reward-event director state, back-filled slot by slot so a save from
+    // before any part of it existed starts with a clean, complete record
+    if (!d.events) d.events = eventsDefault();
+    if (typeof d.events.play !== 'number') d.events.play = 0;
+    if (!Array.isArray(d.events.log)) d.events.log = [];
+    for (const f of ['pigeon', 'tornado']) {
+      const s = d.events[f] || (d.events[f] = eventSlot());
+      if (!Array.isArray(s.shown)) s.shown = [];
+      if (typeof s.last !== 'number') s.last = 0;
+      if (typeof s.extra !== 'number') s.extra = 0;
+    }
+    if (!d.crate) d.crate = CONFIG.FARMS.map(() => crateDefault());
+    while (d.crate.length < CONFIG.FARMS.length) d.crate.push(crateDefault());
+    if (!d.crateUnlocked) d.crateUnlocked = CONFIG.FARMS.map(() => false);
+    while (d.crateUnlocked.length < CONFIG.FARMS.length) d.crateUnlocked.push(false);
+    // a crate rolled before the pool rule existed (or on a chain that has
+    // since shrunk) is re-rolled on tap; clamp the stored index defensively
+    for (const f of CONFIG.FARMS) {
+      const c = d.crate[f.id];
+      if (c.pending !== undefined && c.pending >= STAGE_COUNT(f.species)) c.pending = -1;
+      if (c.stage !== undefined && c.stage >= STAGE_COUNT(f.species)) c.stage = -1;
+      if (c.pending === undefined) c.pending = -1;
+    }
     if (!d.idle) d.idle = CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 }));
     while (d.idle.length < CONFIG.FARMS.length) d.idle.push({ last: 0, pending: 0, carry: 0 });
     if (!d.construction) d.construction = CONFIG.FARMS.map(() => ({ land: false, house: false, fence: 0 }));
@@ -3014,6 +3268,16 @@ const Discovery = (() => {
     return !!u && (u.landed || u.aliens > 0 || (u.pending || 0) > 0);
   }
 
+  /**
+   * Has this farm's whole chain been discovered — every board stage AND the
+   * final, abducted form? This is the end of that farm's collection, and
+   * what gates the parachute surprise box (see js/crate.js).
+   */
+  function chainComplete(farmId) {
+    const sp = CONFIG.FARMS[farmId].species;
+    return CONFIG.stages(sp).every((_, i) => isDiscovered(sp, i)) && isEtDiscovered(farmId);
+  }
+
   /** Full collection snapshot: [{species, label, stages:[{name, discovered}]}] */
   function collection() {
     return CONFIG.FARMS.map(f => ({
@@ -3041,7 +3305,7 @@ const Discovery = (() => {
     return (s && s.flavor) || '';
   }
 
-  return { isDiscovered, isEtDiscovered, mark, collection, displayName, flavor };
+  return { isDiscovered, isEtDiscovered, chainComplete, mark, collection, displayName, flavor };
 })();
 </script>
 <script>
@@ -3424,6 +3688,8 @@ const Upgrades = (() => {
     else if (key === 'et') d.et = (d.et || 0) + 1;
     else d.stages[key]++;
     SaveManager.save();
+    // a purchase that empties the wallet is a poop-rain trigger (js/events.js)
+    Events.onPurchase(farmId);
     return { ok: true };
   }
 
@@ -3585,6 +3851,10 @@ const Idle = (() => {
     // unbuilt time never converts to earnings); spawning is paused until the
     // farm's first-merge tutorial is done, exactly like the live scene
     if (!d.unlocked[farmId] || !Construction.isComplete(farmId) || !d.tutorialDone[farmId]) return;
+
+    // the parachute crate's cooldown runs while the game is closed too,
+    // under this same capped window (see js/crate.js)
+    Crate.offlineTick(farmId, elapsed);
 
     // existing animals poop the whole time
     const animals = d.animals[farmId] || (d.animals[farmId] = []);
@@ -3814,6 +4084,405 @@ const VFXManager = (() => {
   }
 
   return { burst, dust, sparkle, flyCoin, coinPayout, floatText, update, draw };
+})();
+</script>
+<script>
+/**
+ * Events — need-based director for the ambient reward events.
+ *
+ * The pigeon (Poop Rain) and the tornado (Auto Merge) used to run on fixed
+ * countdowns. They don't any more: this module watches the session and
+ * releases each offer at the moment it is actually worth something.
+ *
+ *   Pigeon  — a depleted wallet. The player just spent most of their coins,
+ *             can't afford the cheapest upgrade, opened a panel where every
+ *             row is disabled, or has been stalled for a while. The offer
+ *             reads as relief, exactly when they are short.
+ *   Tornado — a crowded pen. 75%+ full with pairs waiting, spawning about to
+ *             be blocked, an animal about to hop the fence, a long manual
+ *             merging grind, or a pen that filled up while they were away.
+ *             The offer reads as a speed-up, exactly when it saves work.
+ *
+ * On top of the triggers sit frequency limits, counted independently per
+ * feature: at most MAX_PER_WINDOW appearances inside a rolling
+ * WINDOW_MINUTES (rolling, so quotas can't be stacked across a boundary),
+ * a minimum gap between two appearances, and a cooldown that grows with
+ * every dismissal until repeated dismissals suppress the feature for the
+ * rest of the session. Only appearances that are actually shown consume
+ * quota — a trigger that another rule suppresses costs nothing — and the
+ * timestamps live in the save, so closing the game never resets the count.
+ *
+ * Shared rules: never both features at once, never over an open popup, a
+ * celebration, a cinematic or a tutorial, never in the first minutes of a
+ * new game, and no pigeon while the pen is crowded enough to be a tornado
+ * case (the poop reward needs free space and attention to be worth taking).
+ *
+ * Every appearance is logged with the condition that fired and how the
+ * player answered it, so acceptance rates can be compared per condition and
+ * the weak ones dropped after launch: the last EVENTS.LOG_MAX records live
+ * in the save (Events.history) and each one is also handed to an optional
+ * window.EventAnalytics(record) hook.
+ *
+ * Every threshold, cooldown, cap and interval lives in CONFIG.EVENTS and can
+ * be overridden at runtime through window.RemoteConfig.EVENTS.
+ */
+const Events = (() => {
+  const base = () => CONFIG.EVENTS;
+  const over = () => (window.RemoteConfig || {}).EVENTS || {};
+  const C = () => Object.assign({}, base(), over());
+  /** One config section, Remote-Config overlaid (LIMITS / PIGEON / TORNADO). */
+  const sub = k => Object.assign({}, base()[k], over()[k]);
+
+  const FEATURES = ['pigeon', 'tornado'];
+  const data = () => SaveManager.data.events;
+  const slot = f => data()[f];
+
+  // ---------------- session state ----------------
+  let clock = 0;                 // seconds of active farm play this session
+  const session = {
+    dismissals: { pigeon: 0, tornado: 0 },
+    pending: null,               // one-shot trigger: {feature, cond, expires}
+    wallet: [],                  // {t, coins} samples over the spend window
+    stallT: 0,                   // seconds unable to afford any upgrade
+    merges: [],                  // clock stamps of manual merges
+    offlineT: 0,                 // seconds the "came back to a full pen" case stays live
+  };
+
+  const present = f => f === 'pigeon' ? Pigeon.present : Tornado.present;
+
+  // ---------------- bookkeeping ----------------
+  /**
+   * One frame of signal tracking. Called from the main loop while the farm
+   * is being played; `paused` covers the tutorial and an unbuilt farm, where
+   * no signal means anything yet.
+   */
+  function update(dt, paused) {
+    if (paused || !C().ENABLED) return;
+    clock += dt;
+    data().play += dt;
+    trackWallet(dt);
+    if (session.offlineT > 0) session.offlineT -= dt;
+    const p = session.pending;
+    if (p && clock >= p.expires) session.pending = null;
+  }
+
+  /** Cheapest unlocked, non-maxed upgrade on this farm (Infinity if none). */
+  function cheapestCost(farmId) {
+    let min = Infinity;
+    for (const k of Upgrades.keys(farmId)) {
+      if (Upgrades.unlocked(farmId, k) && !Upgrades.isMaxed(farmId, k)) {
+        min = Math.min(min, Upgrades.cost(farmId, k));
+      }
+    }
+    return min;
+  }
+
+  /**
+   * Wallet history (sampled, not per frame) plus the stall timer: how long
+   * the player has been unable to afford a single upgrade on this farm.
+   */
+  function trackWallet(dt) {
+    const P = sub('PIGEON'), farmId = SaveManager.data.currentFarm;
+    const w = session.wallet;
+    if (!w.length || clock - w[w.length - 1].t >= P.SAMPLE_INTERVAL) {
+      w.push({ t: clock, coins: SaveManager.data.coins });
+    }
+    while (w.length && w[0].t < clock - P.SPEND_WINDOW) w.shift();
+    const broke = cheapestCost(farmId) < Infinity && !Upgrades.anyAffordable(farmId);
+    session.stallT = broke ? session.stallT + dt : 0;
+  }
+
+  /** Highest balance seen inside the spend window. */
+  function walletPeak() {
+    let peak = 0;
+    for (const s of session.wallet) peak = Math.max(peak, s.coins);
+    return peak;
+  }
+
+  function recentMerges(window) {
+    while (session.merges.length && session.merges[0] < clock - window) session.merges.shift();
+    return session.merges.length;
+  }
+
+  // ---------------- pen state (tornado signals) ----------------
+  /**
+   * Live snapshot of the pen: how full it is and how many merges are waiting.
+   * Mutant pairs only count where the UFO is unlocked (they can't merge
+   * otherwise, matching the funnel's own rule). Null while there is no
+   * playable pen (map, tutorial, farm still under construction).
+   */
+  function penStats() {
+    const scene = Game.farm;
+    if (!scene || scene.tutorial || Game.scene !== 'farm') return null;
+    const farmId = scene.farmId;
+    const cap = Construction.capacity(farmId);
+    if (cap <= 0) return null;
+    const top = CONFIG.topStage(CONFIG.FARMS[farmId].species);
+    const landed = SaveManager.data.ufo[farmId].landed;
+    const counts = {};
+    let count = 0;
+    for (const a of scene.animals) {
+      if (a.state === 'merging' || a.escaping) continue;
+      count++;
+      if (a.stage === top && !landed) continue;
+      const k = a.species + ':' + a.stage;
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    let pairs = 0;
+    for (const k in counts) pairs += Math.floor(counts[k] / 2);
+    return { scene, farmId, count, cap, fill: count / cap, pairs };
+  }
+
+  /** Is an animal about to hop the fence? (construction farms only) */
+  function jumpRisk(s, T) {
+    const J = Construction.jumpCfg(s.farmId);
+    if (!J) return false;
+    const at = s.scene.jumpAt || J.PRESSURE_TIME;
+    if (s.scene.penPressure / at < T.JUMP_WARN) return false;
+    return s.scene.animals.some(a => a.stage >= J.MIN_STAGE && !a.escaping && !a.dead);
+  }
+
+  // ---------------- trigger conditions ----------------
+  /**
+   * Which wallet condition (if any) is true right now, strongest first. A
+   * farm with nothing left to buy has no shortage to relieve, so it never
+   * triggers.
+   */
+  function pigeonCondition() {
+    const P = sub('PIGEON'), farmId = SaveManager.data.currentFarm;
+    const cheapest = cheapestCost(farmId);
+    if (cheapest === Infinity) return null;
+    const coins = SaveManager.data.coins;
+    if (coins >= cheapest) return null;              // they can still buy something
+    if (session.stallT >= P.STALL_TIME) return 'stalled';
+    const peak = walletPeak();
+    if (peak >= cheapest * P.MIN_PEAK_COSTS && coins <= peak * (1 - P.SPEND_FRACTION)) {
+      return 'spend_burst';
+    }
+    if (session.stallT >= P.BROKE_TIME) return 'below_cheapest';
+    return null;
+  }
+
+  /** Which pen condition (if any) is true right now, most specific first. */
+  function tornadoCondition() {
+    const T = sub('TORNADO');
+    const s = penStats();
+    if (!s || s.pairs < 1) return null;
+    if (session.offlineT > 0 && s.fill >= T.RETURN_FILL_PCT) return 'offline_return';
+    if (jumpRisk(s, T)) return 'fence_jump_risk';
+    if (s.count >= s.cap - T.NEAR_CAP_SLOTS) return 'spawn_blocked';
+    if (s.pairs >= T.MIN_PAIRS && s.fill >= T.FILL_PCT) return 'pen_crowded';
+    if (s.pairs >= T.MIN_PAIRS && recentMerges(T.MERGE_WINDOW) >= T.MERGE_GRIND) return 'manual_grind';
+    return null;
+  }
+
+  /**
+   * Pen too busy for a poop rain: the reward needs free space and the
+   * player's attention, and a crowded pen is the tornado's moment, not the
+   * pigeon's.
+   */
+  function penBusy() {
+    const s = penStats();
+    if (!s) return false;
+    return s.fill >= sub('TORNADO').FILL_PCT || tornadoCondition() !== null;
+  }
+
+  // ---------------- frequency limits ----------------
+  /** Appearance stamps inside the rolling window (clock jumps are dropped). */
+  function windowStamps(f) {
+    const L = sub('LIMITS'), t = Date.now();
+    const s = slot(f);
+    s.shown = s.shown.filter(ts => ts <= t && t - ts < L.WINDOW_MINUTES * 60000);
+    return s.shown;
+  }
+
+  /** Seconds that must pass between two appearances of this feature. */
+  function requiredGap(f) {
+    const L = sub('LIMITS'), s = slot(f);
+    return L.MIN_INTERVAL_MINUTES * 60
+         + session.dismissals[f] * L.DISMISS_COOLDOWN_MINUTES * 60
+         + (s.extra || 0);
+  }
+
+  function quotaOk(f) {
+    const L = sub('LIMITS'), s = slot(f), t = Date.now();
+    if (windowStamps(f).length >= L.MAX_PER_WINDOW) return false;
+    if (s.last && t >= s.last && t - s.last < requiredGap(f) * 1000) return false;
+    return true;
+  }
+
+  // ---------------- shared gating ----------------
+  /**
+   * Everything that has to be true before ANY appearance: past the new-game
+   * grace, on a farm, nothing else on screen that the offer could interrupt
+   * or collide with, the feature not suppressed by dismissals, and inside
+   * its own frequency budget.
+   */
+  function canShow(f) {
+    const g = C();
+    if (!g.ENABLED) return false;
+    if (data().play < g.NEW_GAME_GRACE) return false;
+    if (Game.scene !== 'farm' || Game.celebrating || Game.upgradeTutorialActive) return false;
+    if (UI.popup || UFO.cinematicActive || Tornado.active) return false;
+    // never two offers at once (nor a second one over a rain still falling)
+    if (present('pigeon') || present('tornado')) return false;
+    if (session.dismissals[f] >= sub('LIMITS').DISMISS_SUPPRESS) return false;
+    if (f === 'pigeon' && penBusy()) return false;
+    return quotaOk(f);
+  }
+
+  /**
+   * The feature asks whether it may appear. Returns the condition that fired
+   * (to be handed straight back to shown()), or null. A queued one-shot
+   * condition wins over the continuous ones and survives CONDITION_TTL
+   * seconds, so a trigger that lands while a popup is open still fires the
+   * moment the screen is free.
+   */
+  function request(f) {
+    if (!canShow(f)) return null;
+    const p = session.pending;
+    if (p && p.feature === f) { session.pending = null; return p.cond; }
+    return f === 'pigeon' ? pigeonCondition() : tornadoCondition();
+  }
+
+  /** Queue a one-shot condition raised by a game action (purchase, panel). */
+  function queue(f, cond) {
+    if (!C().ENABLED || present(f)) return;
+    session.pending = { feature: f, cond, expires: clock + C().CONDITION_TTL };
+  }
+
+  // ---------------- one-shot triggers ----------------
+  /**
+   * An upgrade was bought. A purchase that leaves the wallet unable to reach
+   * the next cheapest upgrade is the classic "I just spent everything"
+   * moment the poop rain answers.
+   */
+  function onPurchase(farmId) {
+    const P = sub('PIGEON');
+    const cheapest = cheapestCost(farmId);
+    if (cheapest === Infinity) return;
+    if (SaveManager.data.coins < cheapest * P.EMPTY_FRACTION) queue('pigeon', 'purchase_emptied');
+  }
+
+  /**
+   * An upgrade panel was opened. Every row disabled — at least one thing
+   * left to buy, none of it affordable — is the player looking straight at
+   * their shortage.
+   */
+  function onUpgradesOpened(farmId, group) {
+    const keys = Upgrades.keys(farmId, group)
+      .filter(k => Upgrades.unlocked(farmId, k) && !Upgrades.isMaxed(farmId, k));
+    if (!keys.length) return;
+    if (keys.some(k => Upgrades.affordable(farmId, k))) return;
+    queue('pigeon', 'upgrades_all_disabled');
+  }
+
+  /** A manual drag-merge (the tornado's grind signal; storm merges don't count). */
+  function onManualMerge() { session.merges.push(clock); }
+
+  /**
+   * Boot-time offline report: a long absence makes a pen that filled up
+   * while away a tornado case for the next few minutes of play.
+   */
+  function onOfflineReturn(awaySec) {
+    const T = sub('TORNADO');
+    if (awaySec >= T.RETURN_AWAY) session.offlineT = T.RETURN_WINDOW;
+  }
+
+  // ---------------- appearance log ----------------
+  function emit(rec) {
+    if (C().LOG) console.log('[event]', rec.feature, rec.condition, rec.outcome);
+    const hook = window.EventAnalytics;
+    if (typeof hook === 'function') { try { hook(Object.assign({}, rec)); } catch (e) {} }
+  }
+
+  /** The most recent record for this feature (the one still being answered). */
+  function lastRecord(f) {
+    const log = data().log;
+    for (let i = log.length - 1; i >= 0; i--) if (log[i].feature === f) return log[i];
+    return null;
+  }
+
+  function outcome(f, result) {
+    const rec = lastRecord(f);
+    if (!rec || rec.outcome !== 'shown') return;
+    rec.outcome = result;
+    SaveManager.save();
+    emit(rec);
+  }
+
+  /**
+   * The feature is now on screen: consume quota, stamp the appearance and
+   * log which condition released it.
+   */
+  function shown(f, cond) {
+    const s = slot(f), t = Date.now();
+    s.shown.push(t);
+    s.last = t;
+    s.extra = 0;
+    windowStamps(f);
+    const rec = { feature: f, condition: cond, t, outcome: 'shown' };
+    const log = data().log;
+    log.push(rec);
+    while (log.length > C().LOG_MAX) log.shift();
+    SaveManager.save();
+    emit(rec);
+  }
+
+  /** The offer was taken (the reward ad completed). */
+  function accepted(f) {
+    slot(f).extra = f === 'pigeon'
+      ? (CONFIG.PIGEON.REWARD_COOLDOWN || 0)
+      : (CONFIG.TORNADO.REWARD_COOLDOWN || 0);
+    session.dismissals[f] = 0;   // a claim clears the dismissal streak
+    outcome(f, 'accepted');
+  }
+
+  /**
+   * The offer was ignored (it timed out) or actively dismissed (the popup
+   * was closed without watching). Each dismissal extends the cooldown, and
+   * DISMISS_SUPPRESS of them shelve the feature for the rest of the session.
+   * Counted once per appearance: closing the popup and then letting the
+   * offer time out is one dismissal, not two.
+   */
+  function dismissed(f) {
+    const rec = lastRecord(f);
+    if (!rec || rec.outcome !== 'shown') return;
+    session.dismissals[f]++;
+    outcome(f, 'dismissed');
+  }
+
+  /** Acceptance rate per condition over the saved log — for tuning. */
+  function stats() {
+    const out = {};
+    for (const r of data().log) {
+      const k = r.feature + ':' + r.condition;
+      const e = out[k] || (out[k] = { shown: 0, accepted: 0, dismissed: 0 });
+      e.shown++;
+      if (r.outcome === 'accepted') e.accepted++;
+      else if (r.outcome === 'dismissed') e.dismissed++;
+    }
+    return out;
+  }
+
+  /** Full reset (save wipe): drop every session signal. */
+  function reset() {
+    clock = 0;
+    session.pending = null;
+    session.wallet = [];
+    session.merges = [];
+    session.stallT = 0;
+    session.offlineT = 0;
+    for (const f of FEATURES) session.dismissals[f] = 0;
+  }
+
+  return {
+    update, request, shown, accepted, dismissed, reset, stats,
+    onPurchase, onUpgradesOpened, onManualMerge, onOfflineReturn,
+    // introspection (debug / tuning)
+    penStats, pigeonCondition, tornadoCondition,
+    get history() { return data().log; },
+  };
 })();
 </script>
 <script>
@@ -4080,10 +4749,13 @@ const UFO = (() => {
 /**
  * PigeonManager — reward-ad event layer (Pigeon & Poop Rain).
  *
- * Every SPAWN_INTERVAL seconds a pigeon flies across the screen and lands
- * on the back fence of the current farm, where it perches for STAY_TIME
- * seconds playing idle animations (blinking, looking around, the odd wing
- * flap). Tapping it opens the reward-ad popup; completing the ad removes
+ * A pigeon flies across the screen and lands on the back fence of the
+ * current farm, where it perches for STAY_TIME seconds playing idle
+ * animations (blinking, looking around, the odd wing flap). It visits when
+ * the player is short on cash and stalled — the director in js/events.js
+ * owns that decision and the frequency limits behind it, so the offer lands
+ * as relief rather than on a timer.
+ * Tapping it opens the reward-ad popup; completing the ad removes
  * the pigeon and triggers a Poop Rain: poops (the same asset the animals
  * produce) fall over the pen and each one auto-collects into coins. The
  * whole rain is worth REWARD_MINUTES of the farm's current passive income
@@ -4091,9 +4763,8 @@ const UFO = (() => {
  * Ignoring the pigeon for STAY_TIME loses the opportunity until the next
  * visit.
  *
- * Per-farm state (spawn countdown + remaining perch time) lives in
- * SaveManager.data.pigeon, so every farm runs its own independent event
- * and a pigeon left perched on one farm is restored when returning to it.
+ * Per-farm state (remaining perch time) lives in SaveManager.data.pigeon,
+ * so a pigeon left perched on one farm is restored when returning to it.
  * Only one pigeon can exist at a time on a farm, and it never appears
  * during the merge tutorial, the upgrade tutorial, celebrations or the
  * UFO cinematic (Game only ticks this manager during normal gameplay).
@@ -4143,7 +4814,7 @@ const Pigeon = (() => {
     return Math.max(cfg.MIN_PER_POOP, Math.round(rate * cfg.REWARD_MINUTES * 60 / cfg.POOP_COUNT));
   }
 
-  function spawn(restore) {
+  function spawn(restore, cond) {
     const p = perchSpot();
     const dir = Math.random() < 0.5 ? 1 : -1;   // 1 = enters from the left
     bird = {
@@ -4161,6 +4832,7 @@ const Pigeon = (() => {
       bird.x = bird.fromX; bird.y = bird.fromY;
       data().remaining = C().STAY_TIME;
       SaveManager.save();
+      Events.shown('pigeon', cond);   // consumes quota, logs the trigger
       AudioManager.play('flap');
     }
   }
@@ -4175,10 +4847,11 @@ const Pigeon = (() => {
     // restore a pigeon that was left perched on this farm
     if (!bird && enabled && d.remaining > 0 && !tutorialActive) spawn(true);
 
-    // spawn countdown: one pigeon at a time, never during the tutorial
+    // a new visit is entirely the director's call: it fires the moment the
+    // player is short on money and stalled, within the frequency limits
     if (!bird && enabled && d.remaining <= 0 && !tutorialActive) {
-      d.next -= dt;
-      if (d.next <= 0) spawn(false);
+      const cond = Events.request('pigeon');
+      if (cond) spawn(false, cond);
     }
 
     if (bird) updateBird(dt);
@@ -4206,10 +4879,11 @@ const Pigeon = (() => {
       if (!frozen) {
         d.remaining -= dt;
         if (d.remaining <= 0) {
-          // ignored: the opportunity is lost until the next visit
+          // ignored: the opportunity is lost, and the miss extends the
+          // cooldown before the next one (see Events.dismissed)
           d.remaining = 0;
-          d.next = C().SPAWN_INTERVAL;
           SaveManager.save();
+          Events.dismissed('pigeon');
           b.state = 'leave'; b.t = 0;
           b.fromX = b.x; b.fromY = b.y;
           b.dir = b.x < CONFIG.VIEW_W / 2 ? -1 : 1;
@@ -4297,8 +4971,8 @@ const Pigeon = (() => {
   function adCompleted() {
     const d = data();
     d.remaining = 0;
-    d.next = C().SPAWN_INTERVAL + C().REWARD_COOLDOWN;
     SaveManager.save();
+    Events.accepted('pigeon');   // applies REWARD_COOLDOWN on top of the gap
     if (bird) {
       VFXManager.burst(bird.x, bird.y - 12, ['#ffe98a', '#fff6d0', '#c6cfd8', '#ffffff'], 14, 100);
       VFXManager.sparkle(bird.x, bird.y - 16, 8, 14);
@@ -4380,17 +5054,22 @@ const Pigeon = (() => {
     bird = null; poops = []; rain = null; shakeT = 0;
   }
 
-  return { update, draw, tap, adCompleted, shakeOffset, info, reset };
+  return {
+    update, draw, tap, adCompleted, shakeOffset, info, reset,
+    /** Anything of this event on screen — a bird, or a rain still falling. */
+    get present() { return !!bird || !!rain || poops.length > 0; },
+  };
 })();
 </script>
 <script>
 /**
  * TornadoManager — reward-ad event layer (Tornado Auto Merge).
  *
- * At most every SPAWN_INTERVAL seconds — and only once the pen is crowded
- * with several merges pending (see offerWorthwhile) — a tornado icon
- * appears on the left side of the screen and stays available for
- * STAY_TIME seconds. Tapping it opens
+ * Once the pen is crowded enough that the sweep saves real work — a backlog
+ * of matchable animals, spawning about to be blocked, an animal about to hop
+ * the fence — a tornado icon appears on the left side of the screen and
+ * stays available for STAY_TIME seconds. The director in js/events.js owns
+ * that decision and the frequency limits behind it. Tapping it opens
  * the reward-ad popup; completing the ad sends a large pixel tornado
  * sweeping across the farm. The tornado is pure quality-of-life: it
  * performs exactly the merges the player could make by hand, only much
@@ -4406,8 +5085,8 @@ const Pigeon = (() => {
  * The evolved survivors are tossed back onto the farm and the tornado
  * leaves. Ignoring the icon loses the offer until the next cycle.
  *
- * Per-farm state (offer countdown + remaining availability) lives in
- * SaveManager.data.tornado, so every farm runs its own independent event.
+ * Per-farm state (remaining availability of an offer already on screen)
+ * lives in SaveManager.data.tornado.
  * Only one offer can be active at a time on a farm, and it never appears
  * during the merge tutorial (Game only ticks this manager during normal
  * gameplay). While the tornado is running all farm input is blocked and
@@ -4429,32 +5108,6 @@ const Tornado = (() => {
 
   const smooth = t => { t = U.clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 
-  /**
-   * Reward-ad timing: only offer the tornado at a moment where it saves
-   * real manual work — a crowded pen with several merges waiting. The
-   * countdown may have long elapsed; the icon then appears the moment the
-   * farm actually fills up ("here's a boost if you want it", not a nag).
-   * Mutant pairs only count where the UFO is unlocked (they can't merge
-   * otherwise, matching the funnel's own rule).
-   */
-  function offerWorthwhile() {
-    const scene = Game.farm;
-    if (!scene || scene.tutorial) return false;
-    if (scene.animals.length < C().MIN_ANIMALS) return false;
-    const top = CONFIG.topStage(CONFIG.FARMS[SaveManager.data.currentFarm].species);
-    const landed = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
-    const counts = {};
-    for (const a of scene.animals) {
-      if (a.state === 'merging') continue;
-      if (a.stage === top && !landed) continue;
-      const k = a.species + ':' + a.stage;
-      counts[k] = (counts[k] || 0) + 1;
-    }
-    let pairs = 0;
-    for (const k in counts) pairs += Math.floor(counts[k] / 2);
-    return pairs >= C().MIN_PAIRS;
-  }
-
   // ---------------- availability cycle ----------------
   function update(dt, tutorialActive) {
     clockT += dt;
@@ -4464,14 +5117,16 @@ const Tornado = (() => {
     // restore an offer that was left available on this farm
     if (!icon && d.remaining > 0 && !tutorialActive) icon = { t: 0 };
 
-    // offer countdown: one offer at a time, never during the tutorial,
-    // and only released once the pen is crowded enough to be worth it
+    // a new offer is entirely the director's call: it is released the moment
+    // the pen backs up enough for the sweep to be worth it, within the
+    // frequency limits (never during the tutorial, one offer at a time)
     if (!icon && d.remaining <= 0 && !tutorialActive) {
-      d.next -= dt;
-      if (d.next <= 0 && offerWorthwhile()) {
+      const cond = Events.request('tornado');
+      if (cond) {
         icon = { t: 0 };
         d.remaining = C().STAY_TIME;
         SaveManager.save();
+        Events.shown('tornado', cond);   // consumes quota, logs the trigger
         VFXManager.sparkle(ICON.x, ICON.y - 20, 8, 16);
         AudioManager.play('pop');
       }
@@ -4486,10 +5141,11 @@ const Tornado = (() => {
         icon.t += dt;
         d.remaining -= dt;
         if (d.remaining <= 0) {
-          // ignored: the opportunity is lost until the next cycle
+          // ignored: the opportunity is lost, and the miss extends the
+          // cooldown before the next one (see Events.dismissed)
           d.remaining = 0;
-          d.next = C().SPAWN_INTERVAL;
           SaveManager.save();
+          Events.dismissed('tornado');
           icon = null;
         }
       }
@@ -4515,8 +5171,8 @@ const Tornado = (() => {
   function adCompleted() {
     const d = data();
     d.remaining = 0;
-    d.next = C().SPAWN_INTERVAL + C().REWARD_COOLDOWN;
     SaveManager.save();
+    Events.accepted('tornado');   // applies REWARD_COOLDOWN on top of the gap
     if (icon) {
       VFXManager.burst(ICON.x, ICON.y - 16, ['#c8cdd4', '#eef2f6', '#ffe98a'], 12, 90);
       icon = null;
@@ -4859,7 +5515,666 @@ const Tornado = (() => {
   return {
     update, updateRun, draw, tap, adCompleted, info, heldSnapshot, reset,
     get active() { return !!run; },
+    /** Anything of this event on screen — the offer icon or the storm itself. */
+    get present() { return !!icon || !!run; },
   };
+})();
+</script>
+<script>
+/**
+ * Crate — the parachute surprise box (Farm 1 for now, see CONFIG.CRATE).
+ *
+ * Every COOLDOWN seconds a wooden crate drifts down under a parachute and
+ * lands on a free slot inside the pen. It rests there with a gentle idle
+ * animation and NEVER expires: the offer is only consumed when the player
+ * taps it, which opens the reveal popup (UI 'crateReveal'). From there they
+ * either COLLECT the animal inside, or watch a rewarded ad to get the next
+ * evolution up instead. Dismissing the popup leaves the crate on the ground,
+ * still tappable — the reward can't be lost by accident.
+ *
+ * What's inside is rolled once, when the crate spawns, and persisted, so the
+ * reveal shows the same animal across a reopen or a relaunch. The pool comes
+ * from the farm's own chain via CONFIG.cratePool (a rule, not a list: the
+ * first entry and the last two are excluded), filtered down to stages the
+ * player has already discovered so the box never spoils an unseen animal.
+ * Because the top two chain entries are excluded, the ad upgrade — always
+ * roll + 1 — can never produce the chain's final form.
+ *
+ * Per-farm state lives in SaveManager.data.crate: the cooldown, whether a
+ * crate is currently resting in the pen, the stage rolled inside it, and a
+ * granted animal still waiting for a free slot. The cooldown only runs while
+ * there is nothing waiting for the player (no crate on the ground, no
+ * pending animal), so an ignored crate never queues up a second one; it
+ * keeps running while the game is closed, through Idle.reconcile, under the
+ * same offline cap as every other system.
+ *
+ * Balancing values live in CONFIG.CRATE and can be overridden at runtime
+ * through window.RemoteConfig.CRATE (Remote Config hook).
+ */
+const Crate = (() => {
+  const C = () => Object.assign({}, CONFIG.CRATE, (window.RemoteConfig || {}).CRATE);
+  const data = (id = SaveManager.data.currentFarm) => SaveManager.data.crate[id];
+  const speciesOf = id => CONFIG.FARMS[id].species;
+
+  /** Does this farm run the surprise box at all? (per-farm opt-in) */
+  function enabledFor(farmId) {
+    const cfg = C();
+    return !!cfg.ENABLED && !!(cfg.ENABLED_FARMS || [])[farmId];
+  }
+
+  /**
+   * Is the feature live on this farm yet? It stays completely dormant — no
+   * crates, no cooldown, nothing shown anywhere — until the player has
+   * discovered that farm's ENTIRE chain, the final abducted form included.
+   * The box is an end-of-collection reward, so before that point it does not
+   * exist as far as the rest of the game is concerned.
+   *
+   * Completion is latched into the save the first time it is seen, so the
+   * feature can never switch itself back off. The latch frame deliberately
+   * returns false and (re)starts the cooldown from that moment: the first
+   * crate arrives one full cooldown after the collection is finished, and
+   * offline time from before the unlock can't be spent on it.
+   */
+  function unlocked(farmId) {
+    if (!enabledFor(farmId)) return false;
+    const d = SaveManager.data;
+    if (d.crateUnlocked[farmId]) return true;
+    if (!Discovery.chainComplete(farmId)) return false;
+    d.crateUnlocked[farmId] = true;
+    data(farmId).next = C().COOLDOWN;
+    SaveManager.save();
+    return false;
+  }
+
+  /** Pure read of that latch, for draw paths that must not mutate state. */
+  function isLive(farmId) {
+    return enabledFor(farmId) && !!SaveManager.data.crateUnlocked[farmId];
+  }
+
+  let box = null;        // {state:'drop'|'land'|'idle', t, x, y, fromY, groundY, sway, chute, sparkleT}
+  let opening = null;    // in-scene opening sequence, see startOpening()
+  let retryT = 0;        // seconds until the next landing-spot attempt while the pen is full
+  let claiming = false;  // re-entrancy guard around a grant
+
+  // ---------------- contents ----------------
+  /**
+   * The stages this farm's box may contain: simply the chain's eligible pool
+   * (CONFIG.cratePool — the chain minus its first entry and its last two).
+   * No discovery filter is needed on top of that: the feature only runs once
+   * the whole chain has been discovered (see `unlocked`), so every entry in
+   * the pool is by definition an animal the player has already seen.
+   */
+  function pool(farmId) {
+    return CONFIG.cratePool(speciesOf(farmId));
+  }
+
+  /**
+   * Weighted pick from that pool. WEIGHTS maps onto the chain's eligible
+   * entries lowest-tier-first (so weights stay meaningful whichever stages
+   * are currently discovered); a pool longer than the list reuses its last
+   * weight. Returns -1 when nothing is eligible yet.
+   */
+  function roll(farmId) {
+    const avail = pool(farmId);
+    if (!avail.length) return -1;
+    const w = C().WEIGHTS || [];
+    const base = CONFIG.cratePool(speciesOf(farmId));
+    const weightOf = stage => {
+      const i = base.indexOf(stage);
+      return (w.length ? (w[i] !== undefined ? w[i] : w[w.length - 1]) : 1) || 0;
+    };
+    const total = avail.reduce((a, s) => a + weightOf(s), 0);
+    if (total <= 0) return U.pick(avail);
+    let r = Math.random() * total;
+    for (const s of avail) {
+      r -= weightOf(s);
+      if (r <= 0) return s;
+    }
+    return avail[avail.length - 1];
+  }
+
+  /** The stage a rewarded ad upgrades a roll to — never past the top board stage. */
+  function upgradeOf(farmId, stage) {
+    return Math.min(stage + 1, CONFIG.topStage(speciesOf(farmId)));
+  }
+
+  // ---------------- spawning ----------------
+  /**
+   * A landing spot inside the pen that is clear of every animal — a crate
+   * must never come down on top of one, or outside the fence. Returns null
+   * when the board is too crowded to find one (the drop is then delayed).
+   */
+  function landingSpot(scene) {
+    const b = scene.bounds, clear = C().CLEAR_RADIUS;
+    for (let i = 0; i < 24; i++) {
+      const p = {
+        x: U.rand(b.x + 12, b.x + b.w - 12),
+        y: U.rand(b.y + 14, b.y + b.h - 6),
+      };
+      if (!scene.animals.some(a => U.dist(a.x, a.y, p.x, p.y) < clear)) return p;
+    }
+    return null;
+  }
+
+  /** Is there physically room for the crate's animal once it is opened? */
+  function penHasRoom(farmId) {
+    const scene = Game.farm;
+    if (!scene || scene.farmId !== farmId) return false;
+    return scene.animals.length < Construction.capacity(farmId);
+  }
+
+  /**
+   * Try to start a drop. Fails (and is retried on RETRY_INTERVAL) while the
+   * pen is full or too crowded for a clear landing slot — the cooldown has
+   * already elapsed, so the crate arrives the moment a slot opens up.
+   */
+  function trySpawn(farmId) {
+    const scene = Game.farm;
+    if (!scene || scene.farmId !== farmId) return false;
+    if (!penHasRoom(farmId)) return false;
+    const stage = roll(farmId);
+    if (stage < 0) return false;          // nothing discovered in the pool yet
+    const p = landingSpot(scene);
+    if (!p) return false;
+    const d = data(farmId);
+    d.active = 1;
+    d.stage = stage;
+    SaveManager.save();
+    open(p, false);
+    return true;
+  }
+
+  /** Build the in-scene crate. `restore` skips the descent (reload / re-entry). */
+  function open(p, restore) {
+    box = {
+      state: restore ? 'idle' : 'drop', t: 0,
+      x: p.x, y: restore ? p.y : -24,
+      groundY: p.y,
+      sway: U.rand(0, Math.PI * 2),
+      swayDir: Math.random() < 0.5 ? 1 : -1,
+      chute: restore ? 0 : 1,
+      sparkleT: 1.0,
+    };
+    if (!restore) AudioManager.play('flap');
+  }
+
+  // ---------------- update ----------------
+  function update(dt, paused) {
+    const id = SaveManager.data.currentFarm;
+    if (!unlocked(id)) return;
+    const d = data(id);
+
+    // the opening sequence owns its reward until it lands
+    if (opening) { updateOpening(dt); return; }
+
+    // a granted animal that had nowhere to go takes the first free slot
+    if (d.pending >= 0) placePending(id);
+
+    if (!box) {
+      if (paused) return;
+      retryT -= dt;
+      if (d.active) {
+        // a crate was left resting here: put it back on a clear slot
+        if (retryT > 0) return;
+        const scene = Game.farm;
+        const p = scene ? landingSpot(scene) : null;
+        if (p) open(p, true);
+        else retryT = C().RETRY_INTERVAL;
+        return;
+      }
+      // the cooldown only runs while nothing is already waiting for the
+      // player — an ignored crate must never accumulate a queue
+      if (d.pending >= 0) return;
+      d.next -= dt;
+      if (d.next > 0 || retryT > 0) return;
+      if (!trySpawn(id)) retryT = C().RETRY_INTERVAL;
+      return;
+    }
+    // the saved offer went away underneath the animation (a reset, a farm
+    // rebuilt beneath us): drop the orphan rather than leave a crate on the
+    // ground that no longer has anything to give
+    if (!d.active || d.stage < 0) { box = null; return; }
+    updateBox(dt);
+  }
+
+  function updateBox(dt) {
+    const cfg = C(), b = box;
+    b.t += dt;
+    if (b.state === 'drop') {
+      const t = U.clamp(b.t / cfg.DROP_TIME, 0, 1);
+      b.y = U.lerp(-24, b.groundY, t);
+      // the crate swings under the canopy the whole way down
+      b.sway += dt * 1.6;
+      if (t >= 1) {
+        b.state = 'land'; b.t = 0;
+        b.y = b.groundY;
+        VFXManager.dust(b.x, b.y, 8);
+        AudioManager.play('pop');
+      }
+    } else if (b.state === 'land') {
+      b.chute = Math.max(0, 1 - b.t / cfg.CHUTE_FADE);
+      if (b.t >= cfg.BOUNCE_TIME && b.chute <= 0) { b.state = 'idle'; b.t = 0; }
+    } else {
+      // resting: gentle bob + the occasional attention sparkle
+      b.sparkleT -= dt;
+      if (b.sparkleT <= 0) {
+        b.sparkleT = cfg.SPARKLE_RATE;
+        VFXManager.sparkle(b.x, b.y - 14, 5, 12);
+      }
+    }
+  }
+
+  /** Horizontal drift under the canopy (drop phase only). */
+  function swayX() {
+    return box.state === 'drop'
+      ? Math.sin(box.sway) * C().DROP_SWAY * box.swayDir * (1 - box.t / C().DROP_TIME)
+      : 0;
+  }
+
+  /**
+   * Background/offline cooldown, driven by Idle.reconcile with its already
+   * capped elapsed window (CONFIG.IDLE.OFFLINE_CAP_HOURS) — so time away
+   * counts toward the next crate exactly like every other system, and never
+   * more than the cap. A crate already on the ground or a reward already
+   * waiting for a slot freezes the timer, so nothing queues up.
+   */
+  function offlineTick(farmId, elapsed) {
+    if (!unlocked(farmId)) return;
+    const d = data(farmId);
+    if (d.active || d.pending >= 0) return;
+    d.next = Math.max(0, d.next - elapsed);
+  }
+
+  // ---------------- interaction ----------------
+  /** Returns true if the tap hit the resting crate (opens the reveal popup). */
+  function tap(x, y) {
+    if (!box || box.state === 'drop') return false;
+    const d = data();
+    if (d.stage < 0) return false;
+    if (U.dist(x, y, box.x, box.y - 12) > C().TAP_RADIUS) return false;
+    AudioManager.play('click');
+    const id = SaveManager.data.currentFarm;
+    // only the animal that was found is passed in — what EVOLVE turns it
+    // into is deliberately not available to the popup, so it cannot be
+    // previewed there; the upgrade is resolved by claim() after the ad
+    UI.openPopup({
+      type: 'crateReveal', farmId: id, stage: d.stage,
+      fxT: 0, sparks: [], adLoading: false,
+      origin: { x: box.x, y: box.y - 12 },
+    });
+    return true;
+  }
+
+  /**
+   * Reveal-popup numbers. Deliberately does NOT expose the upgraded stage:
+   * what the ad pays out is only revealed once it has been watched.
+   */
+  function info() {
+    const id = SaveManager.data.currentFarm;
+    return { species: speciesOf(id), stage: data(id).stage, adDur: C().AD_DURATION };
+  }
+
+  // ---------------- claiming ----------------
+  /**
+   * Take the reward. `upgraded` grants the next evolution (rewarded ad),
+   * otherwise the animal as rolled.
+   *
+   * Idempotent by construction: the crate's `active` flag is cleared before
+   * anything is granted, so a second call — a double tap, a stray ad
+   * callback firing after a manual collect — is a no-op and one ad view can
+   * never be claimed twice.
+   */
+  function claim(upgraded) {
+    const id = SaveManager.data.currentFarm;
+    const d = data(id);
+    if (claiming || !d.active || d.stage < 0) return;
+    claiming = true;
+    try {
+      const stage = upgraded ? upgradeOf(id, d.stage) : d.stage;
+      // Consume the offer first: from here the reward is owed exactly once.
+      // It is parked in `pending` — the same persisted slot a reward waiting
+      // for space uses — for the whole opening sequence, so a crash or a
+      // kill mid-animation can never swallow it; finishOpening clears it
+      // once the animal is actually standing in the pen.
+      d.active = 0;
+      d.stage = -1;
+      d.pending = stage;
+      // the cooldown starts on COLLECTION, not on the spawn
+      d.next = C().COOLDOWN;
+      SaveManager.save();
+      const at = box ? { x: box.x, y: box.y } : null;
+      box = null;
+      retryT = 0;
+      startOpening(id, stage, upgraded, at);
+    } finally {
+      claiming = false;
+    }
+  }
+
+  // ---------------- in-scene opening sequence ----------------
+  /**
+   * The payoff, played in the pen rather than in a popup: the crate bursts
+   * open where it stood and the animal hops out of it, landing in the slot
+   * that was reserved for it before any of this started.
+   *
+   * Non-blocking on purpose — the farm keeps updating and the player keeps
+   * dragging and merging while it runs. The animal only becomes a real
+   * Animal at the end (finishOpening); until then it is a drawing, so it
+   * can't be picked up half-emerged.
+   */
+  function startOpening(farmId, stage, evolved, at) {
+    const scene = Game.farm;
+    const p = at || (scene && scene.farmId === farmId ? landingSpot(scene) : null);
+    if (!scene || scene.farmId !== farmId || !p) {
+      // nowhere to play it (left the farm mid-ad): grant it straight away
+      finishOpening(farmId, stage, p);
+      return;
+    }
+    // hold the slot for the whole animation: spawns can't take it now
+    scene.reserveSlot();
+    const cfg = C().OPEN;
+    opening = {
+      farmId, stage, evolved, t: 0,
+      x: p.x, y: p.y,
+      dur: evolved ? cfg.EVOLVE_DURATION : cfg.DURATION,
+      popped: false, landed: false,
+    };
+    AudioManager.play('unlock');
+  }
+
+  function updateOpening(dt) {
+    const o = opening, cfg = C().OPEN;
+    o.t += dt;
+    // the lid lets go: light burst, dust at the base, particles
+    if (!o.popped && o.t >= cfg.POP) {
+      o.popped = true;
+      const cols = o.evolved
+        ? ['#ffffff', '#fff6d0', '#ffe98a', '#7de87a', '#c4ffb8']
+        : ['#ffe98a', '#f4c437', '#fff6d0', '#ffffff'];
+      VFXManager.burst(o.x, o.y - 14, cols, o.evolved ? 26 : 18, o.evolved ? 140 : 110);
+      VFXManager.sparkle(o.x, o.y - 18, o.evolved ? 12 : 8, 18);
+      VFXManager.dust(o.x, o.y, 8);
+      AudioManager.play('pop');
+    }
+    // touchdown: squash-and-stretch bounce, plus an energy flourish on an
+    // evolved arrival (this landing is the reveal, so it gets extra weight)
+    if (!o.landed && o.t >= cfg.LAND) {
+      o.landed = true;
+      VFXManager.dust(o.x, o.y, 7);
+      if (o.evolved) {
+        VFXManager.sparkle(o.x, o.y - 16, 14, 22);
+        VFXManager.burst(o.x, o.y - 12, ['#c4ffb8', '#7de87a', '#fff6d0', '#ffffff'], 14, 90);
+        AudioManager.play('merge');
+      }
+    }
+    if (o.t >= o.dur) {
+      const { farmId, stage } = o;
+      const at = { x: o.x, y: o.y };
+      endOpening();
+      finishOpening(farmId, stage, at);
+    }
+  }
+
+  /** Drop the sequence and give its reserved slot back. */
+  function endOpening() {
+    const scene = Game.farm;
+    if (opening && scene && scene.farmId === opening.farmId) scene.releaseSlot();
+    opening = null;
+  }
+
+  /**
+   * The animal arrives for real. On success the persisted `pending` marker
+   * is cleared; if the pen somehow has no room after all (the farm changed
+   * underneath the animation) the marker stays and the waiting indicator
+   * takes over, so the reward is still never lost.
+   */
+  function finishOpening(farmId, stage, at) {
+    if (place(farmId, stage, at, true)) {
+      data(farmId).pending = -1;
+      SaveManager.save();
+      return;
+    }
+    UI.showToast('PEN FULL - ANIMAL IS WAITING!');
+  }
+
+  /** The rewarded ad completed: the player gets the next evolution up. */
+  function adCompleted() { claim(true); }
+
+  /**
+   * The rewarded ad failed, was unavailable, or was skipped. An ad problem
+   * must never cost the player the reward: the base animal is granted with a
+   * short non-blocking note. A real ad SDK should call this from its
+   * failure/skip callbacks (the built-in simulated ad always completes).
+   */
+  function adFailed() {
+    UI.showToast('AD NOT AVAILABLE - ANIMAL COLLECTED!');
+    claim(false);
+  }
+
+  /**
+   * Spawn the reward, or return false when the pen has no room for it.
+   * `quiet` skips the arrival flourish: the opening sequence has just played
+   * its own landing effects on this exact spot and must not double them up.
+   */
+  function place(farmId, stage, at, quiet = false) {
+    const scene = Game.farm;
+    if (!scene || scene.farmId !== farmId) return false;
+    const sp = speciesOf(farmId);
+    // a stage the player has never seen (an ad upgrade past their best) is a
+    // real first-time evolution and earns the full discovery celebration
+    const fresh = !Discovery.isDiscovered(sp, stage);
+    const a = scene.spawnAnimal(stage, false, at);
+    if (!a) return false;
+    if (!quiet) {
+      VFXManager.burst(a.x, a.y - 12, ['#ffe98a', '#f4c437', '#fff6d0'], 14, 100);
+      VFXManager.sparkle(a.x, a.y - 16, 8, 16);
+      AudioManager.play('pop');
+    }
+    if (fresh) Game.startCelebration(a, a.x, a.y);
+    return true;
+  }
+
+  /** A held reward waits for a slot; the indicator stays up until it lands. */
+  function placePending(farmId) {
+    const d = data(farmId);
+    if (!penHasRoom(farmId)) return;
+    const stage = d.pending;
+    d.pending = -1;
+    SaveManager.save();
+    place(farmId, stage, null);
+  }
+
+  // ---------------- draw ----------------
+  function draw(ctx) {
+    const id = SaveManager.data.currentFarm;
+    if (!isLive(id)) return;
+    if (box) drawBox(ctx);
+    if (opening) drawOpening(ctx);
+    // the badge means "waiting for space" — an arrival that is mid-animation
+    // already has its slot, so it must never show one
+    else drawPendingBadge(ctx, id);
+  }
+
+  /**
+   * The opening sequence: the crate splits open and shrinks away while the
+   * animal arcs out of it and lands with a squash-and-stretch bounce. Drawn
+   * with the same blit scale and ground shadow the real animals use, so the
+   * hand-off at the end is invisible.
+   */
+  function drawOpening(ctx) {
+    const o = opening, cfg = C().OPEN;
+    const t = o.t;
+
+    // --- the crate: anticipation squash, then blown open and shrinking away
+    const crateA = t < cfg.POP ? 1 : U.clamp(1 - (t - cfg.POP) / cfg.CRATE_FADE, 0, 1);
+    if (crateA > 0) {
+      const anticip = t < cfg.POP ? 1 - Math.sin((t / cfg.POP) * Math.PI) * 0.16 : 1;
+      ctx.globalAlpha = crateA;
+      PIXEL.blit(ctx, SPRITES.giftCrate(t >= cfg.POP), o.x, o.y, 2,
+                 false, anticip * crateA, (2 - anticip) * (0.6 + crateA * 0.4));
+      if (t >= cfg.POP) {
+        // the lid tumbling up and off to the side
+        const lt = t - cfg.POP;
+        ctx.save();
+        ctx.translate(o.x + lt * 46, o.y - 30 - lt * 150 + lt * lt * 240);
+        ctx.rotate(lt * 8);
+        PIXEL.blit(ctx, SPRITES.crateLid(), 0, 0, 2);
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // --- burst of light out of the open crate, brighter for an evolution
+    if (t >= cfg.POP) {
+      const bt = U.clamp((t - cfg.POP) / (cfg.LAND - cfg.POP), 0, 1);
+      ctx.globalAlpha = (o.evolved ? 0.55 : 0.34) * (1 - bt) * (1 - bt);
+      ctx.fillStyle = o.evolved ? '#e8ffdd' : '#fff6d0';
+      ctx.beginPath();
+      ctx.arc(o.x, o.y - 14, 18 + bt * (o.evolved ? 60 : 42), 0, 7);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // --- expanding energy ring on an evolved landing (this IS the reveal)
+    if (o.evolved && o.landed) {
+      const rt = U.clamp((t - cfg.LAND) / cfg.EVOLVE_RING, 0, 1);
+      if (rt < 1) {
+        ctx.globalAlpha = (1 - rt) * 0.75;
+        ctx.strokeStyle = '#c4ffb8';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(o.x, o.y, 8 + rt * 46, (8 + rt * 46) * 0.45, 0, 0, 7);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // --- the animal, arcing out of the crate and settling where it lands
+    const at = U.clamp((t - cfg.EMERGE) / (cfg.LAND - cfg.EMERGE), 0, 1);
+    if (at <= 0) return;
+    const img = SPRITES.animal(speciesOf(o.farmId), o.stage, 'idle', false);
+    // ballistic arc up and back down to the ground
+    const hop = at < 1 ? Math.sin(at * Math.PI) * cfg.HOP_H : 0;
+    // squash-and-stretch: stretched while flying, squashed on impact, settled
+    let sx = 1, sy = 1;
+    if (at < 1) {
+      const stretch = Math.abs(Math.cos(at * Math.PI)) * 0.14;
+      sx = 1 - stretch; sy = 1 + stretch;
+    } else {
+      const bt = U.clamp((t - cfg.LAND) / cfg.BOUNCE, 0, 1);
+      const s = Math.sin(bt * Math.PI * 2) * (1 - bt) * 0.26;
+      sx = 1 + s; sy = 1 - s;
+    }
+    const pop = Math.min(1, U.easeOutBack(U.clamp(at * 2.2, 0, 1)));
+    // ground shadow, matching Animal.draw's
+    const airborne = U.clamp(1 - hop / cfg.HOP_H, 0.45, 1);
+    ctx.globalAlpha = 0.28 * airborne;
+    ctx.fillStyle = '#1c2b12';
+    ctx.beginPath();
+    ctx.ellipse(o.x, o.y + 2, img.width * CONFIG.ANIMAL_VISUAL_SCALE * 0.3 * airborne, 4 * airborne, 0, 0, 7);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    PIXEL.blit(ctx, img, o.x, o.y - hop, CONFIG.ANIMAL_VISUAL_SCALE * pop, false, sy, sx);
+  }
+
+  function drawBox(ctx) {
+    const b = box, cfg = C();
+    const x = b.x + swayX();
+
+    // ground shadow, tightening as the crate comes down
+    if (b.state === 'drop') {
+      const near = U.clamp(1 - (b.groundY - b.y) / 320, 0.15, 1);
+      ctx.globalAlpha = 0.22 * near;
+      ctx.fillStyle = '#1c2b12';
+      ctx.beginPath(); ctx.ellipse(b.x, b.groundY + 2, 10 * near + 3, 4 * near + 1, 0, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // landing squash, then a gentle idle bob so it reads as interactive
+    let squashY = 1, squashX = 1, bob = 0;
+    if (b.state === 'land' && b.t < cfg.BOUNCE_TIME) {
+      const t = b.t / cfg.BOUNCE_TIME;
+      const s = Math.sin(t * Math.PI * 2) * (1 - t) * 0.22;
+      squashY = 1 - s; squashX = 1 + s;
+    } else if (b.state === 'idle') {
+      bob = Math.sin(b.t * 2.4) * 1.2;
+    }
+
+    // parachute above, with its cords, while it is still inflated
+    if (b.chute > 0) {
+      const img = SPRITES.parachute();
+      const cy = b.y - 44;
+      ctx.globalAlpha = b.chute;
+      const collapse = b.state === 'land' ? 0.4 + b.chute * 0.6 : 1;
+      PIXEL.blit(ctx, img, x, cy, 2, false, collapse, collapse);
+      ctx.strokeStyle = '#e8d8b4';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const dx of [-15, -5, 5, 15]) {
+        ctx.moveTo(Math.round(x + dx * collapse), Math.round(cy - 2));
+        ctx.lineTo(Math.round(b.x + (dx > 0 ? 7 : -7)), Math.round(b.y - 18));
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // the crate itself
+    PIXEL.blit(ctx, SPRITES.giftCrate(false), x, b.y + bob, 2, false, squashY, squashX);
+
+    // golden "!" bubble while it rests, matching the pigeon's tappable cue
+    if (b.state === 'idle') {
+      const pulse = Math.sin(b.t * 5) * 2;
+      const by = b.y - 46 + pulse;
+      ctx.fillStyle = PIXEL.OUTLINE;
+      ctx.beginPath(); ctx.arc(b.x, by, 8, 0, 7); ctx.fill();
+      ctx.fillStyle = SPRITES.P.gold;
+      ctx.beginPath(); ctx.arc(b.x, by, 6, 0, 7); ctx.fill();
+      ctx.fillStyle = SPRITES.P.goldHi;
+      ctx.beginPath(); ctx.arc(b.x - 1, by - 1, 4, 0, 7); ctx.fill();
+      ctx.fillStyle = SPRITES.P.gold;
+      ctx.beginPath(); ctx.arc(b.x, by + 1, 4, 0, 7); ctx.fill();
+      UI.drawText(ctx, '!', b.x, by - 5, UI.SIZE.BODY, '#5c3a1d', 'center');
+    }
+  }
+
+  /**
+   * A reward that couldn't be placed yet: a small chip in the corner of the
+   * pen showing the animal that is waiting, so the player can see the reward
+   * is held rather than lost.
+   */
+  function drawPendingBadge(ctx, farmId) {
+    const stage = data(farmId).pending;
+    if (stage < 0) return;
+    const R = ENVIRONMENT.playRect(farmId);
+    const x = R.x + 42, y = R.y + 46;
+    const t = performance.now() / 1000;
+    ctx.globalAlpha = 0.85 + Math.sin(t * 4) * 0.15;
+    UI.woodPanel(ctx, x - 27, y - 25, 54, 50, { gold: true, flecks: false, seams: false });
+    ctx.globalAlpha = 1;
+    const img = SPRITES.animal(speciesOf(farmId), stage, 'idle', false);
+    PIXEL.blit(ctx, img, x, y + 9, Math.min(1.5, 30 / img.height));
+    UI.drawText(ctx, 'PEN FULL', x, y + 13, 4.5, '#ffe98a', 'center', false, false, 48);
+  }
+
+  /**
+   * Clear transient animation state (farm switch / reset). The crate itself
+   * is saved state, so a crate left resting is rebuilt on return; nothing is
+   * paid out or lost here.
+   */
+  function reset() {
+    // an opening caught mid-flight resolves instantly rather than being
+    // thrown away: the animal lands right now, on the farm it belongs to,
+    // and the persisted `pending` marker covers it if that farm is gone
+    if (opening) {
+      const { farmId, stage, x, y } = opening;
+      endOpening();
+      finishOpening(farmId, stage, { x, y });
+    }
+    box = null; retryT = 0; claiming = false;
+  }
+
+  return { update, draw, tap, info, claim, adCompleted, adFailed, reset,
+           offlineTick, enabledFor, isLive };
 })();
 </script>
 <script>
@@ -5307,6 +6622,10 @@ class FarmScene {
     // bounce off a full pen — see updateFenceJump()
     this.penPressure = 0;
     this.jumpCooldown = 0;
+    // slots held for an animal that is mid-arrival (the surprise box's
+    // opening sequence): counted against capacity so a spawn can't take the
+    // spot while the animation plays. See reserveSlot/releaseSlot.
+    this.reserved = 0;
     const J = Construction.jumpCfg(farmId);
     this.jumpAt = J ? Math.max(1, J.PRESSURE_TIME + U.rand(-J.VARIANCE, J.VARIANCE)) : Infinity;
     this.setBounds();
@@ -5445,6 +6764,20 @@ class FarmScene {
     };
   }
 
+  /**
+   * Is there room for one more animal right now? Reserved slots count as
+   * taken, so an arrival that is still animating keeps its place.
+   */
+  hasRoom() {
+    return this.animals.length + this.reserved < Construction.capacity(this.farmId);
+  }
+
+  /** Hold a slot for an animal that is on its way in. */
+  reserveSlot() { this.reserved++; }
+
+  /** Give it back — either the animal landed, or its arrival was abandoned. */
+  releaseSlot() { this.reserved = Math.max(0, this.reserved - 1); }
+
   /** Random pen position kept clear of existing animals (best effort). */
   freeSpot() {
     let p = this.randomSpot(), tries = 0;
@@ -5454,11 +6787,18 @@ class FarmScene {
     return p;
   }
 
-  /** SpawnManager: place a new animal at a free spot. */
-  spawnAnimal(stage = 0, sfx = true) {
-    // hard cap: the fence tier's capacity on construction farms
-    if (this.animals.length >= Construction.capacity(this.farmId)) return null;
-    const p = this.freeSpot();
+  /**
+   * SpawnManager: place a new animal at a free spot, or at `pos` when the
+   * caller has one (a surprise-box reward lands where the crate stood).
+   */
+  spawnAnimal(stage = 0, sfx = true, pos = null) {
+    // hard cap: the fence tier's capacity on construction farms, minus any
+    // slot already promised to an animal that is mid-arrival
+    if (!this.hasRoom()) return null;
+    const b = this.bounds;
+    const p = pos
+      ? { x: U.clamp(pos.x, b.x, b.x + b.w), y: U.clamp(pos.y, b.y, b.y + b.h) }
+      : this.freeSpot();
     const a = new Animal(this.def.species, stage, p.x, p.y);
     this.armEscape(a);
     this.animals.push(a);
@@ -5580,6 +6920,7 @@ class FarmScene {
   merge(a, b) {
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     const species = a.species, newStage = a.stage + 1;
+    Events.onManualMerge();   // a long grind of these is a tornado trigger
     // remove both source animals immediately
     a.dead = b.dead = true;
     this.animals = this.animals.filter(an => !an.dead);
@@ -5725,6 +7066,9 @@ class FarmScene {
 
     // pigeon on the fence + falling poops (above the animals)
     Pigeon.draw(ctx);
+
+    // parachute surprise box drifting down / resting in the pen
+    Crate.draw(ctx);
 
     // tornado offer icon / active tornado (above everything)
     Tornado.draw(ctx);
@@ -6967,6 +8311,141 @@ const UI = (() => {
     drawText(ctx, U.fmt(total * 2), px + 104, py + 219, 10, '#fff6e8', 'left', false, false, 64);
   }
 
+  // ---------------- parachute surprise box: reveal popup ----------------
+  /**
+   * The crate's reveal (see js/crate.js). It opens on a short animation —
+   * the box rattles, the lid bursts off on a beam of light, the animal rises
+   * out of it — and then settles into the actual choice: the two possible
+   * outcomes shown SIDE BY SIDE, so the upgrade the ad buys is obvious
+   * before the player commits to watching it.
+   *
+   *   left  — COLLECT: the animal as rolled, free, placed straight in the pen
+   *   right — REWARD AD: the next evolution up instead
+   *
+   * Neither button exists until the reveal has finished playing, so the
+   * animation can't be tapped through into a choice; the close X is always
+   * live and leaves the crate on the ground, still tappable.
+   */
+  // where the crate sits, and where the animal it contained comes to rest —
+  // one and the same spot, so the reveal lands the animal exactly where the
+  // settled popup shows it and nothing jumps when the animation ends
+  const CRATE_ART_Y = 150;
+  const CRATE_POP = 0.42;      // the moment the lid lets go
+
+  function drawCrateReveal(ctx, px, py, pw, ph) {
+    const cfg = Object.assign({}, CONFIG.CRATE, (window.RemoteConfig || {}).CRATE);
+    popup.fxT += Game.dt;
+    const t = popup.fxT;
+    const cx = px + pw / 2, groundY = py + CRATE_ART_Y;
+    const species = CONFIG.FARMS[popup.farmId].species;
+    popup.ready = t >= cfg.REVEAL_TIME;
+
+    popupTitle(ctx, 'SURPRISE BOX!', px, py, pw, { size: 10, top: py - 2 });
+    drawCrateBurst(ctx, cx, groundY, t, species);
+
+    // name and buttons fade in as the burst settles
+    const uiA = U.clamp((t - (cfg.REVEAL_TIME - 0.3)) / 0.3, 0, 1);
+    if (uiA <= 0) { popup.okRect = popup.adRect = null; return; }
+    ctx.save();
+    ctx.globalAlpha = uiA;
+    drawText(ctx, Discovery.displayName(species, popup.stage), cx, py + 164, 12,
+             '#ffe98a', 'center', false, false, pw - 28);
+
+    // COLLECT takes it as it is; EVOLVE trades a rewarded video for the next
+    // stage — which is never previewed here, only revealed after the ad
+    popup.okRect = { x: px + 30, y: py + 190, w: pw - 60, h: 40 };
+    popup.adRect = { x: px + 30, y: py + 238, w: pw - 60, h: 36 };
+    drawButton(ctx, { ...popup.okRect, color: 'green', label: 'COLLECT',
+      layout: { labelY: 19, labelPx: 10, center: true } });
+    // the ad button greys out the instant it is pressed, so one ad view can
+    // never be started twice (the grant itself is idempotent as well)
+    if (popup.adLoading) {
+      drawStateButton(ctx, { ...popup.adRect, state: 'loading' });
+    } else {
+      drawButton(ctx, { ...popup.adRect, color: 'wood' });
+      ctx.drawImage(SPRITES.adPlay(), popup.adRect.x + 26, popup.adRect.y + 7, 28, 21);
+      drawText(ctx, 'EVOLVE', popup.adRect.x + 62, popup.adRect.y + 12, 10, '#fff6e8', 'left', false, false, 80);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The opening beat: the box rattles, its lid blows off on a shaft of
+   * light, sparks fly and the animal hops out — landing on the exact spot
+   * the settled popup keeps it. Purely presentational: it runs on the
+   * popup's own clock and grants nothing. The crate fades away behind the
+   * animal, so the finished state is just the animal on the panel.
+   */
+  function drawCrateBurst(ctx, cx, groundY, t, species) {
+    const pop = CRATE_POP;
+    ctx.save();
+
+    if (t >= pop) {
+      // shaft of light out of the open box, widening as it brightens
+      const bt = U.clamp((t - pop) / 0.45, 0, 1);
+      // the beam is part of the reveal only: it is fully gone by the time the
+      // popup settles, leaving just the animal on the panel
+      ctx.globalAlpha = (0.55 - bt * 0.15) * U.clamp(1 - (t - pop) / 0.7, 0, 1);
+      ctx.fillStyle = '#fff6d0';
+      const topW = 24 + bt * 70, botW = 18, h = 60 + bt * 60;
+      ctx.beginPath();
+      ctx.moveTo(cx - botW / 2, groundY - 24);
+      ctx.lineTo(cx - topW / 2, groundY - 24 - h);
+      ctx.lineTo(cx + topW / 2, groundY - 24 - h);
+      ctx.lineTo(cx + botW / 2, groundY - 24);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // the box: rattling while shut, open once the lid is gone, then gone
+    const crateA = t < pop ? 1 : U.clamp(1 - (t - pop - 0.25) / 0.35, 0, 1);
+    if (crateA > 0) {
+      const shake = t < pop ? Math.sin(t * 46) * (1 + t * 4) : 0;
+      const squash = t < pop ? 1 + Math.sin(t * 24) * 0.05 : 1;
+      ctx.globalAlpha = crateA;
+      PIXEL.blit(ctx, SPRITES.giftCrate(t >= pop), cx + shake, groundY, 3, false, squash, 2 - squash);
+      ctx.globalAlpha = 1;
+    }
+
+    if (t >= pop) {
+      // lid tumbling up and away
+      const lt = t - pop;
+      ctx.save();
+      ctx.globalAlpha = U.clamp(1 - lt / 0.7, 0, 1);
+      ctx.translate(cx + lt * 34, groundY - 52 - lt * 130 + lt * lt * 190);
+      ctx.rotate(lt * 7);
+      PIXEL.blit(ctx, SPRITES.crateLid(), 0, 0, 3);
+      ctx.restore();
+      // one-shot spark ring
+      if (!popup.sparks.length) {
+        for (let i = 0; i < 22; i++) {
+          const a = (i / 22) * Math.PI * 2 + Math.random();
+          const f = U.rand(60, 150);
+          popup.sparks.push({ x: cx, y: groundY - 26, vx: Math.cos(a) * f, vy: Math.sin(a) * f - 60,
+            col: U.pick(['#ffe98a', '#f4c437', '#fff6d0', '#ffffff']), s: U.randInt(2, 4), life: 0 });
+        }
+        AudioManager.play('unlock');
+      }
+    }
+
+    // the animal itself: pops out of the box, arcs up and settles at groundY
+    const at = U.clamp((t - pop - 0.1) / 0.45, 0, 1);
+    if (at > 0) {
+      const img = SPRITES.animal(species, popup.stage, 'idle', false);
+      const sc = Math.min(3, 108 / img.height) * Math.min(1, U.easeOutBack(at));
+      PIXEL.blit(ctx, img, cx, groundY - Math.sin(at * Math.PI) * 16, sc);
+    }
+
+    for (const s of popup.sparks) {
+      s.life += Game.dt;
+      s.x += s.vx * Game.dt; s.y += s.vy * Game.dt; s.vy += 220 * Game.dt;
+      ctx.globalAlpha = U.clamp(1 - s.life / 0.9, 0, 1);
+      ctx.fillStyle = s.col;
+      ctx.fillRect(Math.round(s.x), Math.round(s.y), s.s, s.s);
+    }
+    ctx.restore();
+  }
+
   // ---------------- build / fence-upgrade panel ----------------
   /**
    * Construction panel for a staged farm (see js/construction.js): where the
@@ -7197,6 +8676,7 @@ const UI = (() => {
              : popup.type === 'build' ? 258
              : popup.type === 'pigeonAd' ? 254
              : popup.type === 'tornadoAd' ? 270.5
+             : popup.type === 'crateReveal' ? 294
              : popup.type === 'welcomeBack' ? welcomeMetrics(popup.rep).ph : 190;
     // the upgrades panel is pinned to the top it has at full height: it grows
     // downwards as rows unlock, so no row ever shifts under the player;
@@ -7304,6 +8784,8 @@ const UI = (() => {
       popup.cancelRect = null;
       drawButton(ctx, { ...popup.okRect, color: 'green', icon: () => SPRITES.adPlay(), label: 'REWARD AD',
         layout: { iconX: 13, iconY: 10, iconW: 32, iconH: 24, labelX: 53, labelY: 17, labelPx: 10 } });
+    } else if (popup.type === 'crateReveal') {
+      drawCrateReveal(ctx, px, py, pw, ph);
     } else if (popup.type === 'welcomeBack') {
       drawWelcome(ctx, px, py, pw);
     } else if (popup.type === 'settings') {
@@ -7491,6 +8973,10 @@ const UI = (() => {
       }
       if (inRect(x, y, popup.closeRect)) {
         if (Game.upgradeTutorialActive) return true; // tutorial: must buy before closing
+        // walking away from a reward offer counts as a dismissal: it extends
+        // that event's cooldown (see js/events.js)
+        if (popup.type === 'pigeonAd') Events.dismissed('pigeon');
+        else if (popup.type === 'tornadoAd') Events.dismissed('tornado');
         AudioManager.play('click'); beginClose(); return true;
       }
       if (popup.type === 'upgrades') {
@@ -7522,7 +9008,22 @@ const UI = (() => {
           popup = { type: 'adPlaying', t: 0, dur: Tornado.info().adDur, onDone: Tornado.adCompleted };
         } else if (inRect(x, y, popup.cancelRect)) {
           AudioManager.play('click');
+          Events.dismissed('tornado');
           popup = null;
+        }
+        return true;
+      }
+      if (popup.type === 'crateReveal') {
+        // both buttons only exist once the reveal has finished playing, so
+        // the animation can never be tapped through into a choice
+        if (inRect(x, y, popup.okRect)) {
+          AudioManager.play('click');
+          popup = null;
+          Crate.claim(false);
+        } else if (inRect(x, y, popup.adRect) && !popup.adLoading) {
+          popup.adLoading = true;
+          AudioManager.play('click');
+          popup = { type: 'adPlaying', t: 0, dur: Crate.info().adDur, onDone: Crate.adCompleted };
         }
         return true;
       }
@@ -7607,6 +9108,9 @@ const UI = (() => {
         p.scroll = 0;
         p.maxScroll = 0;
         p.userScrolled = false;
+        // a panel where every row is disabled is the player looking straight
+        // at their shortage — a poop-rain trigger (js/events.js)
+        Events.onUpgradesOpened(p.farmId, p.group);
       }
       if (p.origin) {
         // opening over a panel that is still leaving resumes from the
@@ -7715,6 +9219,7 @@ const Game = (() => {
       }
       if (scene === 'farm' && Tornado.tap(p.x, p.y)) return;
       if (scene === 'farm' && Pigeon.tap(p.x, p.y)) return;
+      if (scene === 'farm' && Crate.tap(p.x, p.y)) return;
       if (scene === 'farm') farmScene.pointerDown(p.x, p.y);
       else if (scene === 'map' && !mapScene.unlockAnim) {
         const id = mapScene.tappedFarm(p.x, p.y);
@@ -7756,6 +9261,8 @@ const Game = (() => {
     scene = 'map';
     AudioManager.play('click');
     const rep = Idle.takeLaunchReport();
+    // a long absence arms the tornado's "came back to a full pen" trigger
+    if (rep) Events.onOfflineReturn(rep.awaySec);
     if (rep && rep.awaySec >= CONFIG.IDLE.WELCOME_MIN_AWAY && Math.floor(rep.total) >= 1) {
       // once per launch, only after a real absence with something to show;
       // openT lets the map render a beat before the popup layers over it
@@ -7976,6 +9483,7 @@ const Game = (() => {
       Idle.tick(); // reconcile so the board matches what accumulated offscreen
       Pigeon.reset(); // pays out any rain still falling, keeps saved perch state
       Tornado.reset();
+      Crate.reset();
       SaveManager.data.currentFarm = id;
       SaveManager.save();
       UFO.reset();
@@ -8015,6 +9523,7 @@ const Game = (() => {
       UFO.reset();
       Pigeon.reset();
       Tornado.reset();
+      Crate.reset();
       farmScene = new FarmScene(farmId);
       scene = 'farm';
       AudioManager.play('pop');
@@ -8032,6 +9541,8 @@ const Game = (() => {
   function resetAll() {
     Pigeon.reset(true); // discard any in-flight rain, no payout into the fresh save
     Tornado.reset();
+    Crate.reset();
+    Events.reset();
     SaveManager.reset();
     celebration = null;
     upgradeTutorial = null;
@@ -8080,8 +9591,12 @@ const Game = (() => {
           // (on construction farms) a fence for the pigeon to perch on
           const paused = !!farmScene.tutorial || !Construction.fenceBuilt(farmScene.farmId);
           farmScene.update(dt); UFO.update(dt);
+          // the director tracks the wallet / pen signals first, then each
+          // event asks it whether this is its moment
+          Events.update(dt, paused);
           Pigeon.update(dt, paused);
           Tornado.update(dt, paused);
+          Crate.update(dt, paused);
         }
       }
     }

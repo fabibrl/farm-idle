@@ -169,15 +169,62 @@ const CONFIG = {
     },
   },
 
-  // Pigeon reward-ad event (see js/pigeon.js). Every value here is a
-  // Remote Config default: override at runtime via
-  // window.RemoteConfig = { PIGEON: { SPAWN_INTERVAL: 30, ... } }.
+  // Need-based reward-event director (see js/events.js). The pigeon and the
+  // tornado do not run on timers: each is released at the moment it actually
+  // helps — an emptied wallet for the cash boost, a crowded pen for the
+  // auto-merge — under frequency limits counted separately per feature so
+  // neither can turn into spam. Every value here is a Remote Config default:
+  // override at runtime via window.RemoteConfig = { EVENTS: { ... } }.
+  EVENTS: {
+    ENABLED: true,              // director on/off (kill switch for both events)
+    LOG: true,                  // console-log every appearance and its outcome
+    LOG_MAX: 30,                // appearance records kept in the save
+    NEW_GAME_GRACE: 240,        // seconds of active play before any event may fire
+    CONDITION_TTL: 20,          // seconds a one-shot trigger waits for a free screen
+
+    // Frequency limits, applied independently to each feature.
+    LIMITS: {
+      WINDOW_MINUTES: 120,          // rolling window the cap is measured over
+      MAX_PER_WINDOW: 5,            // appearances allowed inside that window
+      MIN_INTERVAL_MINUTES: 12,     // minimum gap between two appearances
+      DISMISS_COOLDOWN_MINUTES: 10, // added to that gap per dismissal this session
+      DISMISS_SUPPRESS: 3,          // dismissals that shelve the feature for the session
+    },
+
+    // Poop rain triggers — a depleted wallet (see Events.pigeonCondition).
+    PIGEON: {
+      SAMPLE_INTERVAL: 0.5,   // seconds between wallet samples
+      SPEND_WINDOW: 180,      // seconds the spending burst is measured over
+      SPEND_FRACTION: 0.7,    // 70%+ of the wallet gone inside that window
+      MIN_PEAK_COSTS: 1,      // ...off a wallet worth at least this many cheapest upgrades
+      BROKE_TIME: 15,         // seconds below the cheapest upgrade before offering
+      STALL_TIME: 150,        // seconds unable to afford anything = a real stall
+      EMPTY_FRACTION: 0.5,    // post-purchase wallet under half the next cheapest = emptied
+    },
+
+    // Tornado triggers — a crowded pen (see Events.tornadoCondition).
+    TORNADO: {
+      FILL_PCT: 0.75,         // pen at 75%+ of its capacity
+      MIN_PAIRS: 2,           // ...with this many merges waiting
+      NEAR_CAP_SLOTS: 1,      // free slots left = spawning about to be blocked
+      JUMP_WARN: 0.6,         // fence-jump pressure ratio that makes it a rescue
+      MERGE_WINDOW: 300,      // seconds manual merges are counted over
+      MERGE_GRIND: 6,         // manual merges in that window = real effort saved
+      RETURN_AWAY: 900,       // seconds away that make a filled pen a welcome-back case
+      RETURN_WINDOW: 300,     // seconds that case stays live after returning
+      RETURN_FILL_PCT: 0.6,   // ...and the pen came back at least this full
+    },
+  },
+
+  // Pigeon reward-ad event (see js/pigeon.js). Timing is not here: the
+  // director in js/events.js decides WHEN a pigeon visits (CONFIG.EVENTS).
+  // Every value here is a Remote Config default: override at runtime via
+  // window.RemoteConfig = { PIGEON: { STAY_TIME: 30, ... } }.
   // Reward = REWARD_MINUTES of the farm's CURRENT passive income, split
   // across the rain — the ad scales with the player's economy forever
   // (meaningful acceleration, never mandatory, never game-breaking).
   PIGEON: {
     ENABLED: true,         // reward ad offer on/off (kill switch)
-    SPAWN_INTERVAL: 75,    // seconds between pigeon visits (offers stay occasional)
     STAY_TIME: 120,        // seconds the pigeon waits on the fence
     FLY_TIME: 2.6,         // fly-across-and-land duration (s)
     LEAVE_TIME: 1.6,       // fly-away duration when ignored (s)
@@ -190,22 +237,75 @@ const CONFIG = {
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
   },
 
-  // Tornado Auto Merge reward-ad event (see js/tornado.js). Every value
-  // here is a Remote Config default: override at runtime via
-  // window.RemoteConfig = { TORNADO: { SPAWN_INTERVAL: 30, ... } }.
-  // The offer waits for a moment where it saves real work: it only appears
-  // once the countdown has elapsed AND the pen is crowded with several
-  // merges pending ("here's a boost if you want it", never a nag).
+  // Tornado Auto Merge reward-ad event (see js/tornado.js). Timing is not
+  // here: the director in js/events.js decides WHEN the offer appears — a
+  // pen crowded enough that the sweep saves real work (CONFIG.EVENTS).
+  // Every value here is a Remote Config default: override at runtime via
+  // window.RemoteConfig = { TORNADO: { STAY_TIME: 30, ... } }.
   TORNADO: {
     ENABLED: true,         // reward ad offer on/off (kill switch)
-    SPAWN_INTERVAL: 150,   // seconds between tornado offers (minimum)
     STAY_TIME: 60,         // seconds the icon stays available once it appears
-    MIN_ANIMALS: 8,        // pen crowding required before the offer appears
-    MIN_PAIRS: 2,          // pending merge pairs required before the offer appears
     TRAVEL_SPEED: 1.0,     // tornado animation speed multiplier
     MERGE_INTERVAL: 0.12,  // seconds between survivors tossed back out after the merge blast
     REWARD_COOLDOWN: 0,    // extra seconds before the next offer after a claim
     AD_DURATION: 3.0,      // simulated reward-ad length (s)
+  },
+
+  // Parachute surprise box (see js/crate.js). Every COOLDOWN seconds a crate
+  // drifts down under a parachute and lands on a free slot in the pen. It
+  // rests there until tapped — it never expires — and tapping it opens a
+  // reveal popup offering the animal inside, or (rewarded ad) the next
+  // evolution up. Every value here is a Remote Config default: override at
+  // runtime via window.RemoteConfig = { CRATE: { COOLDOWN: 60, ... } }.
+  //
+  // The contents pool is derived from the farm's own chain, never hardcoded:
+  // see CONFIG.cratePool — index 0 and the last two entries of the chain
+  // (board stages + the final form) are excluded, so the box can never hand
+  // out a baby, and the ad upgrade can never reach the final form. On Farm
+  // 1's seven-entry chicken chain that leaves TEEN, ADULT, STRANGE and
+  // MUTANT, whose ad upgrade tops out at MUTANT 2. Enabling another farm is
+  // one flag in ENABLED_FARMS — its pool follows from its own chain.
+  CRATE: {
+    ENABLED: true,               // reward event on/off (kill switch)
+    ENABLED_FARMS: [true, false, false],  // per-farm opt-in, index = farm id
+    COOLDOWN: 300,               // seconds between crates; the timer starts
+                                 // when the previous crate is COLLECTED, so
+                                 // ignoring one never queues up more
+    SKIP_FIRST: 1,               // chain entries excluded from the front (the baby)
+    SKIP_LAST: 2,                // ...and from the back (final form + the one below it)
+    // Relative draw weights over the eligible pool, lowest tier first. Extra
+    // entries are ignored; a pool longer than this list reuses the last
+    // weight. Mid-tier animals are the common outcome, top-tier the rare one.
+    WEIGHTS: [8, 5, 3, 2],
+    DROP_TIME: 4.0,              // parachute descent duration (s)
+    DROP_SWAY: 16,               // horizontal drift amplitude while falling (px)
+    BOUNCE_TIME: 0.45,           // landing squash + settle (s)
+    CHUTE_FADE: 0.8,             // parachute collapse/fade after touchdown (s)
+    SPARKLE_RATE: 2.4,           // seconds between attention sparkles while resting
+    TAP_RADIUS: 26,              // tap hit radius around the resting crate (px)
+    CLEAR_RADIUS: 34,            // keep the landing spot this far from animals (px)
+    RETRY_INTERVAL: 0.5,         // seconds between landing-spot retries when the pen is full
+    REVEAL_TIME: 1.15,           // popup crate-burst animation before the choices appear (s)
+    AD_DURATION: 3.0,            // simulated reward-ad length (s)
+
+    // In-scene opening sequence, played after the popup closes: the crate
+    // bursts open in the pen and the animal hops out of it. Non-blocking —
+    // the farm keeps running and stays fully interactive throughout — and
+    // its pen slot is reserved before it starts, so a spawn can never take
+    // the spot out from under it. Offsets are seconds from the start.
+    OPEN: {
+      DURATION: 0.85,            // total sequence length after COLLECT (s)
+      EVOLVE_DURATION: 1.10,     // ...after an ad: same beats, longer hold at the end
+      POP: 0.12,                 // anticipation squash, then the lid lets go
+      EMERGE: 0.20,              // the animal starts coming out
+      LAND: 0.55,                // it touches down
+      BOUNCE: 0.22,              // squash-and-stretch settle after landing
+      HOP_H: 34,                 // peak of its arc above the ground (px) — low
+                                 // enough that a crate resting against the
+                                 // back fence still hops entirely inside the pen
+      CRATE_FADE: 0.38,          // remnants shrink away over this, from POP (s)
+      EVOLVE_RING: 0.45,         // expanding energy ring on an evolved landing (s)
+    },
   },
 
   // Background / offline production (see js/idle.js). Every unlocked farm
@@ -458,6 +558,29 @@ Object.assign(CONFIG, {
   /** Chain entry by upgrade key: a stage index, or 'et' for the final form. */
   entry(species, key) {
     return key === 'et' ? CONFIG.finalStage(species) : CONFIG.stage(species, key);
+  },
+  /**
+   * Board stages a parachute surprise box may contain, for one species.
+   *
+   * The exclusion is a RULE, not a list, so it stays correct if a chain is
+   * ever extended or shortened and applies automatically to any farm that
+   * enables the feature. It is measured against the WHOLE chain — the board
+   * stages plus the final, abducted form — and drops CRATE.SKIP_FIRST
+   * entries from the front and CRATE.SKIP_LAST from the back:
+   *
+   *   chicken (6 board stages + final = 7): 1..4 -> TEEN, ADULT, STRANGE, MUTANT
+   *   sheep / cow (4 + final = 5):          1..2 -> ADULT, ELDER
+   *
+   * Because the last two entries are always excluded, the highest possible
+   * roll is one below the top board stage — so the ad upgrade (roll + 1) can
+   * reach the top board stage at most, and NEVER the final form.
+   */
+  cratePool(species) {
+    const len = CONFIG.stageCount(species) + 1;   // board stages + the final form
+    const last = len - 1 - CONFIG.CRATE.SKIP_LAST;
+    const out = [];
+    for (let i = CONFIG.CRATE.SKIP_FIRST; i <= last; i++) out.push(i);
+    return out;
   },
   /** This farm's hard animal cap before construction/fence limits apply. */
   farmMaxAnimals(farmId) {

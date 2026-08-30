@@ -985,6 +985,86 @@ const SPRITES = (() => {
     });
   }
 
+  // ---------- parachute surprise box (see js/crate.js) ----------
+  // A bigger, gift-wrapped cousin of the decorative crate() above: golden
+  // ribbon, a bow on the lid, and a lid that comes off as its own sprite so
+  // the reveal can pop it into the air.
+
+  /** Crate body. `open` swaps the lid for a dark, glowing interior. */
+  function giftCrate(open = false) {
+    return PIXEL.sprite(`gift:${open ? 1 : 0}`, 22, 20, s => {
+      // body
+      s.rect(3, 7, 16, 11, P.wood);
+      s.rect(3, 7, 16, 2, P.woodHi);
+      s.rect(3, 16, 16, 2, P.woodDk);
+      // plank seams + corner braces
+      s.rect(3, 12, 16, 1, P.woodDk);
+      s.rect(3, 7, 2, 11, P.woodHi);
+      s.rect(17, 7, 2, 11, P.woodDk);
+      // golden ribbon down the front
+      s.rect(9, 7, 4, 11, P.gold);
+      s.rect(9, 7, 1, 11, P.goldHi);
+      s.rect(12, 7, 1, 11, P.goldDk);
+      if (open) {
+        // lid gone: dark interior with a bright rim where the light escapes
+        s.rect(3, 5, 16, 4, P.woodDkr);
+        s.rect(4, 6, 14, 2, '#2a1c12');
+        s.rect(4, 5, 14, 1, P.goldHi);
+      } else {
+        // lid + ribbon crossing it, topped with a small bow
+        s.rect(2, 2, 18, 5, P.wood);
+        s.rect(2, 2, 18, 2, P.woodHi);
+        s.rect(2, 6, 18, 1, P.woodDk);
+        s.rect(9, 2, 4, 5, P.gold);
+        s.rect(9, 2, 1, 5, P.goldHi);
+        s.rect(7, 1, 3, 2, P.goldHi);
+        s.rect(12, 1, 3, 2, P.gold);
+        s.px(11, 1, P.goldDk);
+      }
+      s.outline();
+    });
+  }
+
+  /** The lid on its own, so the reveal can burst it off the box. */
+  function crateLid() {
+    return PIXEL.sprite('crateLid', 22, 8, s => {
+      s.rect(2, 2, 18, 5, P.wood);
+      s.rect(2, 2, 18, 2, P.woodHi);
+      s.rect(2, 6, 18, 1, P.woodDk);
+      s.rect(9, 2, 4, 5, P.gold);
+      s.rect(9, 2, 1, 5, P.goldHi);
+      s.rect(7, 1, 3, 2, P.goldHi);
+      s.rect(12, 1, 3, 2, P.gold);
+      s.outline();
+    });
+  }
+
+  /**
+   * Parachute canopy, bottom-anchored like every other sprite. The dome is
+   * an ellipse whose lower half falls off the surface, so it reads as a
+   * half-dome; the cords from its rim down to the crate are drawn live by
+   * the manager (they stretch with the sway).
+   */
+  function parachute() {
+    return PIXEL.sprite('parachute', 36, 20, s => {
+      const cx = 18, cy = 19, rx = 17.5, ry = 15.5;
+      for (let y = 3; y <= 19; y++) {
+        const k = 1 - Math.pow((y + 0.5 - cy) / ry, 2);
+        if (k <= 0) continue;
+        const half = Math.sqrt(k) * rx;
+        const x0 = Math.round(cx - half), x1 = Math.round(cx + half);
+        for (let x = x0; x <= x1; x++) {
+          // five radial panels (red / cream / red / cream / red), so the
+          // seams fan out from the apex instead of running straight down
+          const u = (x + 0.5 - (cx - half)) / (half * 2);
+          s.px(x, y, y >= 18 ? P.redDk : (Math.min(4, Math.floor(u * 5)) % 2 ? '#f2e6c8' : P.red));
+        }
+      }
+      s.ellipse(13, 8, 2, 1.5, P.redHi);
+      s.outline();
+    });
+  }
+
   function haystack() {
     return PIXEL.sprite('hay', 20, 16, s => {
       s.ellipse(10, 11, 9, 4.5, P.hay);
@@ -1346,7 +1426,8 @@ const SPRITES = (() => {
 
   return {
     animal, ANIMAL_SIZES, poop, coin, mutant2, ufo, pigeon, tornado,
-    tree, bush, flower, rock, barrel, crate, haystack, sign, fenceH,
+    tree, bush, flower, rock, barrel, crate, giftCrate, crateLid, parachute,
+    haystack, sign, fenceH,
     farmhouse, barn, shed,
     coop, nest, cottage, windmillTower, windmillBlades, silo, milkCan, woolBale,
     mapPin, lock, gear, arrowUp, animalUp, xIcon, adPlay,

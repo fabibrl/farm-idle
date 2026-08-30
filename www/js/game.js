@@ -85,6 +85,7 @@ const Game = (() => {
       }
       if (scene === 'farm' && Tornado.tap(p.x, p.y)) return;
       if (scene === 'farm' && Pigeon.tap(p.x, p.y)) return;
+      if (scene === 'farm' && Crate.tap(p.x, p.y)) return;
       if (scene === 'farm') farmScene.pointerDown(p.x, p.y);
       else if (scene === 'map' && !mapScene.unlockAnim) {
         const id = mapScene.tappedFarm(p.x, p.y);
@@ -126,6 +127,8 @@ const Game = (() => {
     scene = 'map';
     AudioManager.play('click');
     const rep = Idle.takeLaunchReport();
+    // a long absence arms the tornado's "came back to a full pen" trigger
+    if (rep) Events.onOfflineReturn(rep.awaySec);
     if (rep && rep.awaySec >= CONFIG.IDLE.WELCOME_MIN_AWAY && Math.floor(rep.total) >= 1) {
       // once per launch, only after a real absence with something to show;
       // openT lets the map render a beat before the popup layers over it
@@ -346,6 +349,7 @@ const Game = (() => {
       Idle.tick(); // reconcile so the board matches what accumulated offscreen
       Pigeon.reset(); // pays out any rain still falling, keeps saved perch state
       Tornado.reset();
+      Crate.reset();
       SaveManager.data.currentFarm = id;
       SaveManager.save();
       UFO.reset();
@@ -385,6 +389,7 @@ const Game = (() => {
       UFO.reset();
       Pigeon.reset();
       Tornado.reset();
+      Crate.reset();
       farmScene = new FarmScene(farmId);
       scene = 'farm';
       AudioManager.play('pop');
@@ -402,6 +407,8 @@ const Game = (() => {
   function resetAll() {
     Pigeon.reset(true); // discard any in-flight rain, no payout into the fresh save
     Tornado.reset();
+    Crate.reset();
+    Events.reset();
     SaveManager.reset();
     celebration = null;
     upgradeTutorial = null;
@@ -450,8 +457,12 @@ const Game = (() => {
           // (on construction farms) a fence for the pigeon to perch on
           const paused = !!farmScene.tutorial || !Construction.fenceBuilt(farmScene.farmId);
           farmScene.update(dt); UFO.update(dt);
+          // the director tracks the wallet / pen signals first, then each
+          // event asks it whether this is its moment
+          Events.update(dt, paused);
           Pigeon.update(dt, paused);
           Tornado.update(dt, paused);
+          Crate.update(dt, paused);
         }
       }
     }

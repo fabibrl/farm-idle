@@ -1,10 +1,11 @@
 /**
  * TornadoManager — reward-ad event layer (Tornado Auto Merge).
  *
- * At most every SPAWN_INTERVAL seconds — and only once the pen is crowded
- * with several merges pending (see offerWorthwhile) — a tornado icon
- * appears on the left side of the screen and stays available for
- * STAY_TIME seconds. Tapping it opens
+ * Once the pen is crowded enough that the sweep saves real work — a backlog
+ * of matchable animals, spawning about to be blocked, an animal about to hop
+ * the fence — a tornado icon appears on the left side of the screen and
+ * stays available for STAY_TIME seconds. The director in js/events.js owns
+ * that decision and the frequency limits behind it. Tapping it opens
  * the reward-ad popup; completing the ad sends a large pixel tornado
  * sweeping across the farm. The tornado is pure quality-of-life: it
  * performs exactly the merges the player could make by hand, only much
@@ -20,8 +21,8 @@
  * The evolved survivors are tossed back onto the farm and the tornado
  * leaves. Ignoring the icon loses the offer until the next cycle.
  *
- * Per-farm state (offer countdown + remaining availability) lives in
- * SaveManager.data.tornado, so every farm runs its own independent event.
+ * Per-farm state (remaining availability of an offer already on screen)
+ * lives in SaveManager.data.tornado.
  * Only one offer can be active at a time on a farm, and it never appears
  * during the merge tutorial (Game only ticks this manager during normal
  * gameplay). While the tornado is running all farm input is blocked and
@@ -43,32 +44,6 @@ const Tornado = (() => {
 
   const smooth = t => { t = U.clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 
-  /**
-   * Reward-ad timing: only offer the tornado at a moment where it saves
-   * real manual work — a crowded pen with several merges waiting. The
-   * countdown may have long elapsed; the icon then appears the moment the
-   * farm actually fills up ("here's a boost if you want it", not a nag).
-   * Mutant pairs only count where the UFO is unlocked (they can't merge
-   * otherwise, matching the funnel's own rule).
-   */
-  function offerWorthwhile() {
-    const scene = Game.farm;
-    if (!scene || scene.tutorial) return false;
-    if (scene.animals.length < C().MIN_ANIMALS) return false;
-    const top = CONFIG.topStage(CONFIG.FARMS[SaveManager.data.currentFarm].species);
-    const landed = SaveManager.data.ufo[SaveManager.data.currentFarm].landed;
-    const counts = {};
-    for (const a of scene.animals) {
-      if (a.state === 'merging') continue;
-      if (a.stage === top && !landed) continue;
-      const k = a.species + ':' + a.stage;
-      counts[k] = (counts[k] || 0) + 1;
-    }
-    let pairs = 0;
-    for (const k in counts) pairs += Math.floor(counts[k] / 2);
-    return pairs >= C().MIN_PAIRS;
-  }
-
   // ---------------- availability cycle ----------------
   function update(dt, tutorialActive) {
     clockT += dt;
@@ -78,14 +53,16 @@ const Tornado = (() => {
     // restore an offer that was left available on this farm
     if (!icon && d.remaining > 0 && !tutorialActive) icon = { t: 0 };
 
-    // offer countdown: one offer at a time, never during the tutorial,
-    // and only released once the pen is crowded enough to be worth it
+    // a new offer is entirely the director's call: it is released the moment
+    // the pen backs up enough for the sweep to be worth it, within the
+    // frequency limits (never during the tutorial, one offer at a time)
     if (!icon && d.remaining <= 0 && !tutorialActive) {
-      d.next -= dt;
-      if (d.next <= 0 && offerWorthwhile()) {
+      const cond = Events.request('tornado');
+      if (cond) {
         icon = { t: 0 };
         d.remaining = C().STAY_TIME;
         SaveManager.save();
+        Events.shown('tornado', cond);   // consumes quota, logs the trigger
         VFXManager.sparkle(ICON.x, ICON.y - 20, 8, 16);
         AudioManager.play('pop');
       }
@@ -100,10 +77,11 @@ const Tornado = (() => {
         icon.t += dt;
         d.remaining -= dt;
         if (d.remaining <= 0) {
-          // ignored: the opportunity is lost until the next cycle
+          // ignored: the opportunity is lost, and the miss extends the
+          // cooldown before the next one (see Events.dismissed)
           d.remaining = 0;
-          d.next = C().SPAWN_INTERVAL;
           SaveManager.save();
+          Events.dismissed('tornado');
           icon = null;
         }
       }
@@ -129,8 +107,8 @@ const Tornado = (() => {
   function adCompleted() {
     const d = data();
     d.remaining = 0;
-    d.next = C().SPAWN_INTERVAL + C().REWARD_COOLDOWN;
     SaveManager.save();
+    Events.accepted('tornado');   // applies REWARD_COOLDOWN on top of the gap
     if (icon) {
       VFXManager.burst(ICON.x, ICON.y - 16, ['#c8cdd4', '#eef2f6', '#ffe98a'], 12, 90);
       icon = null;
@@ -473,5 +451,7 @@ const Tornado = (() => {
   return {
     update, updateRun, draw, tap, adCompleted, info, heldSnapshot, reset,
     get active() { return !!run; },
+    /** Anything of this event on screen — the offer icon or the storm itself. */
+    get present() { return !!icon || !!run; },
   };
 })();

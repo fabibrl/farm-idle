@@ -19,6 +19,10 @@ class FarmScene {
     // bounce off a full pen — see updateFenceJump()
     this.penPressure = 0;
     this.jumpCooldown = 0;
+    // slots held for an animal that is mid-arrival (the surprise box's
+    // opening sequence): counted against capacity so a spawn can't take the
+    // spot while the animation plays. See reserveSlot/releaseSlot.
+    this.reserved = 0;
     const J = Construction.jumpCfg(farmId);
     this.jumpAt = J ? Math.max(1, J.PRESSURE_TIME + U.rand(-J.VARIANCE, J.VARIANCE)) : Infinity;
     this.setBounds();
@@ -157,6 +161,20 @@ class FarmScene {
     };
   }
 
+  /**
+   * Is there room for one more animal right now? Reserved slots count as
+   * taken, so an arrival that is still animating keeps its place.
+   */
+  hasRoom() {
+    return this.animals.length + this.reserved < Construction.capacity(this.farmId);
+  }
+
+  /** Hold a slot for an animal that is on its way in. */
+  reserveSlot() { this.reserved++; }
+
+  /** Give it back — either the animal landed, or its arrival was abandoned. */
+  releaseSlot() { this.reserved = Math.max(0, this.reserved - 1); }
+
   /** Random pen position kept clear of existing animals (best effort). */
   freeSpot() {
     let p = this.randomSpot(), tries = 0;
@@ -166,11 +184,18 @@ class FarmScene {
     return p;
   }
 
-  /** SpawnManager: place a new animal at a free spot. */
-  spawnAnimal(stage = 0, sfx = true) {
-    // hard cap: the fence tier's capacity on construction farms
-    if (this.animals.length >= Construction.capacity(this.farmId)) return null;
-    const p = this.freeSpot();
+  /**
+   * SpawnManager: place a new animal at a free spot, or at `pos` when the
+   * caller has one (a surprise-box reward lands where the crate stood).
+   */
+  spawnAnimal(stage = 0, sfx = true, pos = null) {
+    // hard cap: the fence tier's capacity on construction farms, minus any
+    // slot already promised to an animal that is mid-arrival
+    if (!this.hasRoom()) return null;
+    const b = this.bounds;
+    const p = pos
+      ? { x: U.clamp(pos.x, b.x, b.x + b.w), y: U.clamp(pos.y, b.y, b.y + b.h) }
+      : this.freeSpot();
     const a = new Animal(this.def.species, stage, p.x, p.y);
     this.armEscape(a);
     this.animals.push(a);
@@ -292,6 +317,7 @@ class FarmScene {
   merge(a, b) {
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     const species = a.species, newStage = a.stage + 1;
+    Events.onManualMerge();   // a long grind of these is a tornado trigger
     // remove both source animals immediately
     a.dead = b.dead = true;
     this.animals = this.animals.filter(an => !an.dead);
@@ -437,6 +463,9 @@ class FarmScene {
 
     // pigeon on the fence + falling poops (above the animals)
     Pigeon.draw(ctx);
+
+    // parachute surprise box drifting down / resting in the pen
+    Crate.draw(ctx);
 
     // tornado offer icon / active tornado (above everything)
     Tornado.draw(ctx);

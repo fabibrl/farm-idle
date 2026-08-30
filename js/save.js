@@ -32,12 +32,26 @@ const SaveManager = (() => {
       // per-farm UFO alien-collection layer: each farm unlocks its own UFO
       // with the first Mutant+Mutant merge on that farm
       ufo: CONFIG.FARMS.map(() => ({ landed: false, aliens: 0, pending: 0 })),
-      // per-farm pigeon reward-ad event: independent spawn countdown +
-      // remaining perch time (so a pigeon survives leaving the farm)
-      pigeon: CONFIG.FARMS.map(() => ({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 })),
-      // per-farm tornado auto-merge reward-ad event: independent offer
-      // countdown + remaining availability window
-      tornado: CONFIG.FARMS.map(() => ({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 })),
+      // per-farm pigeon reward-ad event: remaining perch time, so a pigeon
+      // left on a farm is still there when the player comes back to it
+      pigeon: CONFIG.FARMS.map(() => ({ remaining: 0 })),
+      // per-farm tornado auto-merge reward-ad event: remaining availability
+      // window of an offer already on screen
+      tornado: CONFIG.FARMS.map(() => ({ remaining: 0 })),
+      // reward-event director (see js/events.js): lifetime active play (the
+      // new-game grace), the appearance log, and per-feature appearance
+      // timestamps driving the rolling frequency cap. Player-level, not
+      // per-farm: the quota follows the player across their farms.
+      events: eventsDefault(),
+      // per-farm parachute surprise box: cooldown remaining, whether a crate
+      // is currently resting in the pen (it persists until tapped), the
+      // stage rolled inside it, and a granted animal still waiting for a
+      // free slot (-1 = none)
+      crate: CONFIG.FARMS.map(() => crateDefault()),
+      // per-farm latch: this farm's whole chain has been discovered, which is
+      // what switches the surprise box on. Latched once and kept, so the
+      // feature never turns itself back off (see js/crate.js `unlocked`).
+      crateUnlocked: CONFIG.FARMS.map(() => false),
       // per-farm background production: last reconcile timestamp (ms epoch),
       // uncollected coin balance, and the carried spawn-timer remainder
       idle: CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 })),
@@ -49,6 +63,17 @@ const SaveManager = (() => {
       revealSeeded: true,
       firstRun: true,
     };
+  }
+
+  /** Frequency-limit slot for one reward event (timestamps in ms epoch). */
+  function eventSlot() { return { shown: [], last: 0, extra: 0 }; }
+
+  function eventsDefault() {
+    return { play: 0, log: [], pigeon: eventSlot(), tornado: eventSlot() };
+  }
+
+  function crateDefault() {
+    return { next: CONFIG.CRATE.COOLDOWN, active: 0, stage: -1, pending: -1 };
   }
 
   function discoveredDefaults() {
@@ -76,10 +101,35 @@ const SaveManager = (() => {
         : { landed: false, aliens: 0, pending: 0 });
     }
     while (d.ufo.length < CONFIG.FARMS.length) d.ufo.push({ landed: false, aliens: 0, pending: 0 });
-    if (!d.pigeon) d.pigeon = CONFIG.FARMS.map(() => ({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 }));
-    while (d.pigeon.length < CONFIG.FARMS.length) d.pigeon.push({ next: CONFIG.PIGEON.SPAWN_INTERVAL, remaining: 0 });
-    if (!d.tornado) d.tornado = CONFIG.FARMS.map(() => ({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 }));
-    while (d.tornado.length < CONFIG.FARMS.length) d.tornado.push({ next: CONFIG.TORNADO.SPAWN_INTERVAL, remaining: 0 });
+    // the old `next` countdown on these slots is obsolete (js/events.js owns
+    // timing now) — an older save simply carries a field nothing reads
+    if (!d.pigeon) d.pigeon = CONFIG.FARMS.map(() => ({ remaining: 0 }));
+    while (d.pigeon.length < CONFIG.FARMS.length) d.pigeon.push({ remaining: 0 });
+    if (!d.tornado) d.tornado = CONFIG.FARMS.map(() => ({ remaining: 0 }));
+    while (d.tornado.length < CONFIG.FARMS.length) d.tornado.push({ remaining: 0 });
+    // reward-event director state, back-filled slot by slot so a save from
+    // before any part of it existed starts with a clean, complete record
+    if (!d.events) d.events = eventsDefault();
+    if (typeof d.events.play !== 'number') d.events.play = 0;
+    if (!Array.isArray(d.events.log)) d.events.log = [];
+    for (const f of ['pigeon', 'tornado']) {
+      const s = d.events[f] || (d.events[f] = eventSlot());
+      if (!Array.isArray(s.shown)) s.shown = [];
+      if (typeof s.last !== 'number') s.last = 0;
+      if (typeof s.extra !== 'number') s.extra = 0;
+    }
+    if (!d.crate) d.crate = CONFIG.FARMS.map(() => crateDefault());
+    while (d.crate.length < CONFIG.FARMS.length) d.crate.push(crateDefault());
+    if (!d.crateUnlocked) d.crateUnlocked = CONFIG.FARMS.map(() => false);
+    while (d.crateUnlocked.length < CONFIG.FARMS.length) d.crateUnlocked.push(false);
+    // a crate rolled before the pool rule existed (or on a chain that has
+    // since shrunk) is re-rolled on tap; clamp the stored index defensively
+    for (const f of CONFIG.FARMS) {
+      const c = d.crate[f.id];
+      if (c.pending !== undefined && c.pending >= STAGE_COUNT(f.species)) c.pending = -1;
+      if (c.stage !== undefined && c.stage >= STAGE_COUNT(f.species)) c.stage = -1;
+      if (c.pending === undefined) c.pending = -1;
+    }
     if (!d.idle) d.idle = CONFIG.FARMS.map(() => ({ last: 0, pending: 0, carry: 0 }));
     while (d.idle.length < CONFIG.FARMS.length) d.idle.push({ last: 0, pending: 0, carry: 0 });
     if (!d.construction) d.construction = CONFIG.FARMS.map(() => ({ land: false, house: false, fence: 0 }));

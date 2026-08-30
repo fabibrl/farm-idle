@@ -36,6 +36,16 @@ const Discovery = (() => {
     return !!u && (u.landed || u.aliens > 0 || (u.pending || 0) > 0);
   }
 
+  /**
+   * Has this farm's whole chain been discovered — every board stage AND the
+   * final, abducted form? This is the end of that farm's collection, and
+   * what gates the parachute surprise box (see js/crate.js).
+   */
+  function chainComplete(farmId) {
+    const sp = CONFIG.FARMS[farmId].species;
+    return CONFIG.stages(sp).every((_, i) => isDiscovered(sp, i)) && isEtDiscovered(farmId);
+  }
+
   /** Full collection snapshot: [{species, label, stages:[{name, discovered}]}] */
   function collection() {
     return CONFIG.FARMS.map(f => ({
@@ -63,5 +73,5 @@ const Discovery = (() => {
     return (s && s.flavor) || '';
   }
 
-  return { isDiscovered, isEtDiscovered, mark, collection, displayName, flavor };
+  return { isDiscovered, isEtDiscovered, chainComplete, mark, collection, displayName, flavor };
 })();
