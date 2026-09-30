@@ -27,8 +27,11 @@ const SaveManager = (() => {
       upgradesRevealed: CONFIG.FARMS.map(() => []),
       // per-farm: has the first-merge tutorial been completed?
       tutorialDone: CONFIG.FARMS.map(() => false),
-      // one-time: has the first-upgrade tutorial been completed?
-      upgradeTutorialDone: false,
+      // upgrade FTUE (see js/ftue.js): one latch per flow, player-level rather
+      // than per farm — each flow introduces an entry point once in a
+      // lifetime, whichever farm happens to teach it. Latched and kept, so a
+      // completed (or skipped) flow never comes back in a later session.
+      ftue: ftueDefault(),
       // per-farm UFO alien-collection layer: each farm unlocks its own UFO
       // with the first Mutant+Mutant merge on that farm
       ufo: CONFIG.FARMS.map(() => ({ landed: false, aliens: 0, pending: 0 })),
@@ -70,6 +73,13 @@ const SaveManager = (() => {
 
   function eventsDefault() {
     return { play: 0, log: [], pigeon: eventSlot(), tornado: eventSlot() };
+  }
+
+  /** One latch per FTUE flow the game defines, all owed on a fresh save. */
+  function ftueDefault() {
+    const d = {};
+    for (const f in CONFIG.FTUE.FLOWS) d[f] = false;
+    return d;
   }
 
   function crateDefault() {
@@ -150,9 +160,23 @@ const SaveManager = (() => {
     }
     // players from before the tutorial existed (or with animals already) skip it
     if (!d.tutorialDone) d.tutorialDone = CONFIG.FARMS.map(f => (d.animals[f.id] || []).length > 0);
-    // players who already bought an upgrade skip the first-upgrade tutorial
-    if (d.upgradeTutorialDone === undefined) {
-      d.upgradeTutorialDone = d.upgrades.some(u => u.spawn > 0 || u.stages.some(s => s > 0));
+    // Upgrade FTUE latches. A flow id is also its upgrade group (see
+    // js/upgrades.js `keyGroup`), so a save from before the FTUE existed is
+    // back-filled group by group: anyone who has already bought a farm
+    // upgrade knows that entry point and is never shown its flow, and the
+    // same for the animal chain. `upgradeTutorialDone` is the single, older
+    // first-upgrade tutorial — having finished it counts for both.
+    const ftueSeen = {
+      farm: d.upgrades.some(u => u.spawn > 0),
+      animals: d.upgrades.some(u => u.stages.some(s => s > 0) || (u.et || 0) > 0),
+    };
+    // built latch by latch rather than from ftueDefault(), whose all-false
+    // booleans would read as a decision already taken — and so that a flow
+    // added to the game later is back-filled too, not just a whole missing
+    // record
+    if (!d.ftue) d.ftue = {};
+    for (const f in CONFIG.FTUE.FLOWS) {
+      if (typeof d.ftue[f] !== 'boolean') d.ftue[f] = !!d.upgradeTutorialDone || !!ftueSeen[f];
     }
     for (const f of CONFIG.FARMS) {
       const n = STAGE_COUNT(f.species);
@@ -194,10 +218,13 @@ const SaveManager = (() => {
     try {
       const raw = localStorage.getItem(CONFIG.SAVE_KEY);
       const parsed = raw ? JSON.parse(raw) : null;
-      // revealSeeded is forced from the stored value: a save written before
-      // the flag existed must read as unseeded, not inherit the default's true
+      // revealSeeded and ftue are forced from the stored value: a save written
+      // before either existed must read as absent so migrate() can back-fill
+      // it, rather than inheriting a fresh save's defaults (unseeded reveals,
+      // and an FTUE that would replay for a player who is long past it)
       data = parsed
-        ? migrate(Object.assign(defaults(), parsed, { revealSeeded: !!parsed.revealSeeded }))
+        ? migrate(Object.assign(defaults(), parsed,
+            { revealSeeded: !!parsed.revealSeeded, ftue: parsed.ftue }))
         : defaults();
     } catch (e) { data = defaults(); }
     return data;

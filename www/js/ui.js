@@ -351,6 +351,7 @@ const UI = (() => {
     popup.maxScroll = Math.max(0, ch - ph);
     popup.scroll = U.clamp(popup.scroll || 0, 0, popup.maxScroll);
     followReveal(popup, rows, view.y - py, view.h);
+    followFtue(popup, rows, view.y - py, view.h);
     const sc = popup.scroll;
 
     ctx.save();
@@ -395,6 +396,26 @@ const UI = (() => {
     if (revealT(popup, last.key) > REVEAL.DUR + REVEAL.SHINE) return;   // settled
     const want = last.dy + last.h - viewTop - viewH;
     popup.scroll = U.clamp(Math.max(popup.scroll, want), 0, popup.maxScroll);
+  }
+
+  /**
+   * Keep the row an FTUE step is spotlighting inside the viewport. Only rows
+   * actually in view get a hit rect, so on a long chain the target has to be
+   * held there or the step would point at nothing. This is a clamp, not a
+   * scroll-to: it moves the list only as far as it takes to show the row, so
+   * a player looking around above or below it is never yanked back.
+   */
+  function followFtue(popup, rows, viewTop, viewH) {
+    const key = FTUE.buyKey;
+    if (key === null) return;
+    const row = rows.find(r => r.key === key);
+    if (!row) return;
+    const max = popup.maxScroll || 0;
+    const lo = U.clamp(row.dy + row.h - viewTop - viewH, 0, max);  // shows its bottom
+    const hi = U.clamp(row.dy - viewTop, 0, max);                  // still shows its top
+    // a row taller than the viewport can't satisfy both: favour its bottom,
+    // where the BUY button is
+    popup.scroll = hi < lo ? lo : U.clamp(popup.scroll, lo, hi);
   }
 
   /** Slim thumb on the panel's right edge showing how far down the list is. */
@@ -646,12 +667,14 @@ const UI = (() => {
       if (!visible(b, scene)) continue;
       drawButton(ctx, b);
       // red "!" badge while an upgrade this button opens is affordable (only
-      // after the first-upgrade tutorial has been completed). Each entry
-      // point badges for its own rows: the ANIMALS button only for the chain,
-      // the farmhouse only for the farm rows (see FarmScene.drawHouseCTA).
+      // once the FTUE that introduces those rows is done — see
+      // FTUE.badgeAllowed). Each entry point badges for its own rows: the
+      // ANIMALS button only for the chain, the farmhouse only for the farm
+      // rows (see FarmScene.drawHouseCTA).
       if (b.id !== 'upgrade' && b.id !== 'animals') continue;
-      if (SaveManager.data.upgradeTutorialDone &&
-          Upgrades.anyAffordable(SaveManager.data.currentFarm, b.id === 'animals' ? 'animals' : null)) {
+      const group = b.id === 'animals' ? 'animals' : null;
+      if (FTUE.badgeAllowed(SaveManager.data.currentFarm, group) &&
+          Upgrades.anyAffordable(SaveManager.data.currentFarm, group)) {
         drawBadge(ctx, b.x + b.w - 2, b.y - 2);
       }
     }
@@ -1338,7 +1361,7 @@ const UI = (() => {
       AudioManager.play('buy');
       popup.fx[p.card.key] = 1;
       spawnPanelFx(p.card.btn.x + p.card.btn.w / 2, p.card.btn.y + p.card.btn.h / 2);
-      Game.onUpgradePurchased();
+      Game.onUpgradePurchased(popup.farmId, p.card.key);
     } else {
       AudioManager.play('error');
       toast = { text: r.reason, t: 1.6 };
@@ -1354,7 +1377,7 @@ const UI = (() => {
     return true;
   }
 
-  // ---------------- first-upgrade tutorial overlay ----------------
+  // ---------------- upgrade FTUE overlay ----------------
   /** Pixel-style pointing hand, fingertip at (x, y). */
   function drawHand(ctx, x, y) {
     ctx.save();
@@ -1368,62 +1391,81 @@ const UI = (() => {
     ctx.restore();
   }
 
-  /**
-   * Which entry point the first-upgrade tutorial points at while no panel is
-   * open, as {id, target, label}. With one UPGRADE button that is always the
-   * button; on a split farm it is whichever entry point owns the cheapest
-   * upgrade the player can currently afford — the farmhouse for a farm row,
-   * the ANIMALS button for a chain row. Gameplay is frozen for the duration,
-   * so the answer can't drift under the player mid-tutorial.
-   */
-  function tutorialEntry() {
-    const id = SaveManager.data.currentFarm;
-    if (!CONFIG.splitUpgrades(id)) {
-      return { id: 'upgrade', target: buttons.find(b => b.id === 'upgrade'), label: 'UPGRADE YOUR FARM!' };
-    }
-    const best = Upgrades.cheapestAffordable(id);
-    if (!best) return null;
-    if (best.group === 'farm') {
-      const hr = ENVIRONMENT.houseRect(id);
-      return { id: 'house', target: { x: hr.x, y: hr.y, w: hr.w, h: hr.h }, label: 'TAP THE HOUSE!' };
-    }
-    return { id: 'animals', target: buttons.find(b => b.id === 'animals'), label: 'UPGRADE YOUR ANIMALS!' };
-  }
-
-  /** 'upgrade' | 'animals' | 'house' | null — the entry point the tutorial wants tapped. */
-  function tutorialEntryId() {
-    const e = tutorialEntry();
-    return e ? e.id : null;
-  }
+  // SKIP affordance of the FTUE's entry step, or null while it is not shown.
+  // Parked top-left of the playable band, clear of the farmhouse (centered),
+  // of the bottom button row and of the HUD's own controls.
+  let ftueSkip = null;
 
   /**
-   * Spotlight for the first-upgrade tutorial: pulsing glow + hand + label on
-   * the entry point (see tutorialEntry), then on the cheapest affordable BUY
-   * button inside the upgrade panel. Drawn above HUD and popup.
+   * Dim everything except `hole` — four rects around it rather than a wash
+   * over the whole stage, so the one live element keeps its full colour and
+   * reads as the only way forward.
    */
-  function drawUpgradeTutorial(ctx, t) {
-    let target = null, label = null;
-    if (!popup) {
-      const entry = tutorialEntry();
-      if (!entry) return;
-      target = entry.target;
-      label = entry.label;
-    } else if (popup.type === 'upgrades') {
-      let best = Infinity;
-      for (const c of popup.cards || []) {
-        const inf = Upgrades.info(popup.farmId, c.key);
-        if (!inf.maxed && SaveManager.data.coins >= inf.cost && inf.cost < best) {
-          best = inf.cost;
-          target = c.btn;
-        }
-      }
-      label = 'TAP BUY!';
+  function scrimAround(ctx, hole, alpha) {
+    const x1 = U.clamp(hole.x, 0, W), x2 = U.clamp(hole.x + hole.w, 0, W);
+    const y1 = U.clamp(hole.y, 0, H), y2 = U.clamp(hole.y + hole.h, 0, H);
+    ctx.save();
+    ctx.fillStyle = 'rgba(12,9,6,' + alpha + ')';
+    ctx.fillRect(0, 0, W, y1);
+    ctx.fillRect(0, y2, W, H - y2);
+    ctx.fillRect(0, y1, x1, y2 - y1);
+    ctx.fillRect(x2, y1, W - x2, y2 - y1);
+    ctx.restore();
+  }
+
+  /** Screen rect of the control the FTUE's entry step points at. */
+  function ftueEntryRect() {
+    if (FTUE.entryId === 'house') {
+      const hr = ENVIRONMENT.houseRect(SaveManager.data.currentFarm);
+      return { x: hr.x, y: hr.y, w: hr.w, h: hr.h };
     }
+    const b = buttons.find(bt => bt.id === FTUE.entryId);
+    return b ? { x: b.x, y: b.y, w: b.w, h: b.h } : null;
+  }
+
+  /**
+   * Rect of the BUY button on the row the FTUE's buy step points at. Only
+   * rows inside the panel's viewport register a hit rect, so a target that
+   * has scrolled out has none — followFtue keeps it in view, which is what
+   * makes this reliable on a long chain.
+   */
+  function ftueBuyRect() {
+    const key = FTUE.buyKey;
+    if (key === null || !popup) return null;
+    const card = (popup.cards || []).find(c => c.key === key);
+    return card ? card.btn : null;
+  }
+
+  /**
+   * The FTUE overlay: the scene dims behind a pulsing golden spotlight on the
+   * entry point, with the flow's prompt and its one-line explanation of what
+   * these upgrades do; once the panel is open the same spotlight moves to the
+   * row being bought; and the purchase is answered with a short success
+   * plaque. Drawn above HUD and popup. Steps and targets come from js/ftue.js
+   * — this only renders whatever it says is current, so a run that pauses
+   * (the balance dropped) simply stops drawing.
+   */
+  function drawFtue(ctx) {
+    ftueSkip = null;
+    const step = FTUE.step;
+    if (!step) return;
+    const copy = FTUE.copy;
+    if (step === 'success') { drawFtueSuccess(ctx, copy); return; }
+
+    const target = step === 'entry' ? ftueEntryRect() : ftueBuyRect();
     if (!target) return;
-
-    // pulsing golden glow around the target
+    const t = FTUE.t;
     const pulse = (Math.sin(t * 6) + 1) / 2;
     const g = 4 + pulse * 4;
+
+    // the entry step dims the farm around its one target; the buy step is
+    // already inside a modal panel, which does that job on its own
+    if (step === 'entry') {
+      scrimAround(ctx, { x: target.x - g, y: target.y - g, w: target.w + g * 2, h: target.h + g * 2 },
+                  CONFIG.FTUE.SCRIM);
+    }
+
+    // pulsing golden glow around the target
     ctx.save();
     ctx.globalAlpha = 0.55 + pulse * 0.45;
     ctx.strokeStyle = '#ffe98a';
@@ -1437,15 +1479,64 @@ const UI = (() => {
     // bobbing hand pointing at the target
     drawHand(ctx, target.x + target.w / 2 + 10, target.y + target.h / 2 + 8 + Math.sin(t * 4) * 4);
 
-    // instruction label, kept fully on screen: above the target normally, but
-    // below it when there is no room (the farmhouse sits right under the HUD
-    // bar, and the label must not read as part of the top bar)
-    const lw = measure(label, SIZE.BUTTON);
-    const lx = U.clamp(target.x + target.w / 2, lw / 2 + 6, W - lw / 2 - 6);
     const safe = safeArea();
-    const above = target.y - g - 22;
-    drawText(ctx, label, lx, above >= safe.y ? above : target.y + target.h + g + 8,
-             SIZE.BUTTON, '#ffe98a', 'center', true, false, W - 12);
+    if (step === 'entry') {
+      // Prompt + the one-line explanation, stacked beside the element they
+      // describe and kept fully on screen: above it normally, below it when
+      // there is no room — the farmhouse sits right under the HUD bar, and
+      // the prompt must not read as part of the top bar.
+      const lines = [{ text: copy.entryLabel, size: SIZE.BUTTON, col: '#ffe98a' },
+                     { text: copy.entryBlurb, size: SIZE.CAPTION, col: '#f4e8cc' }];
+      const lh = 13;
+      const above = target.y - g - 10 - lines.length * lh;
+      const flip = above < safe.y;
+      const top = flip ? target.y + target.h + g + 8 : above;
+      // stacked so the prompt itself always stays nearest the target
+      const order = flip ? lines : lines.slice().reverse();
+      order.forEach((l, i) => {
+        const lw = measure(l.text, l.size);
+        const lx = U.clamp(target.x + target.w / 2, lw / 2 + 6, W - lw / 2 - 6);
+        drawText(ctx, l.text, lx, top + i * lh, l.size, l.col, 'center', true, false, W - 12);
+      });
+      // Guided, never forced. On this step the way out is SKIP; once the
+      // panel is open its own X does the same job (see tap).
+      ftueSkip = { x: 8, y: safe.y, w: 44, h: 20 };
+      ctx.save();
+      ctx.globalAlpha = 0.8;
+      inset(ctx, ftueSkip.x, ftueSkip.y, ftueSkip.w, ftueSkip.h);
+      drawText(ctx, 'SKIP', ftueSkip.x + ftueSkip.w / 2, ftueSkip.y + 6.5,
+               SIZE.CAPTION, '#c8b088', 'center');
+      ctx.restore();
+    } else {
+      // Inside the panel a card is dense — its own cost sits directly above
+      // the button — so the prompt goes on the same bottom plaque the
+      // success beat uses, where it can never land on the card's numbers.
+      ftuePlaque(ctx, copy.buyLabel, 1);
+    }
+  }
+
+  /** The FTUE's bottom plaque: one short line, clear of the panel's content. */
+  function ftuePlaque(ctx, text, alpha) {
+    const tw = measure(text, SIZE.BUTTON) + 26;
+    const bx = W / 2 - tw / 2, by = H - 96;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    inset(ctx, bx, by, tw, 26);
+    drawText(ctx, text, W / 2, by + 8, SIZE.BUTTON, '#ffe98a', 'center');
+    ctx.restore();
+  }
+
+  /**
+   * The closing beat: a short plaque naming what was just bought, fading in
+   * and out over CONFIG.FTUE.SUCCESS_TIME. Nothing here waits on the player
+   * — the purchase already landed and the flow is already latched, so this is
+   * acknowledgement, not a step.
+   */
+  function drawFtueSuccess(ctx, copy) {
+    const t = FTUE.successT;
+    if (t === null) return;
+    const a = Math.min(1, t * 6, (CONFIG.FTUE.SUCCESS_TIME - t) * 5);
+    if (a > 0) ftuePlaque(ctx, copy.successLabel, a);
   }
 
   /** Returns true if the tap was consumed by UI. */
@@ -1466,7 +1557,11 @@ const UI = (() => {
         return true;
       }
       if (inRect(x, y, popup.closeRect)) {
-        if (Game.upgradeTutorialActive) return true; // tutorial: must buy before closing
+        // closing the FTUE's own panel is how the player opts out of it: the
+        // flow is marked complete rather than retried, and the panel closes
+        // as it normally would. Only its own steps count — a run waiting for
+        // the player to afford the row is not dismissed by some other panel.
+        if (FTUE.step === 'buy' || FTUE.step === 'success') FTUE.skip();
         // walking away from a reward offer counts as a dismissal: it extends
         // that event's cooldown (see js/events.js)
         if (popup.type === 'pigeonAd') Events.dismissed('pigeon');
@@ -1476,7 +1571,13 @@ const UI = (() => {
       if (popup.type === 'upgrades') {
         // the list scrolls, so a press only ARMS a purchase: it goes through
         // on release, and only if the finger stayed put (see drag/release)
-        const card = (popup.cards || []).find(c => inRect(x, y, c.btn));
+        let card = (popup.cards || []).find(c => inRect(x, y, c.btn));
+        // while an FTUE step is spotlighting one row, that row is the only
+        // buyable one — the list still scrolls, so the player can look
+        // around, they just can't take a wrong turn. Keys can be 0, so the
+        // gate is compared against null, not tested for truthiness.
+        const gate = FTUE.buyKey;
+        if (gate !== null && card && card.key !== gate) card = null;
         popup.press = { y, scroll: popup.scroll || 0, moved: false, card };
         return true;
       }
@@ -1551,10 +1652,16 @@ const UI = (() => {
       }
       return true; // modal swallows all taps
     }
+    // the FTUE's own opt-out, live only while its entry step is on screen
+    if (FTUE.step === 'entry' && inRect(x, y, ftueSkip)) {
+      AudioManager.play('click');
+      FTUE.skip();
+      return true;
+    }
     for (const b of buttons) {
       if (!visible(b, Game.scene)) continue;
-      // tutorial: only the entry point it spotlights is tappable
-      if (Game.upgradeTutorialActive && b.id !== tutorialEntryId()) continue;
+      // FTUE: only the entry point it spotlights is tappable
+      if (FTUE.active && b.id !== FTUE.entryId) continue;
       if (inRect(x, y, b)) {
         AudioManager.play('click');
         Game.onButton(b.id);
@@ -1582,7 +1689,7 @@ const UI = (() => {
 
   return {
     SIZE, drawText, measure, woodPanel, woodSign, drawButton, drawHUD, drawPopup, drawLoading,
-    drawHand, drawUpgradeTutorial, drawBadge, safeArea, tutorialEntryId,
+    drawHand, drawFtue, drawBadge, safeArea,
     /** Center of an on-screen button — the point a panel grows out of. */
     buttonCenter(id) {
       const b = buttons.find(bt => bt.id === id);

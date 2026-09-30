@@ -32,16 +32,37 @@ const Upgrades = (() => {
     return key === 'spawn' ? d.spawn : key === 'et' ? (d.et || 0) : d.stages[key];
   }
 
+  // ---------------- opening window ----------------
+  // A farm with CONFIG.FARMS[].onboarding runs its opening off that block
+  // instead of the general curve: its own SPAWN prices, its own SPAWN ladder,
+  // and a hurried first poop so a new animal starts earning straight away.
+  // Each hook below falls straight through to the normal numbers on a farm
+  // that did not opt in, and the price ladder rejoins the curve once it runs
+  // out — so the opening is the only thing any of this can reach.
+
+  /** The opening block for this farm, or null when it never opted in. */
+  function onboarding(farmId) { return CONFIG.onboarding(farmId); }
+
   function cost(farmId, key) {
     const u = def(farmId, key);
     if (!u) return 0;
+    // an opening price is a literal onboarding number, not a point on a curve
+    const o = onboarding(farmId);
+    if (o && key === 'spawn') {
+      const early = o.SPAWN_COSTS[level(farmId, key)];
+      if (early !== undefined) return early;
+    }
     const growth = u.costGrowth || CU().COST_GROWTH;
     return Math.round(u.baseCost * Math.pow(growth, level(farmId, key)) * CONFIG.FARMS[farmId].costMult);
   }
 
   function maxLevel(farmId, key) {
     const u = def(farmId, key);
-    return u ? u.maxLevel : 0;
+    if (!u) return 0;
+    // an opening farm's spawn ladder IS its table, so the row tops out with it
+    const o = onboarding(farmId);
+    if (o && key === 'spawn') return o.SPAWN_INTERVALS.length - 1;
+    return u.maxLevel;
   }
 
   function isMaxed(farmId, key) {
@@ -97,8 +118,26 @@ const Upgrades = (() => {
 
   /** Seconds between automatic baby spawns for this farm (optionally at a given level). */
   function spawnInterval(farmId, lv = level(farmId, 'spawn')) {
+    const o = onboarding(farmId);
+    if (o) {
+      const t = o.SPAWN_INTERVALS;
+      return t[U.clamp(lv, 0, t.length - 1)];
+    }
     const u = CU().FARM.SPAWN;
     return Math.max(u.minInterval, CONFIG.SPAWN_INTERVAL - lv * u.intervalStep);
+  }
+
+  /**
+   * Seconds before a newly placed animal's first poop. An onboarding farm
+   * hurries it along so a fresh chick starts earning promptly instead of
+   * standing around for most of the opening — a one-off shift of its clock,
+   * not a faster rate, so it costs nothing in steady state and never has to
+   * be withdrawn. Elsewhere it is the usual wide spread.
+   */
+  function firstPoopDelay(farmId) {
+    const o = onboarding(farmId);
+    if (o) return U.rand(o.FIRST_POOP[0], o.FIRST_POOP[1]);
+    return U.rand(1, CONFIG.POOP_INTERVAL + CONFIG.POOP_INTERVAL_JITTER);
   }
 
   /** Seconds between poops for one animal of this stage on this farm. */
@@ -258,5 +297,6 @@ const Upgrades = (() => {
   }
 
   return { level, cost, isMaxed, unlocked, keys, keyGroup, takeUnrevealed, spawnInterval, poopInterval,
-           coinValue, alienValue, incomeRate, buy, info, affordable, anyAffordable, cheapestAffordable };
+           firstPoopDelay, coinValue, alienValue, incomeRate, buy, info, affordable, anyAffordable,
+           cheapestAffordable };
 })();

@@ -53,6 +53,54 @@ const CONFIG = {
     // Per-stage upgrade definitions now live on each stage in CHAINS (`up`).
   },
 
+  // ---------------- Opening window (see FARMS[].onboarding) ----------------
+  // The first farm upgrade is an onboarding beat, not an economic decision.
+  // It is what fires FTUE 1 (js/ftue.js), so it has to be affordable at the
+  // moment the player has just finished their first match and the pen is
+  // starting to fill — about the fourth animal, roughly 20 seconds in. Left
+  // on the normal curve it costs 100 and lands near a minute in, with the pen
+  // most of the way full and no guidance until then.
+  //
+  // So the opening is priced and paid for from here instead. Every value is
+  // deliberately OFF the general cost curve and applies only to farms that
+  // opt in, so this window can be retuned without touching late-game balance
+  // — and each ramp ends by rejoining the normal numbers rather than
+  // snapping back to them.
+  ONBOARDING: {
+    // Cost of each SPAWN level, level 1 first: the first is priced at what
+    // the opening actually pays out by the fourth animal, the next two stay
+    // cheap but climb clearly. Past the end of this list the normal curve
+    // takes over (level 4 = 220), which every entry here stays below.
+    SPAWN_COSTS: [20, 60, 150],
+    // The whole SPAWN ladder for an opted-in farm, in seconds, indexed by
+    // level (0 = unbought). The first level is a big, obvious jump: the first
+    // purchase has to be *felt*, and the normal step's 3.0 -> 2.8 is not.
+    // After it the steps taper to the same 1.0 floor over the same number of
+    // levels the normal ladder uses, so only the shape of the ramp changes.
+    SPAWN_INTERVALS: [3.0, 1.9, 1.78, 1.68, 1.58, 1.48, 1.38, 1.28, 1.18, 1.09, 1.0],
+    // Starting coin generation: seconds to a new animal's FIRST poop on this
+    // farm, in place of the usual rand(1, POOP_INTERVAL + JITTER). The whole
+    // opening is about twenty seconds, and an animal idling four of them
+    // before its first coin is most of that window spent watching nothing
+    // happen — this is what makes the opening pay out fast enough for the
+    // price above to land on the fourth animal.
+    //
+    // It is a one-off shift of each animal's poop clock, not a faster rate,
+    // so it pays while the pen is filling and is worth nothing once the pen
+    // is full: it can stay on for the whole farm without touching steady-
+    // state income, and so it never has to be taken away.
+    //
+    // That last part is the constraint to respect when retuning here: this
+    // farm's pen caps at maxAnimals, so a faster SPAWN interval is worth
+    // nothing in steady state while a rate bonus (poop speed, coin value) is
+    // worth something forever. A temporary rate bonus withdrawn at the first
+    // purchase therefore makes that purchase a permanent net LOSS, however
+    // big the interval jump beside it — which is why the opening's income
+    // comes from this one-off shift and its pacing from SPAWN_COSTS, and why
+    // there is no early rate multiplier here.
+    FIRST_POOP: [0.6, 1.4],
+  },
+
   // ---------------- Merge chains ----------------
   // One chain per species — the single source of truth for that farm's whole
   // evolution ladder: how many board stages it has, what each is called, what
@@ -495,6 +543,37 @@ const CONFIG = {
     HAND_CYCLE: 1.8,       // seconds per drag-hint loop
   },
 
+  // First-time experience for the two upgrade entry points (see js/ftue.js).
+  // Which farms run it, and in what order, is CONFIG.FARMS[].ftue — the flow
+  // ids below are the only ones it may name, and the order in that array is
+  // the order the player meets them. Presentation only: nothing here changes
+  // an upgrade's cost, its discovery gate or what it does.
+  FTUE: {
+    ENABLED: true,
+    SUCCESS_TIME: 1.5,     // seconds the "bought it!" beat plays before the run ends
+    SCRIM: 0.52,           // how far the scene dims behind the spotlighted element
+    FLOWS: {
+      // 'farm' / 'animals' are the upgrade groups of js/upgrades.js `keyGroup`,
+      // so each flow teaches exactly one entry point's rows. `entry` is the
+      // button/prop it spotlights on a farm with CONFIG.splitUpgrades; without
+      // that flag both flows enter through the single UPGRADE button instead.
+      farm: {
+        entry: 'house',
+        entryLabel: 'TAP THE HOUSE!',
+        entryBlurb: 'FARM UPGRADES SEND NEW ANIMALS FASTER',
+        buyLabel: 'TAP TO UPGRADE!',
+        successLabel: 'FARM UPGRADED!',
+      },
+      animals: {
+        entry: 'animals',
+        entryLabel: 'TAP YOUR ANIMALS!',
+        entryBlurb: 'THESE UPGRADE THE ANIMALS THEMSELVES',
+        buyLabel: 'TAP TO UPGRADE!',
+        successLabel: 'ANIMALS UPGRADED!',
+      },
+    },
+  },
+
   // Animation durations
   UNLOCK_PATH_TIME: 2.2,
   UNLOCK_CAMERA_PAUSE: 0.8,
@@ -526,8 +605,18 @@ const CONFIG = {
   // the farmhouse opens the FARM rows, a dedicated on-screen button opens the
   // animal chain (see CONFIG.splitUpgrades and js/upgrades.js `keyGroup`).
   // A farm without the flag keeps the single UPGRADE button holding both.
+  //
+  // ftue lists the upgrade FTUE flows this farm introduces, in the order the
+  // player meets them (see CONFIG.FTUE and js/ftue.js). Farm 1 is the only
+  // one that teaches them today; another farm opts in by naming its own
+  // flows here, and a farm that omits the field runs no upgrade FTUE at all.
+  //
+  // onboarding puts this farm's opening on CONFIG.ONBOARDING's soft ramp
+  // instead of the general cost curve (prices, spawn ladder, early income).
+  // Farm 1 is the game's first farm and the only one that needs it; the
+  // others keep their curves exactly as they are.
   FARMS: [
-    { id: 0, name: 'FARM 1', themedName: 'CHICKEN FARM', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.72, maxAnimals: 18, splitUpgrades: true },
+    { id: 0, name: 'FARM 1', themedName: 'CHICKEN FARM', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.72, maxAnimals: 18, splitUpgrades: true, ftue: ['farm', 'animals'], onboarding: true },
     { id: 1, name: 'FARM 2', themedName: 'SHEEP FARM',   species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4,  offlinePenFill: 0.65 },
     { id: 2, name: 'FARM 3', themedName: 'COW FARM',     species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12, offlinePenFill: 0.65 },
   ],
@@ -592,4 +681,21 @@ Object.assign(CONFIG, {
    * the whole menu — flip the flag in FARMS to enable it on another farm.
    */
   splitUpgrades(farmId) { return !!CONFIG.FARMS[farmId].splitUpgrades; },
+  /**
+   * The upgrade FTUE flows this farm runs, in order — the array from its
+   * FARMS entry, filtered to ids CONFIG.FTUE actually defines so a typo can
+   * never queue a flow with no copy behind it. Empty means no upgrade FTUE.
+   */
+  /**
+   * CONFIG.ONBOARDING for a farm that opts into the soft opening, or null.
+   * Every consumer goes through here, so a farm without the flag never sees
+   * an early-game number (see js/upgrades.js).
+   */
+  onboarding(farmId) {
+    return CONFIG.FARMS[farmId].onboarding ? CONFIG.ONBOARDING : null;
+  },
+  ftueFlows(farmId) {
+    const list = CONFIG.FARMS[farmId].ftue || [];
+    return list.filter(f => !!CONFIG.FTUE.FLOWS[f]);
+  },
 });

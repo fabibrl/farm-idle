@@ -651,5 +651,7 @@ const Crate = (() => {
   }
 
   return { update, draw, tap, info, claim, adCompleted, adFailed, reset,
-           offlineTick, enabledFor, isLive };
+           offlineTick, enabledFor, isLive,
+           /** Is a box on screen, falling, resting or opening? (see js/ftue.js) */
+           get present() { return !!box || !!opening; } };
 })();

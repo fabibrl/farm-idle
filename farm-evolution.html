@@ -106,6 +106,54 @@ const CONFIG = {
     // Per-stage upgrade definitions now live on each stage in CHAINS (`up`).
   },
 
+  // ---------------- Opening window (see FARMS[].onboarding) ----------------
+  // The first farm upgrade is an onboarding beat, not an economic decision.
+  // It is what fires FTUE 1 (js/ftue.js), so it has to be affordable at the
+  // moment the player has just finished their first match and the pen is
+  // starting to fill — about the fourth animal, roughly 20 seconds in. Left
+  // on the normal curve it costs 100 and lands near a minute in, with the pen
+  // most of the way full and no guidance until then.
+  //
+  // So the opening is priced and paid for from here instead. Every value is
+  // deliberately OFF the general cost curve and applies only to farms that
+  // opt in, so this window can be retuned without touching late-game balance
+  // — and each ramp ends by rejoining the normal numbers rather than
+  // snapping back to them.
+  ONBOARDING: {
+    // Cost of each SPAWN level, level 1 first: the first is priced at what
+    // the opening actually pays out by the fourth animal, the next two stay
+    // cheap but climb clearly. Past the end of this list the normal curve
+    // takes over (level 4 = 220), which every entry here stays below.
+    SPAWN_COSTS: [20, 60, 150],
+    // The whole SPAWN ladder for an opted-in farm, in seconds, indexed by
+    // level (0 = unbought). The first level is a big, obvious jump: the first
+    // purchase has to be *felt*, and the normal step's 3.0 -> 2.8 is not.
+    // After it the steps taper to the same 1.0 floor over the same number of
+    // levels the normal ladder uses, so only the shape of the ramp changes.
+    SPAWN_INTERVALS: [3.0, 1.9, 1.78, 1.68, 1.58, 1.48, 1.38, 1.28, 1.18, 1.09, 1.0],
+    // Starting coin generation: seconds to a new animal's FIRST poop on this
+    // farm, in place of the usual rand(1, POOP_INTERVAL + JITTER). The whole
+    // opening is about twenty seconds, and an animal idling four of them
+    // before its first coin is most of that window spent watching nothing
+    // happen — this is what makes the opening pay out fast enough for the
+    // price above to land on the fourth animal.
+    //
+    // It is a one-off shift of each animal's poop clock, not a faster rate,
+    // so it pays while the pen is filling and is worth nothing once the pen
+    // is full: it can stay on for the whole farm without touching steady-
+    // state income, and so it never has to be taken away.
+    //
+    // That last part is the constraint to respect when retuning here: this
+    // farm's pen caps at maxAnimals, so a faster SPAWN interval is worth
+    // nothing in steady state while a rate bonus (poop speed, coin value) is
+    // worth something forever. A temporary rate bonus withdrawn at the first
+    // purchase therefore makes that purchase a permanent net LOSS, however
+    // big the interval jump beside it — which is why the opening's income
+    // comes from this one-off shift and its pacing from SPAWN_COSTS, and why
+    // there is no early rate multiplier here.
+    FIRST_POOP: [0.6, 1.4],
+  },
+
   // ---------------- Merge chains ----------------
   // One chain per species — the single source of truth for that farm's whole
   // evolution ladder: how many board stages it has, what each is called, what
@@ -548,6 +596,37 @@ const CONFIG = {
     HAND_CYCLE: 1.8,       // seconds per drag-hint loop
   },
 
+  // First-time experience for the two upgrade entry points (see js/ftue.js).
+  // Which farms run it, and in what order, is CONFIG.FARMS[].ftue — the flow
+  // ids below are the only ones it may name, and the order in that array is
+  // the order the player meets them. Presentation only: nothing here changes
+  // an upgrade's cost, its discovery gate or what it does.
+  FTUE: {
+    ENABLED: true,
+    SUCCESS_TIME: 1.5,     // seconds the "bought it!" beat plays before the run ends
+    SCRIM: 0.52,           // how far the scene dims behind the spotlighted element
+    FLOWS: {
+      // 'farm' / 'animals' are the upgrade groups of js/upgrades.js `keyGroup`,
+      // so each flow teaches exactly one entry point's rows. `entry` is the
+      // button/prop it spotlights on a farm with CONFIG.splitUpgrades; without
+      // that flag both flows enter through the single UPGRADE button instead.
+      farm: {
+        entry: 'house',
+        entryLabel: 'TAP THE HOUSE!',
+        entryBlurb: 'FARM UPGRADES SEND NEW ANIMALS FASTER',
+        buyLabel: 'TAP TO UPGRADE!',
+        successLabel: 'FARM UPGRADED!',
+      },
+      animals: {
+        entry: 'animals',
+        entryLabel: 'TAP YOUR ANIMALS!',
+        entryBlurb: 'THESE UPGRADE THE ANIMALS THEMSELVES',
+        buyLabel: 'TAP TO UPGRADE!',
+        successLabel: 'ANIMALS UPGRADED!',
+      },
+    },
+  },
+
   // Animation durations
   UNLOCK_PATH_TIME: 2.2,
   UNLOCK_CAMERA_PAUSE: 0.8,
@@ -579,8 +658,18 @@ const CONFIG = {
   // the farmhouse opens the FARM rows, a dedicated on-screen button opens the
   // animal chain (see CONFIG.splitUpgrades and js/upgrades.js `keyGroup`).
   // A farm without the flag keeps the single UPGRADE button holding both.
+  //
+  // ftue lists the upgrade FTUE flows this farm introduces, in the order the
+  // player meets them (see CONFIG.FTUE and js/ftue.js). Farm 1 is the only
+  // one that teaches them today; another farm opts in by naming its own
+  // flows here, and a farm that omits the field runs no upgrade FTUE at all.
+  //
+  // onboarding puts this farm's opening on CONFIG.ONBOARDING's soft ramp
+  // instead of the general cost curve (prices, spawn ladder, early income).
+  // Farm 1 is the game's first farm and the only one that needs it; the
+  // others keep their curves exactly as they are.
   FARMS: [
-    { id: 0, name: 'FARM 1', themedName: 'CHICKEN FARM', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.72, maxAnimals: 18, splitUpgrades: true },
+    { id: 0, name: 'FARM 1', themedName: 'CHICKEN FARM', species: 'chicken', label: 'CHICKENS', incomeMult: 1,  costMult: 1,  offlinePenFill: 0.72, maxAnimals: 18, splitUpgrades: true, ftue: ['farm', 'animals'], onboarding: true },
     { id: 1, name: 'FARM 2', themedName: 'SHEEP FARM',   species: 'sheep',   label: 'SHEEP',    incomeMult: 4,  costMult: 4,  offlinePenFill: 0.65 },
     { id: 2, name: 'FARM 3', themedName: 'COW FARM',     species: 'cow',     label: 'COWS',     incomeMult: 12, costMult: 12, offlinePenFill: 0.65 },
   ],
@@ -645,6 +734,23 @@ Object.assign(CONFIG, {
    * the whole menu — flip the flag in FARMS to enable it on another farm.
    */
   splitUpgrades(farmId) { return !!CONFIG.FARMS[farmId].splitUpgrades; },
+  /**
+   * The upgrade FTUE flows this farm runs, in order — the array from its
+   * FARMS entry, filtered to ids CONFIG.FTUE actually defines so a typo can
+   * never queue a flow with no copy behind it. Empty means no upgrade FTUE.
+   */
+  /**
+   * CONFIG.ONBOARDING for a farm that opts into the soft opening, or null.
+   * Every consumer goes through here, so a farm without the flag never sees
+   * an early-game number (see js/upgrades.js).
+   */
+  onboarding(farmId) {
+    return CONFIG.FARMS[farmId].onboarding ? CONFIG.ONBOARDING : null;
+  },
+  ftueFlows(farmId) {
+    const list = CONFIG.FARMS[farmId].ftue || [];
+    return list.filter(f => !!CONFIG.FTUE.FLOWS[f]);
+  },
 });
 </script>
 <script>
@@ -3038,8 +3144,11 @@ const SaveManager = (() => {
       upgradesRevealed: CONFIG.FARMS.map(() => []),
       // per-farm: has the first-merge tutorial been completed?
       tutorialDone: CONFIG.FARMS.map(() => false),
-      // one-time: has the first-upgrade tutorial been completed?
-      upgradeTutorialDone: false,
+      // upgrade FTUE (see js/ftue.js): one latch per flow, player-level rather
+      // than per farm — each flow introduces an entry point once in a
+      // lifetime, whichever farm happens to teach it. Latched and kept, so a
+      // completed (or skipped) flow never comes back in a later session.
+      ftue: ftueDefault(),
       // per-farm UFO alien-collection layer: each farm unlocks its own UFO
       // with the first Mutant+Mutant merge on that farm
       ufo: CONFIG.FARMS.map(() => ({ landed: false, aliens: 0, pending: 0 })),
@@ -3081,6 +3190,13 @@ const SaveManager = (() => {
 
   function eventsDefault() {
     return { play: 0, log: [], pigeon: eventSlot(), tornado: eventSlot() };
+  }
+
+  /** One latch per FTUE flow the game defines, all owed on a fresh save. */
+  function ftueDefault() {
+    const d = {};
+    for (const f in CONFIG.FTUE.FLOWS) d[f] = false;
+    return d;
   }
 
   function crateDefault() {
@@ -3161,9 +3277,23 @@ const SaveManager = (() => {
     }
     // players from before the tutorial existed (or with animals already) skip it
     if (!d.tutorialDone) d.tutorialDone = CONFIG.FARMS.map(f => (d.animals[f.id] || []).length > 0);
-    // players who already bought an upgrade skip the first-upgrade tutorial
-    if (d.upgradeTutorialDone === undefined) {
-      d.upgradeTutorialDone = d.upgrades.some(u => u.spawn > 0 || u.stages.some(s => s > 0));
+    // Upgrade FTUE latches. A flow id is also its upgrade group (see
+    // js/upgrades.js `keyGroup`), so a save from before the FTUE existed is
+    // back-filled group by group: anyone who has already bought a farm
+    // upgrade knows that entry point and is never shown its flow, and the
+    // same for the animal chain. `upgradeTutorialDone` is the single, older
+    // first-upgrade tutorial — having finished it counts for both.
+    const ftueSeen = {
+      farm: d.upgrades.some(u => u.spawn > 0),
+      animals: d.upgrades.some(u => u.stages.some(s => s > 0) || (u.et || 0) > 0),
+    };
+    // built latch by latch rather than from ftueDefault(), whose all-false
+    // booleans would read as a decision already taken — and so that a flow
+    // added to the game later is back-filled too, not just a whole missing
+    // record
+    if (!d.ftue) d.ftue = {};
+    for (const f in CONFIG.FTUE.FLOWS) {
+      if (typeof d.ftue[f] !== 'boolean') d.ftue[f] = !!d.upgradeTutorialDone || !!ftueSeen[f];
     }
     for (const f of CONFIG.FARMS) {
       const n = STAGE_COUNT(f.species);
@@ -3205,10 +3335,13 @@ const SaveManager = (() => {
     try {
       const raw = localStorage.getItem(CONFIG.SAVE_KEY);
       const parsed = raw ? JSON.parse(raw) : null;
-      // revealSeeded is forced from the stored value: a save written before
-      // the flag existed must read as unseeded, not inherit the default's true
+      // revealSeeded and ftue are forced from the stored value: a save written
+      // before either existed must read as absent so migrate() can back-fill
+      // it, rather than inheriting a fresh save's defaults (unseeded reveals,
+      // and an FTUE that would replay for a player who is long past it)
       data = parsed
-        ? migrate(Object.assign(defaults(), parsed, { revealSeeded: !!parsed.revealSeeded }))
+        ? migrate(Object.assign(defaults(), parsed,
+            { revealSeeded: !!parsed.revealSeeded, ftue: parsed.ftue }))
         : defaults();
     } catch (e) { data = defaults(); }
     return data;
@@ -3566,16 +3699,37 @@ const Upgrades = (() => {
     return key === 'spawn' ? d.spawn : key === 'et' ? (d.et || 0) : d.stages[key];
   }
 
+  // ---------------- opening window ----------------
+  // A farm with CONFIG.FARMS[].onboarding runs its opening off that block
+  // instead of the general curve: its own SPAWN prices, its own SPAWN ladder,
+  // and a hurried first poop so a new animal starts earning straight away.
+  // Each hook below falls straight through to the normal numbers on a farm
+  // that did not opt in, and the price ladder rejoins the curve once it runs
+  // out — so the opening is the only thing any of this can reach.
+
+  /** The opening block for this farm, or null when it never opted in. */
+  function onboarding(farmId) { return CONFIG.onboarding(farmId); }
+
   function cost(farmId, key) {
     const u = def(farmId, key);
     if (!u) return 0;
+    // an opening price is a literal onboarding number, not a point on a curve
+    const o = onboarding(farmId);
+    if (o && key === 'spawn') {
+      const early = o.SPAWN_COSTS[level(farmId, key)];
+      if (early !== undefined) return early;
+    }
     const growth = u.costGrowth || CU().COST_GROWTH;
     return Math.round(u.baseCost * Math.pow(growth, level(farmId, key)) * CONFIG.FARMS[farmId].costMult);
   }
 
   function maxLevel(farmId, key) {
     const u = def(farmId, key);
-    return u ? u.maxLevel : 0;
+    if (!u) return 0;
+    // an opening farm's spawn ladder IS its table, so the row tops out with it
+    const o = onboarding(farmId);
+    if (o && key === 'spawn') return o.SPAWN_INTERVALS.length - 1;
+    return u.maxLevel;
   }
 
   function isMaxed(farmId, key) {
@@ -3631,8 +3785,26 @@ const Upgrades = (() => {
 
   /** Seconds between automatic baby spawns for this farm (optionally at a given level). */
   function spawnInterval(farmId, lv = level(farmId, 'spawn')) {
+    const o = onboarding(farmId);
+    if (o) {
+      const t = o.SPAWN_INTERVALS;
+      return t[U.clamp(lv, 0, t.length - 1)];
+    }
     const u = CU().FARM.SPAWN;
     return Math.max(u.minInterval, CONFIG.SPAWN_INTERVAL - lv * u.intervalStep);
+  }
+
+  /**
+   * Seconds before a newly placed animal's first poop. An onboarding farm
+   * hurries it along so a fresh chick starts earning promptly instead of
+   * standing around for most of the opening — a one-off shift of its clock,
+   * not a faster rate, so it costs nothing in steady state and never has to
+   * be withdrawn. Elsewhere it is the usual wide spread.
+   */
+  function firstPoopDelay(farmId) {
+    const o = onboarding(farmId);
+    if (o) return U.rand(o.FIRST_POOP[0], o.FIRST_POOP[1]);
+    return U.rand(1, CONFIG.POOP_INTERVAL + CONFIG.POOP_INTERVAL_JITTER);
   }
 
   /** Seconds between poops for one animal of this stage on this farm. */
@@ -3792,7 +3964,269 @@ const Upgrades = (() => {
   }
 
   return { level, cost, isMaxed, unlocked, keys, keyGroup, takeUnrevealed, spawnInterval, poopInterval,
-           coinValue, alienValue, incomeRate, buy, info, affordable, anyAffordable, cheapestAffordable };
+           firstPoopDelay, coinValue, alienValue, incomeRate, buy, info, affordable, anyAffordable,
+           cheapestAffordable };
+})();
+</script>
+<script>
+/**
+ * FTUE — the first-time experience for the game's two upgrade entry points.
+ *
+ * Farm 1 splits its upgrade menu in two (CONFIG.splitUpgrades): the farmhouse
+ * opens the FARM rows, a dedicated on-screen button opens the animal chain.
+ * Neither is self-explanatory the first time, so each gets one guided run:
+ *
+ *   'farm'    — the first time a farm upgrade is affordable: dim the scene,
+ *               spotlight the house, open the panel, spotlight the row, buy.
+ *   'animals' — the same for the animal button, and never before 'farm' has
+ *               been finished.
+ *
+ * Which flows a farm runs, and in what order, is data: CONFIG.FARMS[].ftue
+ * names them and CONFIG.FTUE.FLOWS holds their copy, so another farm enables
+ * its own FTUE by listing flows there. A flow id is also the upgrade group it
+ * teaches (js/upgrades.js `keyGroup`), which is the whole of the mapping
+ * between a flow and the rows it points at.
+ *
+ * Rules this module enforces:
+ *
+ *   Strict order       Only the first flow a farm still owes can run, so an
+ *                      affordable animal upgrade waits its turn rather than
+ *                      jumping ahead of the house.
+ *   One at a time      A run is inert (see `step`) while anything else owns
+ *                      the screen — the merge tutorial, a celebration, the
+ *                      welcome-back popup, a surprise box, a poop rain, a
+ *                      tornado, the abduction cinematic — and Game freezes
+ *                      those systems for the duration of an active step, so
+ *                      neither side can start on top of the other.
+ *   Once ever          Completing OR skipping a flow latches it in the save
+ *                      (SaveManager.data.ftue), so it never comes back.
+ *   Never a dead end   The steps are derived from live state every frame, not
+ *                      stored. A balance that drops below the cost mid-run
+ *                      simply makes `step` null: the overlay disappears, the
+ *                      game unfreezes, and the run picks up where it left off
+ *                      once the player can afford the row again.
+ *   Player-driven      Steps advance on the panel opening and on the purchase
+ *                      landing — never on a timer. The only timed thing here
+ *                      is the success beat after the purchase is already made.
+ *
+ * Presentation and sequencing only: costs, discovery gating and purchase
+ * logic are untouched. Drawing lives in js/ui.js (`drawFtue`), which reads
+ * the getters below; the freeze and the tap routing live in js/game.js.
+ */
+const FTUE = (() => {
+  const C = () => CONFIG.FTUE;
+
+  // The live run, or null. `successT` is null until the purchase lands, then
+  // counts the success beat up to CONFIG.FTUE.SUCCESS_TIME.
+  let run = null;
+
+  const flows = farmId => CONFIG.ftueFlows(farmId);
+  const done = flow => !!SaveManager.data.ftue[flow];
+
+  function markDone(flow) {
+    if (!flow || done(flow)) return;
+    SaveManager.data.ftue[flow] = true;
+    SaveManager.save();
+  }
+
+  /**
+   * Nothing in this group can ever be bought again (every row maxed, or the
+   * chain has no row for it at all). A locked row is not exhausted — it is
+   * simply undiscovered and may still become buyable — so this is only ever
+   * true for a group that is genuinely finished. Such a flow has nothing left
+   * to teach with, and is latched so it can never block the one behind it.
+   */
+  function exhausted(farmId, group) {
+    return Upgrades.keys(farmId, group).every(k => Upgrades.isMaxed(farmId, k));
+  }
+
+  /**
+   * The flow this farm still owes, in configured order, or null. Reading it
+   * also retires a flow whose group is finished, which is what keeps the
+   * ordering from deadlocking on an entry point that can no longer be taught.
+   */
+  function owed(farmId) {
+    for (const f of flows(farmId)) {
+      if (done(f)) continue;
+      if (exhausted(farmId, f)) { markDone(f); continue; }
+      return f;
+    }
+    return null;
+  }
+
+  // ---------------- flow -> screen ----------------
+  /**
+   * Which element a flow asks the player to tap: its configured entry point
+   * on a split farm, or the single UPGRADE button on a farm that keeps one
+   * menu. Either way it is the control that opens the rows being taught.
+   */
+  function entryOf(farmId, flow) {
+    if (!flow) return null;
+    return CONFIG.splitUpgrades(farmId) ? C().FLOWS[flow].entry : 'upgrade';
+  }
+
+  /** The panel group that entry point opens (null = the whole, unsplit menu). */
+  function groupOf(farmId, flow) {
+    return CONFIG.splitUpgrades(farmId) ? flow : null;
+  }
+
+  /** Is this the upgrade panel the current run is teaching? */
+  function ourPanel(p) {
+    return !!p && p.type === 'upgrades' && p.farmId === run.farmId &&
+           (p.group || null) === groupOf(run.farmId, run.flow);
+  }
+
+  /**
+   * The row the run points at: the cheapest thing in its group the player can
+   * afford right now. Null is the pause signal — there is nothing to buy, so
+   * the run has no honest target and goes quiet until there is one.
+   */
+  function target() {
+    return run ? Upgrades.cheapestAffordable(run.farmId, run.flow) : null;
+  }
+
+  /**
+   * Is something else already on screen that a run must not draw over? The
+   * same list gates starting a run and resuming a paused one, so an event
+   * that landed while the FTUE was waiting is always answered first.
+   */
+  function screenBusy() {
+    if (Game.celebrating || Game.popupPending) return true;
+    if (UFO.cinematicActive || Tornado.active) return true;
+    if (Pigeon.present || Tornado.present || Crate.present) return true;
+    const scene = Game.farm;
+    return !scene || !!scene.tutorial;
+  }
+
+  /**
+   * The step to show right now, derived fresh every frame:
+   *
+   *   'entry'   — spotlight the entry point, nothing else tappable
+   *   'buy'     — its panel is open: spotlight the row
+   *   'success' — the purchase landed; the closing beat is playing
+   *   null      — the run is paused (or there is no run): no overlay, and the
+   *               game is not frozen
+   */
+  function step() {
+    if (!run || Game.scene !== 'farm' || SaveManager.data.currentFarm !== run.farmId) return null;
+    if (run.successT !== null) return 'success';
+    if (screenBusy() || !target()) return null;
+    const p = UI.popup;
+    if (!p) return 'entry';
+    return ourPanel(p) ? 'buy' : null;
+  }
+
+  // ---------------- starting ----------------
+  /**
+   * Everything that has to be true before a run may begin. The screen has to
+   * be free (screenBusy), and the entry point has to actually open the
+   * upgrade panel: a house with building left to do opens the BUILD panel
+   * instead, which would strand the player one step in.
+   */
+  function canStart(farmId, flow) {
+    if (!C().ENABLED || run) return false;
+    if (Game.scene !== 'farm' || UI.popup || screenBusy()) return false;
+    if (entryOf(farmId, flow) === 'house') {
+      if (Construction.stage(farmId) !== 'max') return false;
+    } else if (!Construction.fenceBuilt(farmId)) {
+      return false;
+    }
+    return !!Upgrades.cheapestAffordable(farmId, flow);
+  }
+
+  function start(farmId, flow) {
+    const scene = Game.farm;
+    if (scene) scene.pointerUp();   // settle an in-progress drag
+    UI.cancelPress();
+    run = { farmId, flow, t: 0, successT: null };
+    AudioManager.play('pop');
+  }
+
+  // ---------------- per-frame ----------------
+  /** Called every farm frame, whether or not a run is showing. */
+  function update(dt) {
+    const farmId = SaveManager.data.currentFarm;
+    if (run) {
+      // a farm switch abandons the run without latching it: it starts over
+      // the next time this farm's conditions line up
+      if (farmId !== run.farmId && run.successT === null) { run = null; return; }
+      run.t += dt;
+      if (run.successT !== null) {
+        run.successT += dt;
+        if (run.successT >= C().SUCCESS_TIME) run = null;
+      }
+      return;
+    }
+    const flow = owed(farmId);
+    if (flow && canStart(farmId, flow)) start(farmId, flow);
+  }
+
+  // ---------------- outcomes ----------------
+  /**
+   * An upgrade was bought. Buying from a group latches that group's flow
+   * whether or not the FTUE asked for it — the player has used the entry
+   * point, so there is nothing left to introduce — and if it was the running
+   * flow, the success beat closes it out.
+   */
+  function onPurchase(farmId, key) {
+    const flow = Upgrades.keyGroup(key);
+    if (!flows(farmId).includes(flow)) return;
+    const finishing = run && run.farmId === farmId && run.flow === flow && run.successT === null;
+    markDone(flow);
+    if (finishing) run.successT = 0;
+  }
+
+  /**
+   * The player opted out — the SKIP affordance, or closing the panel mid-run.
+   * Guided, never forced: a skipped flow counts as complete and is never
+   * retried, so a player who does not want the lesson is not asked twice.
+   */
+  function skip() {
+    if (!run) return;
+    markDone(run.flow);
+    run = null;
+  }
+
+  /**
+   * May this entry point show its red "!" badge? Not while a run is on
+   * screen (one call to action at a time), and not before the flow that
+   * introduces those rows is finished — the FTUE's own spotlight is the
+   * first invitation the player gets. A farm with no FTUE always badges.
+   * `group` is the entry point's own rows, or null for an unsplit menu that
+   * covers every flow at once.
+   */
+  function badgeAllowed(farmId, group) {
+    if (step() !== null) return false;
+    const fl = flows(farmId);
+    const want = group ? [group] : fl;
+    return want.every(f => !fl.includes(f) || done(f));
+  }
+
+  /** Full reset (save wipe): drop the live run, latches go with the save. */
+  function reset() { run = null; }
+
+  return {
+    update, onPurchase, skip, badgeAllowed, reset,
+    get step() { return step(); },
+    get active() { return step() !== null; },
+    get t() { return run ? run.t : 0; },
+    get successT() { return run ? run.successT : null; },
+    get flow() { return run ? run.flow : null; },
+    /** The running flow's copy block (labels + the one-line explanation). */
+    get copy() { return run ? C().FLOWS[run.flow] : null; },
+    /** 'house' | 'animals' | 'upgrade' | null — the control being spotlighted. */
+    get entryId() { return run ? entryOf(run.farmId, run.flow) : null; },
+    /**
+     * The upgrade key the 'buy' step points at, or null. Keys can be the
+     * number 0, so callers must compare against null rather than test
+     * truthiness.
+     */
+    get buyKey() {
+      if (step() !== 'buy') return null;
+      const t = target();
+      return t ? t.key : null;
+    },
+  };
 })();
 </script>
 <script>
@@ -4322,7 +4756,7 @@ const Events = (() => {
     const g = C();
     if (!g.ENABLED) return false;
     if (data().play < g.NEW_GAME_GRACE) return false;
-    if (Game.scene !== 'farm' || Game.celebrating || Game.upgradeTutorialActive) return false;
+    if (Game.scene !== 'farm' || Game.celebrating || FTUE.active) return false;
     if (UI.popup || UFO.cinematicActive || Tornado.active) return false;
     // never two offers at once (nor a second one over a rain still falling)
     if (present('pigeon') || present('tornado')) return false;
@@ -6174,7 +6608,9 @@ const Crate = (() => {
   }
 
   return { update, draw, tap, info, claim, adCompleted, adFailed, reset,
-           offlineTick, enabledFor, isLive };
+           offlineTick, enabledFor, isLive,
+           /** Is a box on screen, falling, resting or opening? (see js/ftue.js) */
+           get present() { return !!box || !!opening; } };
 })();
 </script>
 <script>
@@ -6642,7 +7078,7 @@ class FarmScene {
       const cap = Construction.capacity(farmId);
       for (const a of saved.slice(0, cap)) {
         const p = this.freeSpot();
-        const an = new Animal(this.def.species, a.stage, p.x, p.y);
+        const an = this.newAnimal(a.stage, p.x, p.y);
         an.setState('idle', U.rand(0.5, 2));
         an.scaleX = an.scaleY = 1;
         this.armEscape(an);
@@ -6741,13 +7177,25 @@ class FarmScene {
       ? Construction.escapeDelay(this.farmId) : Infinity;
   }
 
+  /**
+   * A fresh animal for this pen, with its first-poop clock set for wherever
+   * the farm is in its opening window — every animal on the board goes
+   * through here so none of them starts on the wrong clock (see
+   * Upgrades.firstPoopDelay).
+   */
+  newAnimal(stage, x, y) {
+    const a = new Animal(this.def.species, stage, x, y);
+    a.poopT = Upgrades.firstPoopDelay(this.farmId);
+    return a;
+  }
+
   /** TutorialManager: seed the guaranteed first merge and show the drag hint. */
   startTutorial() {
     const cx = this.bounds.x + this.bounds.w / 2;
     const cy = this.bounds.y + this.bounds.h * 0.45;
     const gap = CONFIG.TUTORIAL.GAP / 2;
-    const a = new Animal(this.def.species, 0, cx - gap, cy);
-    const b = new Animal(this.def.species, 0, cx + gap, cy);
+    const a = this.newAnimal(0, cx - gap, cy);
+    const b = this.newAnimal(0, cx + gap, cy);
     for (const an of [a, b]) {
       an.setState('idle', 1e9); // hold still so the merge stays obvious
       an.scaleX = an.scaleY = 1;
@@ -6799,7 +7247,7 @@ class FarmScene {
     const p = pos
       ? { x: U.clamp(pos.x, b.x, b.x + b.w), y: U.clamp(pos.y, b.y, b.y + b.h) }
       : this.freeSpot();
-    const a = new Animal(this.def.species, stage, p.x, p.y);
+    const a = this.newAnimal(stage, p.x, p.y);
     this.armEscape(a);
     this.animals.push(a);
     Discovery.mark(this.def.species, stage); // babies count for the collection, no celebration
@@ -6845,8 +7293,8 @@ class FarmScene {
 
   /**
    * Tap the farmhouse — the farm's build / farm-upgrade menu (see drawHouse
-   * for the hit rect). Split out from pointerDown so the first-upgrade
-   * tutorial can allow this one tap while the rest of the scene is frozen.
+   * for the hit rect). Split out from pointerDown so the upgrade FTUE can
+   * allow this one tap while the rest of the scene is frozen.
    */
   tapHouse(x, y) {
     const hit = this.ghosts.some(gh => x >= gh.x && x <= gh.x + gh.w && y >= gh.y && y <= gh.y + gh.h);
@@ -6937,7 +7385,7 @@ class FarmScene {
       return;
     }
     // replace with the evolved asset at the merge position, full size right away
-    const evolved = new Animal(species, newStage, mx, my);
+    const evolved = this.newAnimal(newStage, mx, my);
     evolved.setState('idle', U.rand(1, 2));
     evolved.scaleX = evolved.scaleY = 1;
     // a successful match cancels both escapes; the evolved animal starts a
@@ -7162,13 +7610,14 @@ class FarmScene {
    * opens, which on a split farm is the FARM group (the animal rows badge on
    * their own button). An undiscovered (locked) upgrade never counts — the
    * badge only ever signals a purchase that can be made (see
-   * Upgrades.anyAffordable).
+   * Upgrades.anyAffordable) — and the badge stays out of the way until the
+   * FTUE that introduces these rows is finished (see FTUE.badgeAllowed).
    */
   buildActionReady() {
     if (!Construction.required(this.farmId) && !CONFIG.splitUpgrades(this.farmId)) return false;
     if (Construction.stage(this.farmId) === 'max') {
       const group = CONFIG.splitUpgrades(this.farmId) ? 'farm' : null;
-      return SaveManager.data.upgradeTutorialDone && Upgrades.anyAffordable(this.farmId, group);
+      return FTUE.badgeAllowed(this.farmId, group) && Upgrades.anyAffordable(this.farmId, group);
     }
     const inf = Construction.info(this.farmId);
     return !inf.maxed && SaveManager.data.coins >= inf.cost;
@@ -7857,6 +8306,7 @@ const UI = (() => {
     popup.maxScroll = Math.max(0, ch - ph);
     popup.scroll = U.clamp(popup.scroll || 0, 0, popup.maxScroll);
     followReveal(popup, rows, view.y - py, view.h);
+    followFtue(popup, rows, view.y - py, view.h);
     const sc = popup.scroll;
 
     ctx.save();
@@ -7901,6 +8351,26 @@ const UI = (() => {
     if (revealT(popup, last.key) > REVEAL.DUR + REVEAL.SHINE) return;   // settled
     const want = last.dy + last.h - viewTop - viewH;
     popup.scroll = U.clamp(Math.max(popup.scroll, want), 0, popup.maxScroll);
+  }
+
+  /**
+   * Keep the row an FTUE step is spotlighting inside the viewport. Only rows
+   * actually in view get a hit rect, so on a long chain the target has to be
+   * held there or the step would point at nothing. This is a clamp, not a
+   * scroll-to: it moves the list only as far as it takes to show the row, so
+   * a player looking around above or below it is never yanked back.
+   */
+  function followFtue(popup, rows, viewTop, viewH) {
+    const key = FTUE.buyKey;
+    if (key === null) return;
+    const row = rows.find(r => r.key === key);
+    if (!row) return;
+    const max = popup.maxScroll || 0;
+    const lo = U.clamp(row.dy + row.h - viewTop - viewH, 0, max);  // shows its bottom
+    const hi = U.clamp(row.dy - viewTop, 0, max);                  // still shows its top
+    // a row taller than the viewport can't satisfy both: favour its bottom,
+    // where the BUY button is
+    popup.scroll = hi < lo ? lo : U.clamp(popup.scroll, lo, hi);
   }
 
   /** Slim thumb on the panel's right edge showing how far down the list is. */
@@ -8152,12 +8622,14 @@ const UI = (() => {
       if (!visible(b, scene)) continue;
       drawButton(ctx, b);
       // red "!" badge while an upgrade this button opens is affordable (only
-      // after the first-upgrade tutorial has been completed). Each entry
-      // point badges for its own rows: the ANIMALS button only for the chain,
-      // the farmhouse only for the farm rows (see FarmScene.drawHouseCTA).
+      // once the FTUE that introduces those rows is done — see
+      // FTUE.badgeAllowed). Each entry point badges for its own rows: the
+      // ANIMALS button only for the chain, the farmhouse only for the farm
+      // rows (see FarmScene.drawHouseCTA).
       if (b.id !== 'upgrade' && b.id !== 'animals') continue;
-      if (SaveManager.data.upgradeTutorialDone &&
-          Upgrades.anyAffordable(SaveManager.data.currentFarm, b.id === 'animals' ? 'animals' : null)) {
+      const group = b.id === 'animals' ? 'animals' : null;
+      if (FTUE.badgeAllowed(SaveManager.data.currentFarm, group) &&
+          Upgrades.anyAffordable(SaveManager.data.currentFarm, group)) {
         drawBadge(ctx, b.x + b.w - 2, b.y - 2);
       }
     }
@@ -8844,7 +9316,7 @@ const UI = (() => {
       AudioManager.play('buy');
       popup.fx[p.card.key] = 1;
       spawnPanelFx(p.card.btn.x + p.card.btn.w / 2, p.card.btn.y + p.card.btn.h / 2);
-      Game.onUpgradePurchased();
+      Game.onUpgradePurchased(popup.farmId, p.card.key);
     } else {
       AudioManager.play('error');
       toast = { text: r.reason, t: 1.6 };
@@ -8860,7 +9332,7 @@ const UI = (() => {
     return true;
   }
 
-  // ---------------- first-upgrade tutorial overlay ----------------
+  // ---------------- upgrade FTUE overlay ----------------
   /** Pixel-style pointing hand, fingertip at (x, y). */
   function drawHand(ctx, x, y) {
     ctx.save();
@@ -8874,62 +9346,81 @@ const UI = (() => {
     ctx.restore();
   }
 
-  /**
-   * Which entry point the first-upgrade tutorial points at while no panel is
-   * open, as {id, target, label}. With one UPGRADE button that is always the
-   * button; on a split farm it is whichever entry point owns the cheapest
-   * upgrade the player can currently afford — the farmhouse for a farm row,
-   * the ANIMALS button for a chain row. Gameplay is frozen for the duration,
-   * so the answer can't drift under the player mid-tutorial.
-   */
-  function tutorialEntry() {
-    const id = SaveManager.data.currentFarm;
-    if (!CONFIG.splitUpgrades(id)) {
-      return { id: 'upgrade', target: buttons.find(b => b.id === 'upgrade'), label: 'UPGRADE YOUR FARM!' };
-    }
-    const best = Upgrades.cheapestAffordable(id);
-    if (!best) return null;
-    if (best.group === 'farm') {
-      const hr = ENVIRONMENT.houseRect(id);
-      return { id: 'house', target: { x: hr.x, y: hr.y, w: hr.w, h: hr.h }, label: 'TAP THE HOUSE!' };
-    }
-    return { id: 'animals', target: buttons.find(b => b.id === 'animals'), label: 'UPGRADE YOUR ANIMALS!' };
-  }
-
-  /** 'upgrade' | 'animals' | 'house' | null — the entry point the tutorial wants tapped. */
-  function tutorialEntryId() {
-    const e = tutorialEntry();
-    return e ? e.id : null;
-  }
+  // SKIP affordance of the FTUE's entry step, or null while it is not shown.
+  // Parked top-left of the playable band, clear of the farmhouse (centered),
+  // of the bottom button row and of the HUD's own controls.
+  let ftueSkip = null;
 
   /**
-   * Spotlight for the first-upgrade tutorial: pulsing glow + hand + label on
-   * the entry point (see tutorialEntry), then on the cheapest affordable BUY
-   * button inside the upgrade panel. Drawn above HUD and popup.
+   * Dim everything except `hole` — four rects around it rather than a wash
+   * over the whole stage, so the one live element keeps its full colour and
+   * reads as the only way forward.
    */
-  function drawUpgradeTutorial(ctx, t) {
-    let target = null, label = null;
-    if (!popup) {
-      const entry = tutorialEntry();
-      if (!entry) return;
-      target = entry.target;
-      label = entry.label;
-    } else if (popup.type === 'upgrades') {
-      let best = Infinity;
-      for (const c of popup.cards || []) {
-        const inf = Upgrades.info(popup.farmId, c.key);
-        if (!inf.maxed && SaveManager.data.coins >= inf.cost && inf.cost < best) {
-          best = inf.cost;
-          target = c.btn;
-        }
-      }
-      label = 'TAP BUY!';
+  function scrimAround(ctx, hole, alpha) {
+    const x1 = U.clamp(hole.x, 0, W), x2 = U.clamp(hole.x + hole.w, 0, W);
+    const y1 = U.clamp(hole.y, 0, H), y2 = U.clamp(hole.y + hole.h, 0, H);
+    ctx.save();
+    ctx.fillStyle = 'rgba(12,9,6,' + alpha + ')';
+    ctx.fillRect(0, 0, W, y1);
+    ctx.fillRect(0, y2, W, H - y2);
+    ctx.fillRect(0, y1, x1, y2 - y1);
+    ctx.fillRect(x2, y1, W - x2, y2 - y1);
+    ctx.restore();
+  }
+
+  /** Screen rect of the control the FTUE's entry step points at. */
+  function ftueEntryRect() {
+    if (FTUE.entryId === 'house') {
+      const hr = ENVIRONMENT.houseRect(SaveManager.data.currentFarm);
+      return { x: hr.x, y: hr.y, w: hr.w, h: hr.h };
     }
+    const b = buttons.find(bt => bt.id === FTUE.entryId);
+    return b ? { x: b.x, y: b.y, w: b.w, h: b.h } : null;
+  }
+
+  /**
+   * Rect of the BUY button on the row the FTUE's buy step points at. Only
+   * rows inside the panel's viewport register a hit rect, so a target that
+   * has scrolled out has none — followFtue keeps it in view, which is what
+   * makes this reliable on a long chain.
+   */
+  function ftueBuyRect() {
+    const key = FTUE.buyKey;
+    if (key === null || !popup) return null;
+    const card = (popup.cards || []).find(c => c.key === key);
+    return card ? card.btn : null;
+  }
+
+  /**
+   * The FTUE overlay: the scene dims behind a pulsing golden spotlight on the
+   * entry point, with the flow's prompt and its one-line explanation of what
+   * these upgrades do; once the panel is open the same spotlight moves to the
+   * row being bought; and the purchase is answered with a short success
+   * plaque. Drawn above HUD and popup. Steps and targets come from js/ftue.js
+   * — this only renders whatever it says is current, so a run that pauses
+   * (the balance dropped) simply stops drawing.
+   */
+  function drawFtue(ctx) {
+    ftueSkip = null;
+    const step = FTUE.step;
+    if (!step) return;
+    const copy = FTUE.copy;
+    if (step === 'success') { drawFtueSuccess(ctx, copy); return; }
+
+    const target = step === 'entry' ? ftueEntryRect() : ftueBuyRect();
     if (!target) return;
-
-    // pulsing golden glow around the target
+    const t = FTUE.t;
     const pulse = (Math.sin(t * 6) + 1) / 2;
     const g = 4 + pulse * 4;
+
+    // the entry step dims the farm around its one target; the buy step is
+    // already inside a modal panel, which does that job on its own
+    if (step === 'entry') {
+      scrimAround(ctx, { x: target.x - g, y: target.y - g, w: target.w + g * 2, h: target.h + g * 2 },
+                  CONFIG.FTUE.SCRIM);
+    }
+
+    // pulsing golden glow around the target
     ctx.save();
     ctx.globalAlpha = 0.55 + pulse * 0.45;
     ctx.strokeStyle = '#ffe98a';
@@ -8943,15 +9434,64 @@ const UI = (() => {
     // bobbing hand pointing at the target
     drawHand(ctx, target.x + target.w / 2 + 10, target.y + target.h / 2 + 8 + Math.sin(t * 4) * 4);
 
-    // instruction label, kept fully on screen: above the target normally, but
-    // below it when there is no room (the farmhouse sits right under the HUD
-    // bar, and the label must not read as part of the top bar)
-    const lw = measure(label, SIZE.BUTTON);
-    const lx = U.clamp(target.x + target.w / 2, lw / 2 + 6, W - lw / 2 - 6);
     const safe = safeArea();
-    const above = target.y - g - 22;
-    drawText(ctx, label, lx, above >= safe.y ? above : target.y + target.h + g + 8,
-             SIZE.BUTTON, '#ffe98a', 'center', true, false, W - 12);
+    if (step === 'entry') {
+      // Prompt + the one-line explanation, stacked beside the element they
+      // describe and kept fully on screen: above it normally, below it when
+      // there is no room — the farmhouse sits right under the HUD bar, and
+      // the prompt must not read as part of the top bar.
+      const lines = [{ text: copy.entryLabel, size: SIZE.BUTTON, col: '#ffe98a' },
+                     { text: copy.entryBlurb, size: SIZE.CAPTION, col: '#f4e8cc' }];
+      const lh = 13;
+      const above = target.y - g - 10 - lines.length * lh;
+      const flip = above < safe.y;
+      const top = flip ? target.y + target.h + g + 8 : above;
+      // stacked so the prompt itself always stays nearest the target
+      const order = flip ? lines : lines.slice().reverse();
+      order.forEach((l, i) => {
+        const lw = measure(l.text, l.size);
+        const lx = U.clamp(target.x + target.w / 2, lw / 2 + 6, W - lw / 2 - 6);
+        drawText(ctx, l.text, lx, top + i * lh, l.size, l.col, 'center', true, false, W - 12);
+      });
+      // Guided, never forced. On this step the way out is SKIP; once the
+      // panel is open its own X does the same job (see tap).
+      ftueSkip = { x: 8, y: safe.y, w: 44, h: 20 };
+      ctx.save();
+      ctx.globalAlpha = 0.8;
+      inset(ctx, ftueSkip.x, ftueSkip.y, ftueSkip.w, ftueSkip.h);
+      drawText(ctx, 'SKIP', ftueSkip.x + ftueSkip.w / 2, ftueSkip.y + 6.5,
+               SIZE.CAPTION, '#c8b088', 'center');
+      ctx.restore();
+    } else {
+      // Inside the panel a card is dense — its own cost sits directly above
+      // the button — so the prompt goes on the same bottom plaque the
+      // success beat uses, where it can never land on the card's numbers.
+      ftuePlaque(ctx, copy.buyLabel, 1);
+    }
+  }
+
+  /** The FTUE's bottom plaque: one short line, clear of the panel's content. */
+  function ftuePlaque(ctx, text, alpha) {
+    const tw = measure(text, SIZE.BUTTON) + 26;
+    const bx = W / 2 - tw / 2, by = H - 96;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    inset(ctx, bx, by, tw, 26);
+    drawText(ctx, text, W / 2, by + 8, SIZE.BUTTON, '#ffe98a', 'center');
+    ctx.restore();
+  }
+
+  /**
+   * The closing beat: a short plaque naming what was just bought, fading in
+   * and out over CONFIG.FTUE.SUCCESS_TIME. Nothing here waits on the player
+   * — the purchase already landed and the flow is already latched, so this is
+   * acknowledgement, not a step.
+   */
+  function drawFtueSuccess(ctx, copy) {
+    const t = FTUE.successT;
+    if (t === null) return;
+    const a = Math.min(1, t * 6, (CONFIG.FTUE.SUCCESS_TIME - t) * 5);
+    if (a > 0) ftuePlaque(ctx, copy.successLabel, a);
   }
 
   /** Returns true if the tap was consumed by UI. */
@@ -8972,7 +9512,11 @@ const UI = (() => {
         return true;
       }
       if (inRect(x, y, popup.closeRect)) {
-        if (Game.upgradeTutorialActive) return true; // tutorial: must buy before closing
+        // closing the FTUE's own panel is how the player opts out of it: the
+        // flow is marked complete rather than retried, and the panel closes
+        // as it normally would. Only its own steps count — a run waiting for
+        // the player to afford the row is not dismissed by some other panel.
+        if (FTUE.step === 'buy' || FTUE.step === 'success') FTUE.skip();
         // walking away from a reward offer counts as a dismissal: it extends
         // that event's cooldown (see js/events.js)
         if (popup.type === 'pigeonAd') Events.dismissed('pigeon');
@@ -8982,7 +9526,13 @@ const UI = (() => {
       if (popup.type === 'upgrades') {
         // the list scrolls, so a press only ARMS a purchase: it goes through
         // on release, and only if the finger stayed put (see drag/release)
-        const card = (popup.cards || []).find(c => inRect(x, y, c.btn));
+        let card = (popup.cards || []).find(c => inRect(x, y, c.btn));
+        // while an FTUE step is spotlighting one row, that row is the only
+        // buyable one — the list still scrolls, so the player can look
+        // around, they just can't take a wrong turn. Keys can be 0, so the
+        // gate is compared against null, not tested for truthiness.
+        const gate = FTUE.buyKey;
+        if (gate !== null && card && card.key !== gate) card = null;
         popup.press = { y, scroll: popup.scroll || 0, moved: false, card };
         return true;
       }
@@ -9057,10 +9607,16 @@ const UI = (() => {
       }
       return true; // modal swallows all taps
     }
+    // the FTUE's own opt-out, live only while its entry step is on screen
+    if (FTUE.step === 'entry' && inRect(x, y, ftueSkip)) {
+      AudioManager.play('click');
+      FTUE.skip();
+      return true;
+    }
     for (const b of buttons) {
       if (!visible(b, Game.scene)) continue;
-      // tutorial: only the entry point it spotlights is tappable
-      if (Game.upgradeTutorialActive && b.id !== tutorialEntryId()) continue;
+      // FTUE: only the entry point it spotlights is tappable
+      if (FTUE.active && b.id !== FTUE.entryId) continue;
       if (inRect(x, y, b)) {
         AudioManager.play('click');
         Game.onButton(b.id);
@@ -9088,7 +9644,7 @@ const UI = (() => {
 
   return {
     SIZE, drawText, measure, woodPanel, woodSign, drawButton, drawHUD, drawPopup, drawLoading,
-    drawHand, drawUpgradeTutorial, drawBadge, safeArea, tutorialEntryId,
+    drawHand, drawFtue, drawBadge, safeArea,
     /** Center of an on-screen button — the point a panel grows out of. */
     buttonCenter(id) {
       const b = buttons.find(bt => bt.id === id);
@@ -9145,7 +9701,6 @@ const Game = (() => {
   let lastT = 0, dt = 0, elapsed = 0, autosaveT = 0, idleT = 0;
   let started = false;
   let celebration = null;        // active discovery celebration, see startCelebration()
-  let upgradeTutorial = null;    // active first-upgrade tutorial: {t}, see maybeStartUpgradeTutorial()
 
   // ---------------- setup ----------------
   function init() {
@@ -9211,10 +9766,10 @@ const Game = (() => {
       if (celebration && !celebration.popupOpen) return; // sequence plays untouched
       if (UI.tap(p.x, p.y)) return;
       if (celebration) return;                           // popup swallows farm taps
-      if (upgradeTutorial) {
-        // tutorial: only the entry point it spotlights is tappable — the
+      if (FTUE.active) {
+        // upgrade FTUE: only the element it spotlights is tappable — the
         // buttons are handled by UI.tap above, the farmhouse here
-        if (scene === 'farm' && UI.tutorialEntryId() === 'house') farmScene.tapHouse(p.x, p.y);
+        if (scene === 'farm' && FTUE.entryId === 'house') farmScene.tapHouse(p.x, p.y);
         return;
       }
       if (scene === 'farm' && Tornado.tap(p.x, p.y)) return;
@@ -9387,39 +9942,14 @@ const Game = (() => {
     farmScene.persist();
   }
 
-  // ---------------- first-upgrade tutorial ----------------
-  /** Cheapest unlocked, non-maxed upgrade cost on the current farm. */
-  function cheapestUpgradeCost() {
-    const id = SaveManager.data.currentFarm;
-    let min = Infinity;
-    for (const k of Upgrades.keys(id)) {
-      if (Upgrades.unlocked(id, k) && !Upgrades.isMaxed(id, k)) min = Math.min(min, Upgrades.cost(id, k));
-    }
-    return min;
-  }
-
+  // ---------------- upgrade FTUE ----------------
   /**
-   * First time the player can afford an upgrade: freeze gameplay, spotlight
-   * the UPGRADE button, then the BUY button, until the purchase completes.
+   * An upgrade was bought, from either entry point. The FTUE latches the
+   * flow that owns the row (see js/ftue.js) — nothing else here depends on
+   * a purchase, so this is only the hand-off.
    */
-  function maybeStartUpgradeTutorial() {
-    if (upgradeTutorial || SaveManager.data.upgradeTutorialDone) return;
-    if (farmScene.tutorial || UI.popup) return;
-    // a farm still under construction points at its build CTA, not upgrades
-    if (!Construction.fenceBuilt(farmScene.farmId)) return;
-    if (SaveManager.data.coins < cheapestUpgradeCost()) return;
-    farmScene.pointerUp(); // settle any in-progress drag
-    upgradeTutorial = { t: 0 };
-    AudioManager.play('pop');
-  }
-
-  /** Any successful upgrade purchase completes the tutorial for good. */
-  function onUpgradePurchased() {
-    if (!SaveManager.data.upgradeTutorialDone) {
-      SaveManager.data.upgradeTutorialDone = true;
-      SaveManager.save();
-    }
-    upgradeTutorial = null;
+  function onUpgradePurchased(farmId, key) {
+    FTUE.onPurchase(farmId, key);
   }
 
   // ---------------- economy ----------------
@@ -9545,7 +10075,7 @@ const Game = (() => {
     Events.reset();
     SaveManager.reset();
     celebration = null;
-    upgradeTutorial = null;
+    FTUE.reset();
     welcome = null;
     UFO.reset();
     UI.syncCoins();
@@ -9584,9 +10114,14 @@ const Game = (() => {
       // tornado sweep: gameplay paused, only the storm + UFO collects animate
       else if (Tornado.active) { Tornado.updateRun(dt); UFO.update(dt); }
       else {
-        maybeStartUpgradeTutorial();
-        if (upgradeTutorial) upgradeTutorial.t += dt;
-        else {
+        // The upgrade FTUE ticks every frame and decides for itself whether
+        // it is on screen. While it is, gameplay and every ambient event
+        // freeze behind it, so nothing can appear over the step the player
+        // is being walked through; while it waits (a balance that dropped
+        // below the cost, something else still on screen) the farm plays on
+        // exactly as normal until it can resume.
+        FTUE.update(dt);
+        if (!FTUE.active) {
           // reward events wait for a working farm: no tutorial pending and
           // (on construction farms) a fence for the pigeon to perch on
           const paused = !!farmScene.tutorial || !Construction.fenceBuilt(farmScene.farmId);
@@ -9658,7 +10193,7 @@ const Game = (() => {
     }
     UI.drawHUD(ctx, scene);
     UI.drawPopup(ctx);
-    if (upgradeTutorial && scene === 'farm') UI.drawUpgradeTutorial(ctx, upgradeTutorial.t);
+    if (scene === 'farm') UI.drawFtue(ctx);
 
     scheduleFrame(loop);
   }
@@ -9678,7 +10213,13 @@ const Game = (() => {
     get scene() { return scene; },
     get farm() { return farmScene; },
     get celebrating() { return !!celebration; },
-    get upgradeTutorialActive() { return !!upgradeTutorial; },
+    /**
+     * A popup this manager owes the screen but has not opened yet — today the
+     * welcome-back offline report, which waits for the map to render a beat.
+     * Anything that would rather not be interrupted (see js/ftue.js) has to
+     * treat it as already on screen.
+     */
+    get popupPending() { return !!welcome && !welcome.claimed; },
     dt: 1 / 60,
   };
 })();

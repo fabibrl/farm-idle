@@ -39,7 +39,7 @@ class FarmScene {
       const cap = Construction.capacity(farmId);
       for (const a of saved.slice(0, cap)) {
         const p = this.freeSpot();
-        const an = new Animal(this.def.species, a.stage, p.x, p.y);
+        const an = this.newAnimal(a.stage, p.x, p.y);
         an.setState('idle', U.rand(0.5, 2));
         an.scaleX = an.scaleY = 1;
         this.armEscape(an);
@@ -138,13 +138,25 @@ class FarmScene {
       ? Construction.escapeDelay(this.farmId) : Infinity;
   }
 
+  /**
+   * A fresh animal for this pen, with its first-poop clock set for wherever
+   * the farm is in its opening window — every animal on the board goes
+   * through here so none of them starts on the wrong clock (see
+   * Upgrades.firstPoopDelay).
+   */
+  newAnimal(stage, x, y) {
+    const a = new Animal(this.def.species, stage, x, y);
+    a.poopT = Upgrades.firstPoopDelay(this.farmId);
+    return a;
+  }
+
   /** TutorialManager: seed the guaranteed first merge and show the drag hint. */
   startTutorial() {
     const cx = this.bounds.x + this.bounds.w / 2;
     const cy = this.bounds.y + this.bounds.h * 0.45;
     const gap = CONFIG.TUTORIAL.GAP / 2;
-    const a = new Animal(this.def.species, 0, cx - gap, cy);
-    const b = new Animal(this.def.species, 0, cx + gap, cy);
+    const a = this.newAnimal(0, cx - gap, cy);
+    const b = this.newAnimal(0, cx + gap, cy);
     for (const an of [a, b]) {
       an.setState('idle', 1e9); // hold still so the merge stays obvious
       an.scaleX = an.scaleY = 1;
@@ -196,7 +208,7 @@ class FarmScene {
     const p = pos
       ? { x: U.clamp(pos.x, b.x, b.x + b.w), y: U.clamp(pos.y, b.y, b.y + b.h) }
       : this.freeSpot();
-    const a = new Animal(this.def.species, stage, p.x, p.y);
+    const a = this.newAnimal(stage, p.x, p.y);
     this.armEscape(a);
     this.animals.push(a);
     Discovery.mark(this.def.species, stage); // babies count for the collection, no celebration
@@ -242,8 +254,8 @@ class FarmScene {
 
   /**
    * Tap the farmhouse — the farm's build / farm-upgrade menu (see drawHouse
-   * for the hit rect). Split out from pointerDown so the first-upgrade
-   * tutorial can allow this one tap while the rest of the scene is frozen.
+   * for the hit rect). Split out from pointerDown so the upgrade FTUE can
+   * allow this one tap while the rest of the scene is frozen.
    */
   tapHouse(x, y) {
     const hit = this.ghosts.some(gh => x >= gh.x && x <= gh.x + gh.w && y >= gh.y && y <= gh.y + gh.h);
@@ -334,7 +346,7 @@ class FarmScene {
       return;
     }
     // replace with the evolved asset at the merge position, full size right away
-    const evolved = new Animal(species, newStage, mx, my);
+    const evolved = this.newAnimal(newStage, mx, my);
     evolved.setState('idle', U.rand(1, 2));
     evolved.scaleX = evolved.scaleY = 1;
     // a successful match cancels both escapes; the evolved animal starts a
@@ -559,13 +571,14 @@ class FarmScene {
    * opens, which on a split farm is the FARM group (the animal rows badge on
    * their own button). An undiscovered (locked) upgrade never counts — the
    * badge only ever signals a purchase that can be made (see
-   * Upgrades.anyAffordable).
+   * Upgrades.anyAffordable) — and the badge stays out of the way until the
+   * FTUE that introduces these rows is finished (see FTUE.badgeAllowed).
    */
   buildActionReady() {
     if (!Construction.required(this.farmId) && !CONFIG.splitUpgrades(this.farmId)) return false;
     if (Construction.stage(this.farmId) === 'max') {
       const group = CONFIG.splitUpgrades(this.farmId) ? 'farm' : null;
-      return SaveManager.data.upgradeTutorialDone && Upgrades.anyAffordable(this.farmId, group);
+      return FTUE.badgeAllowed(this.farmId, group) && Upgrades.anyAffordable(this.farmId, group);
     }
     const inf = Construction.info(this.farmId);
     return !inf.maxed && SaveManager.data.coins >= inf.cost;

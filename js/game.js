@@ -11,7 +11,6 @@ const Game = (() => {
   let lastT = 0, dt = 0, elapsed = 0, autosaveT = 0, idleT = 0;
   let started = false;
   let celebration = null;        // active discovery celebration, see startCelebration()
-  let upgradeTutorial = null;    // active first-upgrade tutorial: {t}, see maybeStartUpgradeTutorial()
 
   // ---------------- setup ----------------
   function init() {
@@ -77,10 +76,10 @@ const Game = (() => {
       if (celebration && !celebration.popupOpen) return; // sequence plays untouched
       if (UI.tap(p.x, p.y)) return;
       if (celebration) return;                           // popup swallows farm taps
-      if (upgradeTutorial) {
-        // tutorial: only the entry point it spotlights is tappable — the
+      if (FTUE.active) {
+        // upgrade FTUE: only the element it spotlights is tappable — the
         // buttons are handled by UI.tap above, the farmhouse here
-        if (scene === 'farm' && UI.tutorialEntryId() === 'house') farmScene.tapHouse(p.x, p.y);
+        if (scene === 'farm' && FTUE.entryId === 'house') farmScene.tapHouse(p.x, p.y);
         return;
       }
       if (scene === 'farm' && Tornado.tap(p.x, p.y)) return;
@@ -253,39 +252,14 @@ const Game = (() => {
     farmScene.persist();
   }
 
-  // ---------------- first-upgrade tutorial ----------------
-  /** Cheapest unlocked, non-maxed upgrade cost on the current farm. */
-  function cheapestUpgradeCost() {
-    const id = SaveManager.data.currentFarm;
-    let min = Infinity;
-    for (const k of Upgrades.keys(id)) {
-      if (Upgrades.unlocked(id, k) && !Upgrades.isMaxed(id, k)) min = Math.min(min, Upgrades.cost(id, k));
-    }
-    return min;
-  }
-
+  // ---------------- upgrade FTUE ----------------
   /**
-   * First time the player can afford an upgrade: freeze gameplay, spotlight
-   * the UPGRADE button, then the BUY button, until the purchase completes.
+   * An upgrade was bought, from either entry point. The FTUE latches the
+   * flow that owns the row (see js/ftue.js) — nothing else here depends on
+   * a purchase, so this is only the hand-off.
    */
-  function maybeStartUpgradeTutorial() {
-    if (upgradeTutorial || SaveManager.data.upgradeTutorialDone) return;
-    if (farmScene.tutorial || UI.popup) return;
-    // a farm still under construction points at its build CTA, not upgrades
-    if (!Construction.fenceBuilt(farmScene.farmId)) return;
-    if (SaveManager.data.coins < cheapestUpgradeCost()) return;
-    farmScene.pointerUp(); // settle any in-progress drag
-    upgradeTutorial = { t: 0 };
-    AudioManager.play('pop');
-  }
-
-  /** Any successful upgrade purchase completes the tutorial for good. */
-  function onUpgradePurchased() {
-    if (!SaveManager.data.upgradeTutorialDone) {
-      SaveManager.data.upgradeTutorialDone = true;
-      SaveManager.save();
-    }
-    upgradeTutorial = null;
+  function onUpgradePurchased(farmId, key) {
+    FTUE.onPurchase(farmId, key);
   }
 
   // ---------------- economy ----------------
@@ -411,7 +385,7 @@ const Game = (() => {
     Events.reset();
     SaveManager.reset();
     celebration = null;
-    upgradeTutorial = null;
+    FTUE.reset();
     welcome = null;
     UFO.reset();
     UI.syncCoins();
@@ -450,9 +424,14 @@ const Game = (() => {
       // tornado sweep: gameplay paused, only the storm + UFO collects animate
       else if (Tornado.active) { Tornado.updateRun(dt); UFO.update(dt); }
       else {
-        maybeStartUpgradeTutorial();
-        if (upgradeTutorial) upgradeTutorial.t += dt;
-        else {
+        // The upgrade FTUE ticks every frame and decides for itself whether
+        // it is on screen. While it is, gameplay and every ambient event
+        // freeze behind it, so nothing can appear over the step the player
+        // is being walked through; while it waits (a balance that dropped
+        // below the cost, something else still on screen) the farm plays on
+        // exactly as normal until it can resume.
+        FTUE.update(dt);
+        if (!FTUE.active) {
           // reward events wait for a working farm: no tutorial pending and
           // (on construction farms) a fence for the pigeon to perch on
           const paused = !!farmScene.tutorial || !Construction.fenceBuilt(farmScene.farmId);
@@ -524,7 +503,7 @@ const Game = (() => {
     }
     UI.drawHUD(ctx, scene);
     UI.drawPopup(ctx);
-    if (upgradeTutorial && scene === 'farm') UI.drawUpgradeTutorial(ctx, upgradeTutorial.t);
+    if (scene === 'farm') UI.drawFtue(ctx);
 
     scheduleFrame(loop);
   }
@@ -544,7 +523,13 @@ const Game = (() => {
     get scene() { return scene; },
     get farm() { return farmScene; },
     get celebrating() { return !!celebration; },
-    get upgradeTutorialActive() { return !!upgradeTutorial; },
+    /**
+     * A popup this manager owes the screen but has not opened yet — today the
+     * welcome-back offline report, which waits for the map to render a beat.
+     * Anything that would rather not be interrupted (see js/ftue.js) has to
+     * treat it as already on screen.
+     */
+    get popupPending() { return !!welcome && !welcome.claimed; },
     dt: 1 / 60,
   };
 })();

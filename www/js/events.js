@@ -233,7 +233,7 @@ const Events = (() => {
     const g = C();
     if (!g.ENABLED) return false;
     if (data().play < g.NEW_GAME_GRACE) return false;
-    if (Game.scene !== 'farm' || Game.celebrating || Game.upgradeTutorialActive) return false;
+    if (Game.scene !== 'farm' || Game.celebrating || FTUE.active) return false;
     if (UI.popup || UFO.cinematicActive || Tornado.active) return false;
     // never two offers at once (nor a second one over a rain still falling)
     if (present('pigeon') || present('tornado')) return false;
